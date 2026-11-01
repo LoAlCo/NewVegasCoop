@@ -2785,6 +2785,7 @@ TEST(tale_of_two_wastelands_files_count_by_name_or_size_and_are_never_sent)
     CHECK(coop::IsMadeFromOwnGame("YUPTTW.esm") && coop::IsMadeFromOwnGame("ThePitt - Sounds.bsa"));
     CHECK(!coop::IsMadeFromOwnGame("Cool Mod.esp") && !coop::IsMadeFromOwnGame("Cool Mod - Main.bsa"));
     CHECK(!coop::IsMadeFromOwnGame("Fallout - Meshes.bsa"));
+    CHECK(coop::IsMadeFromOwnGame("Fallout3.esm") && coop::IsMadeFromOwnGame("Fallout3 - Meshes.bsa"));
     using net::ModKind;
     auto file = [](const char* name, ModKind kind, uint64_t size) {
         net::ModFile f;
@@ -2878,6 +2879,7 @@ TEST(the_mod_scan_finds_what_the_game_loads)
     write(data + "Cool Mod - Main.bsa", "archive");
     write(data + "Fallout - Misc.bsa", "game archive");
     write(data + "Unused.bsa", "not loaded");
+    write(data + "Fallout - Invalidation.bsa", "a mod manager's");
     write(data + "Off.esp", "not active");
     write(dlls + "jip_nvse.dll", "jip");
     write(dlls + "NVCoop.dll", "ours");
@@ -2910,7 +2912,7 @@ TEST(the_mod_scan_finds_what_the_game_loads)
     }
 
     for (const char* f : {"FalloutNV.esm", "Cool Mod.esp", "Cool Mod - Main.bsa", "Fallout - Misc.bsa", "Unused.bsa",
-        "Off.esp", "hashes.txt", "TaleOfTwoWastelands.esm", "TaleOfTwoWastelands - Main.bsa"})
+        "Off.esp", "hashes.txt", "TaleOfTwoWastelands.esm", "TaleOfTwoWastelands - Main.bsa", "Fallout - Invalidation.bsa"})
         DeleteFileA((data + f).c_str());
     DeleteFileA((dlls + "jip_nvse.dll").c_str());
     DeleteFileA((dlls + "NVCoop.dll").c_str());

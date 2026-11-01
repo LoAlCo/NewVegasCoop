@@ -50,8 +50,8 @@ namespace coop
 
     bool IsMadeFromOwnGame(const std::string& name)
     {
-        static const char* const kMasters[] = {"taleoftwowastelands.esm", "yupttw.esm", "anchorage.esm", "thepitt.esm",
-            "brokensteel.esm", "pointlookout.esm", "zeta.esm"};
+        static const char* const kMasters[] = {"taleoftwowastelands.esm", "yupttw.esm", "fallout3.esm", "anchorage.esm",
+            "thepitt.esm", "brokensteel.esm", "pointlookout.esm", "zeta.esm"};
         std::string n = Lower(name);
         for (const char* master : kMasters)
             if (n == master || ArchiveBelongsTo(n, master))
@@ -320,6 +320,8 @@ namespace coop
             add(data, plugin, ModKind::Plugin, !IsGameFile(plugin) && !IsMadeFromOwnGame(plugin));
         for (const std::string& archive : FilesIn(data, "*.bsa"))
         {
+            if (Lower(archive).find("invalidat") != std::string::npos)
+                continue;
             bool game = IsGameArchive(archive) || IsMadeFromOwnGame(archive), loaded = IsGameArchive(archive);
             for (const std::string& plugin : plugins)
                 if (ArchiveBelongsTo(archive, plugin))

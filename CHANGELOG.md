@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.6
+- Tale of Two Wastelands 3.4: its Fallout 3 archives (Fallout3 - *.bsa, made by its installer on each PC) no longer count as different between players, and an archive invalidation file (Fallout - Invalidation.bsa, made by mod managers) is no longer compared at all.
+
 ## 0.1.5
 - Tale of Two Wastelands: players on the same TTW version are no longer told their TTW archives differ (its installer builds them on each PC, never quite the same), and TTW's files are never offered for download (they're made from your own Fallout 3). A different TTW version is still caught, with the right advice.
 - Drag downed friends: tap Z next to one to grab them, tap Z again to let go. You walk with your weapon away while dragging, and their bleed-out timer is paused until you let go, so you can pull them to cover and revive them there (hold E, as before).

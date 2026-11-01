@@ -2,5 +2,5 @@
 
 #pragma once
 
-#define NVCOOP_VERSION_STRING "0.1.5"
-#define NVCOOP_VERSION_NUMBER 15
+#define NVCOOP_VERSION_STRING "0.1.6"
+#define NVCOOP_VERSION_NUMBER 16
