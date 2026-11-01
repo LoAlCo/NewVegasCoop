@@ -1063,6 +1063,8 @@ namespace
 
     void OnWorldLoaded()
     {
+        if (g_teleportersHad > 0)
+            g_teleportersHad = 0;
         if (int dragged = g_coop.Dragging(g_coop.MyPlayerId()); g_coop.InGame() && dragged >= 0)
             g_coop.Drag(static_cast<uint8_t>(dragged), false);
         g_fovAfterLoad = true;

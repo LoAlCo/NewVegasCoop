@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.7
+- Loading a save in co-op no longer pops up the Co-op Teleporter's box by itself.
+
 ## 0.1.6
 - Tale of Two Wastelands 3.4: its Fallout 3 archives (Fallout3 - *.bsa, made by its installer on each PC) no longer count as different between players, and an archive invalidation file (Fallout - Invalidation.bsa, made by mod managers) is no longer compared at all.
 
