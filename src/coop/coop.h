@@ -212,7 +212,7 @@ namespace coop
         std::vector<AttackReport> TakeAttacks() { return std::move(m_attacks); }
         void SetMyHealth(float health, float maxHealth);
         void DamagePlayer(uint8_t playerId, float amount);
-        void SetSessionMode(const SaveMode& mode) { if (m_role != Role::Friend) m_mode = mode; }
+        void SetSessionMode(const SaveMode& mode);
         const SaveMode& SessionMode() const { return m_mode; }
         void ReportPlayerHit(uint8_t target, float damage);
         float TakeDamage() { float d = m_damage; m_damage = 0; return d; }

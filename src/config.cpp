@@ -7,6 +7,7 @@
 
 #include <cstdlib>
 #include <windows.h>
+#include <algorithm>
 
 namespace
 {
@@ -77,6 +78,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iFieldOfView", fieldOfView);
         Write(path, "bFriendMarkers", friendMarkers);
         Write(path, "bShowAddress", showAddress);
+        WriteSwitches(path);
     }
     auto flag = [&](const char* key, bool now) {
         return Number(Read(path, key, now ? "1" : "0", "Settings"), 0, 1, now ? 1 : 0) != 0;
@@ -113,8 +115,16 @@ void Config::LoadPlayer(const std::string& path)
     fieldOfView = number("iFieldOfView", fieldOfView, 0, 120);
     friendMarkers = flag("bFriendMarkers", friendMarkers);
     showAddress = flag("bShowAddress", showAddress);
+    coopBalanced = flag("bCoopBalanced", coopBalanced);
+    friendlyFire = flag("bFriendlyFire", friendlyFire);
     if (fieldOfView && fieldOfView < 60)
         fieldOfView = 60;
+}
+
+void Config::WriteSwitches(const std::string& path) const
+{
+    Write(path, "bCoopBalanced", coopBalanced);
+    Write(path, "bFriendlyFire", friendlyFire);
 }
 
 Config Config::Load(const std::string& iniPath)
@@ -176,6 +186,26 @@ Config Config::Load(const std::string& iniPath)
     c.chatSpeechVolume = Number(Read(iniPath, "ChatSpeechVolume", "80"), 0, 100, 80);
     c.chatKey = Number(Read(iniPath, "ChatKey", "21"), 1, 255, 21);
     c.labChannel = Read(iniPath, "LabChannel", "0") == "1";
+    auto patchable = [&](const std::string& path) {
+        c.askMode = Read(path, "AskMode", c.askMode ? "1" : "0") != "0";
+        c.askHardcore = Read(path, "AskHardcore", c.askHardcore ? "1" : "0") != "0";
+    };
+    patchable(iniPath);
+    size_t slash = iniPath.find_last_of("\\/");
+    std::string folder = slash == std::string::npos ? "" : iniPath.substr(0, slash + 1);
+    WIN32_FIND_DATAA found;
+    HANDLE find = FindFirstFileA((folder + "NVCoop_*.ini").c_str(), &found);
+    if (find != INVALID_HANDLE_VALUE)
+    {
+        do
+            if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && c.patches.size() < 16)
+                c.patches.push_back(found.cFileName);
+        while (FindNextFileA(find, &found));
+        FindClose(find);
+    }
+    std::sort(c.patches.begin(), c.patches.end());
+    for (const std::string& patch : c.patches)
+        patchable(folder + patch);
     if (c.name.empty())
         c.name = "Player";
     return c;

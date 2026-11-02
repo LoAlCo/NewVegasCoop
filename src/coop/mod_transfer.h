@@ -101,6 +101,7 @@ namespace coop
         std::string downloads;
         std::string backup;
         std::string pluginsTxt;
+        std::string manager;
     };
 
     bool ApplyModFix(const ModFolders& folders, const ModList& host, const std::vector<std::string>& downloaded,

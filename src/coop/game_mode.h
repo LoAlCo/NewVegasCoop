@@ -18,11 +18,8 @@ namespace coop
         bool operator==(const SaveMode& o) const { return mode == o.mode && friendlyFire == o.friendlyFire; }
     };
 
-    constexpr uint8_t kSaveModeVersion = 1;
-    std::vector<uint8_t> EncodeSaveMode(const SaveMode& m);
-    SaveMode DecodeSaveMode(const uint8_t* data, size_t size);
-
     std::vector<std::string> SaveModeButtons();
     SaveMode SaveModeFromButton(int button);
+    SaveMode ModeFromSwitches(bool coopBalanced, bool friendlyFire);
     std::string Describe(const SaveMode& m);
 }

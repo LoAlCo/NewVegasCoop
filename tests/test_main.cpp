@@ -514,6 +514,31 @@ TEST(downed_players_are_revived_only_up_close)
     host.Stop();
 }
 
+TEST(a_mode_change_message_carries_only_the_two_switches)
+{
+    MsgType type;
+    net::ModeChange m;
+    Bytes ok = Encode(net::ModeChange{coop::SaveMode{coop::GameMode::Balanced, false}});
+    Reader r1(ok);
+    CHECK(r1.Type(type) && type == MsgType::Mode && Decode(r1, m) && m.mode.mode == coop::GameMode::Balanced &&
+        !m.mode.friendlyFire);
+    auto bad = [&](uint8_t mode, uint8_t ff, bool extra) {
+        net::Writer w(MsgType::Mode);
+        w.U8(mode);
+        w.U8(ff);
+        if (extra)
+            w.U8(0);
+        Bytes b = w.Take();
+        Reader r(b);
+        net::ModeChange out;
+        return r.Type(type) && !Decode(r, out);
+    };
+    CHECK(bad(0, 0, false));
+    CHECK(bad(3, 0, false));
+    CHECK(bad(1, 2, false));
+    CHECK(bad(1, 0, true));
+}
+
 TEST(downed_players_are_dragged_up_close_and_dont_bleed_out_meanwhile)
 {
     MsgType type;
@@ -2430,25 +2455,18 @@ TEST(voice_goes_to_everyone_through_the_host)
     host.Stop();
 }
 
-TEST(the_save_mode_is_kept_and_sent_to_friends)
+TEST(the_mode_switches_are_sent_to_friends_and_changes_reach_them)
 {
     using namespace coop;
     SaveMode balanced{GameMode::Balanced, true};
-    std::vector<uint8_t> file = EncodeSaveMode(balanced);
-    CHECK(DecodeSaveMode(file.data(), file.size()) == balanced);
-    std::vector<uint8_t> newer = file, odd = file, wrong = file;
-    newer[4] = kSaveModeVersion + 1;
-    odd[5] = 9;
-    wrong[0] = 'X';
-    CHECK(DecodeSaveMode(newer.data(), newer.size()).mode == GameMode::Unset);
-    CHECK(DecodeSaveMode(odd.data(), odd.size()).mode == GameMode::Unset);
-    CHECK(DecodeSaveMode(wrong.data(), wrong.size()).mode == GameMode::Unset);
-    CHECK(DecodeSaveMode(file.data(), 3).mode == GameMode::Unset);
-    CHECK(SaveModeButtons().size() == 4);
-    CHECK(SaveModeFromButton(0) == (SaveMode{GameMode::Normal, false}));
-    CHECK(SaveModeFromButton(3) == (SaveMode{GameMode::Balanced, true}));
+    CHECK(SaveModeButtons() == (std::vector<std::string>{"Neither", "Co-op balanced", "Friendly fire", "Both"}));
+    CHECK(SaveModeFromButton(0) == ModeFromSwitches(false, false));
+    CHECK(SaveModeFromButton(1) == (SaveMode{GameMode::Balanced, false}));
+    CHECK(SaveModeFromButton(2) == (SaveMode{GameMode::Normal, true}));
+    CHECK(SaveModeFromButton(3) == balanced);
     CHECK(SaveModeFromButton(4).mode == GameMode::Unset && SaveModeFromButton(-1).mode == GameMode::Unset);
-    CHECK(Describe(balanced) == "Co-op balanced, friendly fire on");
+    CHECK(Describe(balanced) == "Co-op balanced on, friendly fire on");
+    CHECK(Describe(ModeFromSwitches(false, false)) == "Co-op balanced off, friendly fire off");
 
     Coop host, a, b2;
     host.SetSessionMode(balanced);
@@ -2471,6 +2489,9 @@ TEST(the_save_mode_is_kept_and_sent_to_friends)
         return bobTook > 0 && hostTook > 0;
     }));
     CHECK(bobTook == 25 && hostTook == 10);
+    SaveMode plain = ModeFromSwitches(false, false);
+    host.SetSessionMode(plain);
+    CHECK(RunUntil({&host, &a, &b2}, [&] { return a.SessionMode() == plain && b2.SessionMode() == plain; }));
     b2.Stop();
     a.Stop();
     host.Stop();
@@ -2848,6 +2869,11 @@ TEST(mod_differences_are_found_and_described)
     std::swap(mine[1], mine[2]);
     d = coop::CompareMods(host, mine);
     CHECK(d.orderDiffers && d.missing.empty() && d.extra.empty() && d.Blocks());
+    CHECK(d.orderAt == 2 && d.orderHost == "DeadMoney.esm" && d.orderMine == "Cool Mod.esp");
+    CHECK(coop::DescribeForScreen(d, "Alex").find("from plugin 2: Alex's has DeadMoney.esm there, yours Cool Mod.esp") !=
+        std::string::npos);
+    CHECK(coop::DescribeForLog(d) == std::vector<std::string>{
+        "the load order is different from plugin 2: the host has DeadMoney.esm there, we have Cool Mod.esp"});
     CHECK(coop::ModsFingerprint(host) != coop::ModsFingerprint(mine));
 
     CHECK(coop::ArchiveBelongsTo("DeadMoney - Main.bsa", "DeadMoney.esm"));
@@ -3470,6 +3496,23 @@ TEST(a_friend_fetches_the_hosts_mods_and_matches_its_load_order)
     buddy2.AnswerModFix(false);
     CHECK(buddy2.GetRole() == coop::Role::None);
     host2.Stop();
+
+    coop::Coop host3, buddy3;
+    host3.SetMods(hostMods);
+    host3.SetModFolders({hostData, "", "", ""});
+    buddy3.SetMods(friendMods);
+    coop::ModFolders managed = folders;
+    managed.manager = "Mod Organizer 2";
+    buddy3.SetModFolders(managed);
+    std::string activeBefore = ReadFile(pluginsTxt);
+    CHECK(host3.Host(kTestPort, "Host"));
+    CHECK(buddy3.Join("127.0.0.1", kTestPort, "Buddy"));
+    std::string report;
+    CHECK(RunUntil({&host3, &buddy3}, [&] { report = buddy3.TakeModReport(); return !report.empty(); }));
+    CHECK(report.find("Mod Organizer 2 sets your mods: match the host's there") != std::string::npos);
+    CHECK(buddy3.TakeModQuestion().empty() && buddy3.GetRole() == coop::Role::None);
+    CHECK(ReadFile(pluginsTxt) == activeBefore);
+    host3.Stop();
     RemoveTree(root);
 }
 

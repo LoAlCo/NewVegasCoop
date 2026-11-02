@@ -42,8 +42,10 @@ Fallout New Vegas\\Data (merge folders).
 Start the game with nvse_loader.exe (or your mod manager), with Steam open.
 
 How to start a game
-Host: main menu > Host Co-op > load a save, or start a new game (pick Quick start). A new save asks for its mode
-once (Normal or Co-op balanced, friendly fire or not). Friends can join once you're outside Doc Mitchell's house.
+Host: main menu > Host Co-op > load a save, or start a new game (pick Quick start). A new game asks once whether
+to turn on Co-op balanced (leave it off if you use mods that change the game's balance) and friendly fire; change
+them any time in MCM > New Vegas Co-op (the host's count for everyone). Friends can join once you're outside Doc
+Mitchell's house.
 Friends: main menu > Join Co-op > A Steam friend's game > the host's name; the host lets you in. The first time, pick the
 character to bring (a save, or a new game). After that, Join loads the right save by itself.
 Later sessions: the host loads the group's last save with Host Co-op; friends just click Join Co-op.
@@ -93,3 +95,12 @@ with zipfile.ZipFile(ZIP, 'w', zipfile.ZIP_DEFLATED) as z:
     for name, data in files.items():
         z.writestr(name, data)
 print(ZIP, round(os.path.getsize(ZIP) / 1024), 'KB')
+
+# Optional patches (Alex, 2026-10-31: DUST's): one zip each, a settings file the main mod reads when it's there.
+PATCHES = os.path.join(ROOT, 'data', 'patches')
+for patch in sorted(f for f in (os.listdir(PATCHES) if os.path.isdir(PATCHES) else []) if f.lower().endswith('.ini')):
+    name = patch[len('NVCoop_'):-len('.ini')]
+    path = os.path.join(ROOT, 'build', f'New Vegas Co-op {version} - {name} patch.zip')
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('NVSE/Plugins/' + patch, open(os.path.join(ROOT, 'data', 'patches', patch), 'rb').read())
+    print(path, round(os.path.getsize(path) / 1024, 1), 'KB')

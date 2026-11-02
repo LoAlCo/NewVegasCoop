@@ -20,6 +20,11 @@ struct Config
     bool desyncNotices = true;
     int fieldOfView = 0;
     bool friendMarkers = true;
+    bool coopBalanced = false;
+    bool friendlyFire = false;
+    bool askMode = true;
+    bool askHardcore = true;
+    std::vector<std::string> patches;
     bool showAddress = false;
     bool syncRadio = true;
     bool chat = true;
@@ -46,4 +51,5 @@ struct Config
 
     static Config Load(const std::string& iniPath);
     void LoadPlayer(const std::string& path);
+    void WriteSwitches(const std::string& path) const;
 };

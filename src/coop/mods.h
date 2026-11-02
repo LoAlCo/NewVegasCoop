@@ -23,6 +23,8 @@ namespace coop
         std::vector<std::string> different;
         std::vector<std::string> extra;
         bool orderDiffers = false;
+        size_t orderAt = 0;
+        std::string orderHost, orderMine;
         std::vector<std::string> missingDlls, differentDlls;
 
         bool Blocks() const { return !missing.empty() || !different.empty() || !extra.empty() || orderDiffers; }

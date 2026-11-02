@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.8
+- Co-op balanced and friendly fire are now two switches in the Mod Configuration Menu, for all your games, both off
+  at first, and changeable any time (the host's count for everyone; friends already in get a change at once). A new
+  game asks once, with a note to leave Co-op balanced off if you use mods that change the game's balance. There's no
+  "Normal" mode to pick any more, and saves no longer keep a mode of their own: if you played Co-op balanced,
+  switch it on once in MCM.
+- Mod Organizer 2: a different load order isn't "fixed" by co-op any more (MO2 sets the order itself: the fix could
+  leave a game that crashed on start). Match the host's order in MO2 instead; the message says so.
+- A different load order now names the first plugin where yours and the host's split.
+
 ## 0.1.7
 - Loading a save in co-op no longer pops up the Co-op Teleporter's box by itself.
 

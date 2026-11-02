@@ -120,7 +120,10 @@ void Log::Write(LogLevel level, const char* fmt, ...)
     {
         std::lock_guard lock(g_mutex);
         if (g_console)
+        {
             std::printf("%02d:%02d:%02d %s %s\n", t.wHour, t.wMinute, t.wSecond, LevelName(level), message);
+            std::fflush(stdout);
+        }
         if (!g_file)
             return;
         if (g_pending.size() < kMaxPending)

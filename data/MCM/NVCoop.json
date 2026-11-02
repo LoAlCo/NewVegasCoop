@@ -345,6 +345,35 @@
 							"default": 0
 						}
 					]
+				},
+				"28": {
+					"title": "Co-op Settings (the host's count for everyone)",
+					"enable": 1,
+					"type": 0
+				},
+				"29": {
+					"title": "Co-op Balanced",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Harder and made for a group: smarter enemies, scarcer supplies, slower leveling. Leave it off if you use mods that change the game's balance",
+					"vars": [
+						{
+							"configINI": "Settings:bCoopBalanced",
+							"default": 0
+						}
+					]
+				},
+				"30": {
+					"title": "Friendly Fire",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Players' shots and explosions can hurt each other",
+					"vars": [
+						{
+							"configINI": "Settings:bFriendlyFire",
+							"default": 0
+						}
+					]
 				}
 			}
 		}

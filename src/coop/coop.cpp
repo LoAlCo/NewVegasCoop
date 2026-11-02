@@ -990,7 +990,7 @@ namespace coop
             m_myModAnimsSent = m_myModAnims.empty();
             m_questMods = welcome.questMods;
             m_mode = welcome.mode;
-            LOG_INFO("The host's save: %s", Describe(m_mode).c_str());
+            LOG_INFO("The host's settings: %s", Describe(m_mode).c_str());
             for (const std::string& mod : m_questMods)
                 LOG_INFO("Quests: the host's game runs %s's quests too", mod.c_str());
             m_gearToSend = true;
@@ -1388,6 +1388,14 @@ namespace coop
                 m_drags.erase(it);
             LOG_INFO("%s %s %s", NameOf(m.dragger).c_str(), m.on ? "drags" : "lets go of", NameOf(m.target).c_str());
         }
+        else if (type == MsgType::Mode)
+        {
+            net::ModeChange m;
+            if (!InGame() || !Decode(r, m))
+                return LOG_WARN("Bad mode change from the host");
+            m_mode = m.mode;
+            LOG_INFO("The host's mode is now %s", Describe(m_mode).c_str());
+        }
         else if (type == MsgType::GameOver)
         {
             GameOver m;
@@ -1640,6 +1648,19 @@ namespace coop
                 p.fighting = fighting;
                 m_net->Send(peer, Encode(net::Fighting{fighting}), true);
             }
+    }
+
+    void Coop::SetSessionMode(const SaveMode& mode)
+    {
+        if (m_role == Role::Friend || m_mode == mode)
+            return;
+        bool changed = m_mode.mode != GameMode::Unset;
+        m_mode = mode;
+        if (m_role == Role::Host && changed && mode.mode != GameMode::Unset)
+        {
+            SendToJoined(Encode(net::ModeChange{mode}), true);
+            LOG_INFO("Mode: the group now plays %s", Describe(mode).c_str());
+        }
     }
 
     void Coop::DamagePlayer(uint8_t playerId, float amount)
@@ -2034,6 +2055,13 @@ namespace coop
     {
         ModDifference d = CompareMods(m_hostMods, m_mods);
         std::string text = DescribeForScreen(d, "");
+        if (!m_modFolders.manager.empty())
+        {
+            LOG_WARN("Mods: %s sets our load order, so it isn't fixed from here", m_modFolders.manager.c_str());
+            m_modReport = text + "\n" + m_modFolders.manager + " sets your mods: match the host's there (the host can "
+                "send their profile's plugins.txt and loadorder.txt, and any mods you're missing), then join again.";
+            return Stop();
+        }
         m_modsWanted.clear();
         m_modsExtra = d.extra;
         std::string unsendable, ttw;

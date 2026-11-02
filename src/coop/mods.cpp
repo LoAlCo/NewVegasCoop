@@ -115,14 +115,23 @@ namespace coop
             }
         if (!pluginsDiffer)
         {
-            std::vector<std::string> a, b;
+            std::vector<const ModFile*> a, b;
             for (const ModFile& f : host)
                 if (f.kind == ModKind::Plugin)
-                    a.push_back(Lower(f.name));
+                    a.push_back(&f);
             for (const ModFile& f : mine)
                 if (f.kind == ModKind::Plugin)
-                    b.push_back(Lower(f.name));
-            d.orderDiffers = a != b;
+                    b.push_back(&f);
+            for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+                if (Lower(a[i]->name) != Lower(b[i]->name))
+                {
+                    d.orderDiffers = true;
+                    d.orderAt = i + 1;
+                    d.orderHost = a[i]->name;
+                    d.orderMine = b[i]->name;
+                    break;
+                }
+            d.orderDiffers |= a.size() != b.size();
         }
         return d;
     }
@@ -148,7 +157,10 @@ namespace coop
             text += "\nDifferent version: " + list(d.different);
         if (!d.extra.empty())
             text += "\nNot in " + whose + " game (turn off): " + list(d.extra);
-        if (d.orderDiffers)
+        if (d.orderDiffers && d.orderAt)
+            text += "\nThe load order is different from plugin " + std::to_string(d.orderAt) + ": " + whose + " has " +
+                d.orderHost + " there, yours " + d.orderMine + ".";
+        else if (d.orderDiffers)
             text += "\nThe load order is different.";
         if (!d.missingDlls.empty())
             text += "\nxNVSE plugins to install by hand: " + list(d.missingDlls);
@@ -166,7 +178,10 @@ namespace coop
             lines.push_back("different version: " + n);
         for (const std::string& n : d.extra)
             lines.push_back("not in the host's game: " + n);
-        if (d.orderDiffers)
+        if (d.orderDiffers && d.orderAt)
+            lines.push_back("the load order is different from plugin " + std::to_string(d.orderAt) + ": the host has " +
+                d.orderHost + " there, we have " + d.orderMine);
+        else if (d.orderDiffers)
             lines.push_back("the load order is different");
         for (const std::string& n : d.missingDlls)
             lines.push_back("xNVSE plugin missing: " + n);

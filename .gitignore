@@ -41,3 +41,6 @@ reference/*
 Mod dependencies/
 tools/laptop.local.ini
 __pycache__/
+
+# Mod Organizer 2, for MO2 labs (downloaded, not part of the project)
+MO2/

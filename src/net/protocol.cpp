@@ -998,6 +998,25 @@ namespace net
         return true;
     }
 
+    Bytes Encode(const ModeChange& m)
+    {
+        Writer w(MsgType::Mode);
+        w.U8(static_cast<uint8_t>(m.mode.mode));
+        w.U8(m.mode.friendlyFire ? 1 : 0);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, ModeChange& m)
+    {
+        uint8_t mode = 0, friendlyFire = 0;
+        if (!r.U8(mode) || mode < static_cast<uint8_t>(coop::GameMode::Normal) ||
+            mode > static_cast<uint8_t>(coop::GameMode::Balanced) || !r.U8(friendlyFire) || friendlyFire > 1 ||
+            !r.AtEnd())
+            return false;
+        m.mode = coop::SaveMode{static_cast<coop::GameMode>(mode), friendlyFire == 1};
+        return true;
+    }
+
     Bytes EncodeTravelMarkers(const std::vector<uint32_t>& refs)
     {
         Writer w(MsgType::TravelMarkers);

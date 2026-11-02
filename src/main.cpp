@@ -63,7 +63,7 @@ namespace
     Config g_config;
     game::StandIns g_standIns;
     Speech g_speech;
-    coop::SaveMode g_saveMode;
+    coop::SaveMode g_ourMode;
     VoiceOut g_voiceOut;
     game::Npcs g_npcs;
     game::Companions g_companions;
@@ -194,6 +194,21 @@ namespace
     constexpr int kModQuestion = 3;
     bool g_modAsked = false;
 
+    void LogLoadOrder(const char* what, const std::vector<std::string>& plugins)
+    {
+        const size_t kPerLine = 20;
+        for (size_t from = 0; from < plugins.size() || from == 0; from += kPerLine)
+        {
+            std::string list;
+            for (size_t i = from; i < plugins.size() && i < from + kPerLine; ++i)
+                list += (i > from ? ", " : "") + plugins[i];
+            if (from == 0)
+                LOG_INFO("%s (%zu): %s", what, plugins.size(), list.c_str());
+            else
+                LOG_INFO("  ... from %zu: %s", from + 1, list.c_str());
+        }
+    }
+
     coop::ModFolders ModFoldersNow()
     {
         char path[MAX_PATH];
@@ -211,7 +226,9 @@ namespace
         if (_dupenv_s(&local, &length, "LOCALAPPDATA") == 0 && local)
             pluginsTxt = std::string(local) + "\\FalloutNV\\plugins.txt";
         free(local);
-        return {game + "Data\\", game + "NVCoop Downloads\\", game + "NVCoop Backup\\" + stamp + "\\", pluginsTxt};
+        std::string manager = GetModuleHandleA("usvfs_x86.dll") ? "Mod Organizer 2" : "";
+        return {game + "Data\\", game + "NVCoop Downloads\\", game + "NVCoop Backup\\" + stamp + "\\", pluginsTxt,
+            manager};
     }
 
     std::string g_pendingLinkedSave;
@@ -298,10 +315,7 @@ namespace
                 std::vector<std::string> plugins = game::LoadedMods();
                 if (plugins.empty())
                     return;
-                std::string list;
-                for (size_t i = 0; i < plugins.size(); ++i)
-                    list += (i ? ", " : "") + plugins[i];
-                LOG_INFO("Load order from the game's list (%zu): %s", plugins.size(), list.c_str());
+                LogLoadOrder("Load order from the game's list", plugins);
                 g_menuPlugins = plugins;
                 std::string folder = PluginFolder();
                 g_menuScan = std::async(std::launch::async, [plugins = std::move(plugins), folder,
@@ -955,14 +969,13 @@ namespace
         LOG_INFO("VATS time while aiming: %s (1 = full speed)", game::Evaluate("GetGameSetting fVATSTimeMult").c_str());
         LOG_INFO("VATS: %d of its speed changes skipped (5 expected)", game::KeepVatsAtFullSpeed());
         std::vector<std::string> plugins = game::LoadOrder();
-        std::string list;
-        for (size_t i = 0; i < plugins.size(); ++i)
-            list += (i ? ", " : "") + plugins[i];
-        LOG_INFO("Load order (%zu): %s", plugins.size(), list.c_str());
+        LogLoadOrder("Load order", plugins);
         LOG_INFO("Load order from the game's list %s the script's", game::LoadedMods() == plugins ? "matches" : "DIFFERS from");
         std::string folder = PluginFolder();
         coop::ModFolders modFolders = ModFoldersNow();
         g_coop.SetModFolders(modFolders);
+        if (!modFolders.manager.empty())
+            LOG_INFO("Mods: run by %s (it sets the load order; co-op doesn't change it)", modFolders.manager.c_str());
         if (!g_menuMods.empty() && plugins == g_menuPlugins)
             g_modScan = std::async(std::launch::async, [mods = g_menuMods] { return mods; });
         else
@@ -1471,6 +1484,12 @@ namespace
         g_config.LoadPlayer(PlayerSettingsPath());
         if (g_config.showAddress && !showedAddress)
             ShowAddresses();
+        coop::SaveMode switches = coop::ModeFromSwitches(g_config.coopBalanced, g_config.friendlyFire);
+        if (!(switches == g_ourMode))
+        {
+            g_ourMode = switches;
+            LOG_INFO("Mode: %s (changed in the menu)", coop::Describe(g_ourMode).c_str());
+        }
         LOG_INFO("Settings: changed in the menu (chat %d, key %d, speech %d at %d%%, voice %d/%d pitch %d speed %d "
             "effect %d, voice chat %d key %d mode %d at %d%%, radio %d, desync notices %d)", g_config.chat,
             g_config.chatKey, g_config.chatSpeech, g_config.chatSpeechVolume, g_config.voice, g_config.voiceVariant,
@@ -1719,18 +1738,29 @@ namespace
 
     constexpr int kModeQuestion = 11;
     bool g_modeAsked = false;
-    void AskSaveMode(bool newGame)
+    bool g_hardcoreAsked = false;
+    void AskSwitches()
     {
-        game::AskChoice(std::string(newGame ? "A new game: pick its mode." : "This save has no co-op mode yet: pick one.") +
-            "\n\nNormal is the game as it is. Co-op balanced is harder and made for a group (more of it is coming). "
-            "Friendly fire: players can hurt each other. It stays with this save and can't be changed later.",
-            coop::SaveModeButtons(), kModeQuestion);
+        if (!g_config.askMode)
+            return LOG_INFO("Mode: not asked (AskMode=0): %s", coop::Describe(g_ourMode).c_str());
+        game::AskChoice("A new game: turn on any co-op settings?\n\nCo-op balanced: harder and made for a group "
+            "(smarter enemies, scarcer supplies, slower leveling). Leave it off if you use mods that change the game's "
+            "balance.\nFriendly fire: players can hurt each other.\n\nThe host's settings count for everyone. Change "
+            "them any time in the Mod Configuration Menu (New Vegas Co-op).", coop::SaveModeButtons(), kModeQuestion);
         g_modeAsked = true;
-        LOG_INFO("Mode: asked (%s)", newGame ? "a new game" : "hosting a save without one");
+        LOG_INFO("Mode: asked (a new game; now %s)", coop::Describe(g_ourMode).c_str());
+    }
+    void PickSwitches(const coop::SaveMode& picked)
+    {
+        g_config.coopBalanced = picked.mode == coop::GameMode::Balanced;
+        g_config.friendlyFire = picked.friendlyFire;
+        g_config.WriteSwitches(PlayerSettingsPath());
+        g_ourMode = picked;
+        LOG_INFO("Mode: %s (picked; kept in the MCM page's settings)", coop::Describe(g_ourMode).c_str());
     }
     coop::SaveMode EffectiveMode()
     {
-        return g_coop.GetRole() == coop::Role::Friend && g_coop.InGame() ? g_coop.SessionMode() : g_saveMode;
+        return g_coop.GetRole() == coop::Role::Friend && g_coop.InGame() ? g_coop.SessionMode() : g_ourMode;
     }
 
     void UpdateLootThinning(uint32_t now)
@@ -1868,52 +1898,22 @@ namespace
                 g_modeAsked = false;
                 coop::SaveMode picked = coop::SaveModeFromButton(choice);
                 if (picked.mode != coop::GameMode::Unset)
-                {
-                    g_saveMode = picked;
-                    LOG_INFO("Mode: %s (kept with the save from its next save)", coop::Describe(g_saveMode).c_str());
-                }
+                    PickSwitches(picked);
             }
         }
         if (g_coop.GetRole() == coop::Role::Host)
-            g_coop.SetSessionMode(g_saveMode);
-        static bool s_askedHosting = false;
-        if (!s_askedHosting && !g_modeAsked && g_saveMode.mode == coop::GameMode::Unset &&
-            g_coop.GetRole() == coop::Role::Host && g_coop.InGame() && g_worldLoaded &&
-            game::QuestStage(game::ids::kTutorialQuest) < 0)
+            g_coop.SetSessionMode(g_ourMode);
+        static coop::SaveMode s_hostMode;
+        static bool s_wasIn = false;
+        bool in = g_coop.GetRole() == coop::Role::Friend && g_coop.InGame();
+        if (in && s_wasIn && !(g_coop.SessionMode() == s_hostMode))
         {
-            s_askedHosting = true;
-            AskSaveMode(false);
+            game::Notify(("Co-op: the host's settings are now " + coop::Describe(g_coop.SessionMode())).c_str());
+            LOG_INFO("Mode: shown to the player: the host's settings are now %s",
+                coop::Describe(g_coop.SessionMode()).c_str());
         }
-    }
-
-    std::string SaveModePath(const std::string& save) { return SavesFolder() + save + ".nvcoop"; }
-    void KeepSaveMode(const std::string& save)
-    {
-        if (save.empty() || g_saveMode.mode == coop::GameMode::Unset)
-            return;
-        std::vector<uint8_t> data = coop::EncodeSaveMode(g_saveMode);
-        HANDLE f = CreateFileA(SaveModePath(save).c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
-        DWORD written = 0;
-        bool ok = f != INVALID_HANDLE_VALUE && WriteFile(f, data.data(), static_cast<DWORD>(data.size()), &written, nullptr) &&
-            written == data.size();
-        if (f != INVALID_HANDLE_VALUE)
-            CloseHandle(f);
-        LOG_INFO("Mode: %s kept with \"%s\"%s", coop::Describe(g_saveMode).c_str(), save.c_str(), ok ? "" : " (it couldn't!)");
-    }
-    void ReadSaveMode(const std::string& save)
-    {
-        g_saveMode = coop::SaveMode{};
-        uint8_t data[16] = {};
-        DWORD read = 0;
-        HANDLE f = save.empty() ? INVALID_HANDLE_VALUE :
-            CreateFileA(SaveModePath(save).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-        if (f != INVALID_HANDLE_VALUE)
-        {
-            if (ReadFile(f, data, sizeof(data), &read, nullptr))
-                g_saveMode = coop::DecodeSaveMode(data, read);
-            CloseHandle(f);
-        }
-        LOG_INFO("Mode: \"%s\" is %s", save.c_str(), coop::Describe(g_saveMode).c_str());
+        s_hostMode = g_coop.SessionMode();
+        s_wasIn = in;
     }
 
     constexpr int kQuickStartQuestion = 9;
@@ -1954,8 +1954,7 @@ namespace
                 return;
             s_asked = true;
             game::HoldTutorial(true);
-            if (g_saveMode.mode == coop::GameMode::Unset)
-                AskSaveMode(true);
+            AskSwitches();
             game::AskChoice("Quick start: skip Doc Mitchell's house?\n\nYou'll be outside his door with the game's "
                 "\"finish your character\" menu (name, looks, S.P.E.C.I.A.L., tag skills, traits) and Doc's starting "
                 "gear. Co-op starts once you're outside.", {"Quick start", "Play the intro"}, kQuickStartQuestion);
@@ -1979,9 +1978,11 @@ namespace
                 g_quickStart = QuickStart::Watching;
                 return LOG_ERROR("Quick start: the tutorial's forms aren't there; the intro is played");
             }
-            game::AskChoice("Play in Hardcore mode?\n\nFood, water and sleep needs, healing over time, ammo has "
-                "weight, companions can die. You can change it later in the game's settings.", {"No", "Hardcore"},
-                kHardcoreQuestion);
+            g_hardcoreAsked = g_config.askHardcore;
+            if (g_hardcoreAsked)
+                game::AskChoice("Play in Hardcore mode?\n\nFood, water and sleep needs, healing over time, ammo has "
+                    "weight, companions can die. You can change it later in the game's settings.", {"No", "Hardcore"},
+                    kHardcoreQuestion);
             g_quickStart = QuickStart::HardcoreAsked;
             g_quickStartAt = now;
             return LOG_INFO("Quick start: Doc's farewell done; asking about Hardcore");
@@ -1990,18 +1991,20 @@ namespace
         {
             static int s_choice = -1;
             if (s_choice == -1)
-                s_choice = game::TakeChoice(kHardcoreQuestion);
+                s_choice = g_hardcoreAsked ? game::TakeChoice(kHardcoreQuestion) : 2;
             if (s_choice == -1 || now - g_quickStartAt < 4000)
                 return;
             int choice = s_choice;
             s_choice = -1;
-            game::RunConsoleLine(choice == 1 ? "SetHardcore 1" : "SetHardcore 0");
+            if (choice != 2)
+                game::RunConsoleLine(choice == 1 ? "SetHardcore 1" : "SetHardcore 0");
             coop::Pose inside;
             g_quickStartSpace = game::GetPose(game::Player(), inside) ? inside.space : 0;
             game::ActivateByPlayer(game::ids::kDocsDoor, false);
             g_quickStart = QuickStart::Leaving;
             g_quickStartAt = now;
-            return LOG_INFO("Quick start: Hardcore %s; out the door", choice == 1 ? "on" : "off");
+            return LOG_INFO("Quick start: Hardcore %s; out the door", choice == 2 ? "as the game has it" :
+                choice == 1 ? "on" : "off");
         }
         case QuickStart::Leaving:
         {
@@ -2106,9 +2109,8 @@ namespace
                 return "no mode question open";
             g_modeAsked = false;
             game::DropQuestion(kModeQuestion);
-            g_saveMode = coop::SaveModeFromButton(line[5] - '0');
-            LOG_INFO("Mode: %s (kept with the save from its next save)", coop::Describe(g_saveMode).c_str());
-            return coop::Describe(g_saveMode);
+            PickSwitches(coop::SaveModeFromButton(line[5] - '0'));
+            return coop::Describe(g_ourMode);
         }
         if (line == "talk on" || line == "talk off")
         {
@@ -2473,11 +2475,11 @@ namespace
         static bool s_shownHosting = false;
         bool hosting = g_coop.GetRole() == coop::Role::Host;
         static coop::SaveMode s_shownMode;
-        if ((hosting != s_shownHosting || (hosting && !(s_shownMode == g_saveMode))) && game::SteamReady())
+        if ((hosting != s_shownHosting || (hosting && !(s_shownMode == g_ourMode))) && game::SteamReady())
         {
             s_shownHosting = hosting;
-            s_shownMode = g_saveMode;
-            game::SetHostingOnSteam(hosting, coop::Describe(g_saveMode));
+            s_shownMode = g_ourMode;
+            game::SetHostingOnSteam(hosting, coop::Describe(g_ourMode));
         }
         if (g_coop.TakeAskingHost())
             game::Notify("Co-op: asking the host to let you in...", 5);
@@ -3009,7 +3011,6 @@ namespace
             {
                 std::string file = MessageText(msg);
                 LOG_INFO("Loading a save: %s", file.c_str());
-                ReadSaveMode(coop::SaveNameOf(file));
                 g_coop.SetCurrentSave(coop::SaveNameOf(file));
                 if (g_coop.GetRole() == coop::Role::Host && g_coop.InGame())
                     g_coop.ShareSave(file, true);
@@ -3045,7 +3046,6 @@ namespace
         {
             std::string file = MessageText(msg);
             LOG_INFO("Saved: %s", file.c_str());
-            KeepSaveMode(coop::SaveNameOf(file));
             g_coop.SetCurrentSave(coop::SaveNameOf(file));
             if (g_coop.GetRole() == coop::Role::Host && g_coop.InGame())
                 g_coop.ShareSave(file, false);
@@ -3068,7 +3068,6 @@ namespace
             break;
         case NVSEMessagingInterface::kMessage_NewGame:
             g_loadingSave = false;
-            g_saveMode = coop::SaveMode{};
             LOG_INFO("New game started");
             OnWorldLoaded();
             break;
@@ -3117,6 +3116,11 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
     InstallCrashReporter();
     g_config = Config::Load(PluginFolder() + "NVCoop.ini");
     g_config.LoadPlayer(PlayerSettingsPath());
+    g_ourMode = coop::ModeFromSwitches(g_config.coopBalanced, g_config.friendlyFire);
+    LOG_INFO("Mode: %s (the MCM page's settings)", coop::Describe(g_ourMode).c_str());
+    for (const std::string& patch : g_config.patches)
+        LOG_INFO("Patch: %s read (co-op settings asked %d, Hardcore asked %d)", patch.c_str(),
+            g_config.askMode ? 1 : 0, g_config.askHardcore ? 1 : 0);
     if (g_config.allowSecondCopy)
         AllowSecondCopy(g_config.secondCopyWaits);
     if (g_config.borderless)
