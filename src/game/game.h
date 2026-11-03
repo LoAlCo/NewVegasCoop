@@ -33,8 +33,8 @@ namespace game
     void Stance(TESObjectREFR* ref, uint8_t& flags, int& sitting);
     std::vector<uint32_t> PlayerGear();
     std::vector<uint32_t> Gear(TESObjectREFR* ref, bool armourOnly);
-    bool Wear(TESObjectREFR* ref, uint32_t formId);
-    void Unequip(TESObjectREFR* ref, uint32_t formId);
+    std::vector<net::WornItem> WornGear(TESObjectREFR* ref);
+    bool Wear(TESObjectREFR* ref, const net::WornItem& item);
     bool IsPastIntro();
     bool InDocMitchellsHouse();
     std::vector<std::string> LoadOrder();
@@ -174,7 +174,7 @@ namespace game
     void StopIdle(TESObjectREFR* ref);
     void Resurrect(TESObjectREFR* ref);
     void NoteMadeCharacters(const std::vector<uint32_t>& refIds);
-    bool RunConsoleLine(const char* line);
+    bool RunConsoleLine(const char* line, TESObjectREFR* on = nullptr);
     std::string Evaluate(const char* expression);
     std::vector<uint32_t> SavedMadeCharacters();
     void ResetAnimation(TESObjectREFR* ref, int how);
@@ -380,7 +380,10 @@ namespace game
     WorldItem ReadWorldItem(TESObjectREFR* ref);
     bool IsThere(const WorldItem& item);
     TESObjectREFR* TopEnableParent(TESObjectREFR* ref);
-    TESObjectREFR* PlaceItem(uint32_t base, int count, float x, float y, float z);
+    struct Condition { uint8_t health = net::kNoCondition; uint8_t mods = 0; };
+    Condition ItemCondition(TESObjectREFR* ref);
+    TESObjectREFR* PlaceItem(uint32_t base, int count, float x, float y, float z, uint8_t health = net::kNoCondition,
+        uint8_t mods = 0);
     void MoveItem(TESObjectREFR* ref, float x, float y, float z, float rx, float ry, float rz);
     uint32_t GrabbedItem();
     void RemoveWorldItem(TESObjectREFR* ref);

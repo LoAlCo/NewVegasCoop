@@ -102,7 +102,8 @@ namespace game
         Script* g_setMaxHealth = nullptr;
         Script* g_stopIdle = nullptr;
         Script* g_npcRounds = nullptr;
-        Script* g_unequip = nullptr;
+        Script* g_wornGear = nullptr;
+        Script* g_wearAt = nullptr;
         Script* g_idleGroup = nullptr;
         Script* g_forceStopIdle = nullptr;
         Script* g_madeClear = nullptr;
@@ -182,6 +183,7 @@ namespace game
         void OnEnable(TESObjectREFR*, void* parameters) { RecordEnable(parameters, true); }
         void OnDisable(TESObjectREFR*, void* parameters) { RecordEnable(parameters, false); }
         Script* g_placeItem = nullptr;
+        Script* g_itemCondition = nullptr;
         Script* g_moveItem = nullptr;
         Script* g_grabbed = nullptr;
         Script* g_followers = nullptr;
@@ -468,10 +470,57 @@ namespace game
             "Begin Function {}\n"
             "  EvaluatePackage\n"
             "End\n");
-        g_unequip = Compile("unequip item",
+        g_wornGear = Compile("worn gear",
+            "array_var aItems\n"
             "ref rItem\n"
-            "Begin Function {rItem}\n"
-            "  UnequipItem rItem 0 1\n"
+            "int i\n"
+            "float fFull\n"
+            "float fNow\n"
+            "int iHealth\n"
+            "Begin Function {}\n"
+            "  let aItems := ar_Construct \"array\"\n"
+            "  while i < 20\n"
+            "    let rItem := GetEquippedObject i\n"
+            "    if IsFormValid rItem\n"
+            "      set fFull to GetHealth rItem\n"
+            "      set iHealth to 255\n"
+            "      if fFull > 0\n"
+            "        set fNow to GetEquippedCurrentHealth i\n"
+            "        set iHealth to fNow / fFull * 100 + 0.5\n"
+            "        if iHealth > 100\n"
+            "          set iHealth to 100\n"
+            "        elseif iHealth < 0\n"
+            "          set iHealth to 0\n"
+            "        endif\n"
+            "      endif\n"
+            "      ar_Append aItems rItem\n"
+            "      ar_Append aItems iHealth\n"
+            "    endif\n"
+            "    let i += 1\n"
+            "  loop\n"
+            "  SetFunctionValue aItems\n"
+            "End\n");
+        g_wearAt = Compile("wear at condition",
+            "ref rItem\n"
+            "int iHealth\n"
+            "ref rWorn\n"
+            "int i\n"
+            "float fHealth\n"
+            "Begin Function {rItem, iHealth}\n"
+            "  if GetEquipped rItem == 0\n"
+            "    AddItem rItem 1 1\n"
+            "    EquipItem rItem 1 1\n"
+            "  endif\n"
+            "  set fHealth to GetHealth rItem\n"
+            "  set fHealth to fHealth * iHealth / 100\n"
+            "  while i < 20\n"
+            "    let rWorn := GetEquippedObject i\n"
+            "    if eval (rWorn == rItem)\n"
+            "      SetEquippedCurrentHealth fHealth i\n"
+            "      break\n"
+            "    endif\n"
+            "    let i += 1\n"
+            "  loop\n"
             "End\n");
         g_removeItem = Compile("remove item",
             "ref rItem\n"
@@ -550,6 +599,7 @@ namespace game
             "ref rSelf\n"
             "Begin Function {iLimb}\n"
             "  SetActorRefEssential 0\n"
+            "  SetGhost 0\n"
             "  set rSelf to GetSelf\n"
             "  Kill rSelf iLimb\n"
             "End\n");
@@ -1269,16 +1319,46 @@ namespace game
             "float fX\n"
             "float fY\n"
             "float fZ\n"
+            "int iHealth\n"
             "ref rNew\n"
-            "Begin Function {rBase, iCount, fX, fY, fZ}\n"
+            "float fHealth\n"
+            "Begin Function {rBase, iCount, fX, fY, fZ, iHealth}\n"
             "  set rNew to PlaceAtMe rBase 1\n"
             "  if iCount > 1\n"
             "    rNew.SetRefCount iCount\n"
+            "  endif\n"
+            "  if iHealth < 100\n"
+            "    set fHealth to GetHealth rBase\n"
+            "    set fHealth to fHealth * iHealth / 100\n"
+            "    rNew.SetCurrentHealth fHealth\n"
             "  endif\n"
             "  rNew.SetPos x fX\n"
             "  rNew.SetPos y fY\n"
             "  rNew.SetPos z fZ\n"
             "  SetFunctionValue rNew\n"
+            "End\n");
+        g_itemCondition = Compile("item condition",
+            "ref rBase\n"
+            "float fFull\n"
+            "float fNow\n"
+            "int iHealth\n"
+            "int iMods\n"
+            "Begin Function {}\n"
+            "  let rBase := GetBaseObject\n"
+            "  set fFull to GetHealth rBase\n"
+            "  set iHealth to 255\n"
+            "  if fFull > 0\n"
+            "    set fNow to GetCurrentHealth\n"
+            "    set iHealth to fNow / fFull * 100 + 0.5\n"
+            "    if iHealth > 100\n"
+            "      set iHealth to 100\n"
+            "    elseif iHealth < 0\n"
+            "      set iHealth to 0\n"
+            "    endif\n"
+            "  endif\n"
+            "  set iMods to GetWeaponRefModFlags\n"
+            "  set iHealth to iHealth + iMods * 256\n"
+            "  SetFunctionValue iHealth\n"
             "End\n");
         g_moveItem = Compile("move item",
             "float fX\n"
@@ -1681,10 +1761,42 @@ namespace game
         return items;
     }
 
-    bool Wear(TESObjectREFR* ref, uint32_t formId)
+    std::vector<net::WornItem> WornGear(TESObjectREFR* ref)
     {
-        TESForm* item = LookupForm(formId);
-        return item && item->IsArmor() && AddAndEquip(ref, formId);
+        std::vector<net::WornItem> items;
+        NVSEArrayVarInterface::Element result;
+        if (!g_wornGear || !g_arrays || !IsActor(ref) || !g_scripts->CallFunction(g_wornGear, ref, nullptr, &result, 0))
+            return items;
+        auto* array = result.GetArray();
+        uint32_t size = array ? g_arrays->GetArraySize(array) : 0;
+        if (!size || size == static_cast<uint32_t>(-1) || size % 2 || size > 2 * kEquipSlots)
+            return items;
+        std::vector<NVSEArrayVarInterface::Element> elements(size);
+        if (!g_arrays->GetElements(array, elements.data(), nullptr))
+            return items;
+        for (uint32_t i = 0; i < size; i += 2)
+        {
+            TESForm* item = elements[i].GetTESForm();
+            double health = elements[i + 1].GetNumber();
+            if (!item || !item->IsArmor() ||
+                std::any_of(items.begin(), items.end(), [&](const net::WornItem& o) { return o.item == item->refID; }))
+                continue;
+            items.push_back({item->refID, health >= 0 && health <= 100 ? static_cast<uint8_t>(health) :
+                net::kNoCondition});
+        }
+        std::sort(items.begin(), items.end(),
+            [](const net::WornItem& a, const net::WornItem& b) { return a.item < b.item; });
+        return items;
+    }
+
+    bool Wear(TESObjectREFR* ref, const net::WornItem& item)
+    {
+        TESForm* form = LookupForm(item.item);
+        if (!g_wearAt || !IsActor(ref) || !form || !form->IsArmor())
+            return false;
+        uint32_t health = item.health <= 100 ? item.health : 100;
+        g_scripts->CallFunctionAlt(g_wearAt, ref, 2, form, health);
+        return true;
     }
 
     bool InDocMitchellsHouse()
@@ -2196,13 +2308,6 @@ namespace game
         return true;
     }
 
-    void Unequip(TESObjectREFR* ref, uint32_t formId)
-    {
-        TESForm* item = LookupForm(formId);
-        if (g_compiled && g_unequip && IsActor(ref) && item)
-            g_scripts->CallFunctionAlt(g_unequip, ref, 1, item);
-    }
-
     void RemoveItem(TESObjectREFR* ref, uint32_t formId)
     {
         TESForm* item = LookupForm(formId);
@@ -2613,13 +2718,13 @@ namespace game
         return choice == kNeverShown ? 0 : choice < 0 ? -1 : choice == 0 ? 1 : 0;
     }
 
-    bool RunConsoleLine(const char* line)
+    bool RunConsoleLine(const char* line, TESObjectREFR* on)
     {
         if (!g_console || !line)
             return false;
         if (g_console->version >= 3 && g_console->RunScriptLine2)
-            return g_console->RunScriptLine2(line, nullptr, false);
-        return g_console->RunScriptLine(line, nullptr);
+            return g_console->RunScriptLine2(line, on, false);
+        return g_console->RunScriptLine(line, on);
     }
 
     std::string Evaluate(const char* expression)
@@ -2743,6 +2848,20 @@ namespace game
     {
         uintptr_t g_explosionInit = 0;
         std::vector<SeenExplosion> g_explosions;
+        std::mutex g_explosionsLock;
+
+        DWORD g_mainThread = 0;
+        void NoteThread(const char* hook, std::atomic<int>& said)
+        {
+            bool main = GetCurrentThreadId() == g_mainThread;
+            int which = main ? 1 : 2;
+            if (!g_mainThread || (said.fetch_or(which) & which))
+                return;
+            if (main)
+                LOG_DEBUG("%s runs on the game's main thread", hook);
+            else
+                LOG_WARN("%s ran on another thread than the game's main one", hook);
+        }
 
         bool IsOurHarmless(const TESForm* form)
         {
@@ -2758,14 +2877,19 @@ namespace game
             bool fresh = explosion && !*reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(explosion) +
                 addr::kExplosionProcess);
             reinterpret_cast<void(__fastcall*)(TESObjectREFR*)>(g_explosionInit)(explosion);
+            static std::atomic<int> s_saidThread{0};
+            NoteThread("The explosion hook", s_saidThread);
             if (!fresh || !explosion->baseForm || explosion->baseForm->typeID != kFormType_BGSExplosion ||
-                IsOurHarmless(explosion->baseForm) || g_explosions.size() >= 32)
+                IsOurHarmless(explosion->baseForm))
                 return;
             coop::Pose at;
             if (!GetPose(explosion, at))
                 return;
             auto* source = *reinterpret_cast<TESObjectREFR* const*>(reinterpret_cast<const uint8_t*>(explosion) +
                 addr::kExplosionSource);
+            std::lock_guard<std::mutex> lock(g_explosionsLock);
+            if (g_explosions.size() >= 32)
+                return;
             g_explosions.push_back({explosion->baseForm->refID, at.space, at.x, at.y, at.z, source && source == Player()});
             LOG_DEBUG("Explosion %08X (%08X) at %.0f, %.0f, %.0f by %08X", explosion->refID, explosion->baseForm->refID,
                 at.x, at.y, at.z, source ? source->refID : 0);
@@ -2776,6 +2900,7 @@ namespace game
     {
         if (g_explosionInit)
             return true;
+        g_mainThread = GetCurrentThreadId();
         auto* slot = reinterpret_cast<uintptr_t*>(addr::kExplosionInitSlot);
         DWORD old;
         if (VirtualProtect(slot, 4, PAGE_READWRITE, &old))
@@ -2790,7 +2915,11 @@ namespace game
         return g_explosionInit != 0;
     }
 
-    std::vector<SeenExplosion> TakeExplosions() { return std::move(g_explosions); }
+    std::vector<SeenExplosion> TakeExplosions()
+    {
+        std::lock_guard<std::mutex> lock(g_explosionsLock);
+        return std::move(g_explosions);
+    }
 
     bool ShowExplosion(uint32_t formId, uint32_t space, float x, float y, float z)
     {
@@ -3761,11 +3890,19 @@ namespace game
         uint8_t* g_firstResponse = nullptr;
         uint8_t* g_setEndCallback = nullptr;
         std::map<uint32_t, Sound> g_voices;
+        std::mutex g_voicesLock;
 
         void __fastcall SetEndCallbackHook(Sound* sound, void*, uintptr_t function, uint32_t argument)
         {
-            if ((function == addr::kSayEnded || function == addr::kSpeechEnded) && sound && g_voices.size() < 256)
+            if ((function == addr::kSayEnded || function == addr::kSpeechEnded) && sound)
+            {
+                static std::atomic<int> s_saidThread{0};
+                NoteThread("The voice hook", s_saidThread);
+                std::lock_guard<std::mutex> lock(g_voicesLock);
+                if (g_voices.size() >= 256 && !g_voices.count(argument))
+                    g_voices.clear();
                 g_voices[argument] = *sound;
+            }
             reinterpret_cast<void(__thiscall*)(Sound*, uintptr_t, uint32_t)>(g_setEndCallback)(sound, function, argument);
         }
 
@@ -4128,6 +4265,8 @@ namespace game
         g_firstResponse = HookStart(addr::kDialogueItemFirstResponse, kStart, sizeof(kStart),
             reinterpret_cast<const void*>(&FirstResponseHook));
         static const uint8_t kSoundStart[6] = {0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x0C};
+        if (!g_mainThread)
+            g_mainThread = GetCurrentThreadId();
         g_setEndCallback = HookStart(addr::kSoundHandleSetEndCallback, kSoundStart, sizeof(kSoundStart),
             reinterpret_cast<const void*>(&SetEndCallbackHook));
         return g_firstResponse && g_setEndCallback;
@@ -4315,6 +4454,7 @@ namespace game
         *general = *dialogue;
         say(process, speaker, topic, 0, 0, 1, 1);
         *general = was;
+        std::lock_guard<std::mutex> lock(g_voicesLock);
         auto voice = g_voices.find(speaker->refID);
         if (voice != g_voices.end())
             sound = voice->second;
@@ -4323,12 +4463,17 @@ namespace game
 
     bool StopSpeaking(const TESObjectREFR* speaker)
     {
-        auto it = speaker ? g_voices.find(speaker->refID) : g_voices.end();
-        if (it == g_voices.end())
-            return false;
-        bool playing = IsPlaying(it->second);
-        StopSound(it->second);
-        g_voices.erase(it);
+        Sound voice;
+        {
+            std::lock_guard<std::mutex> lock(g_voicesLock);
+            auto it = speaker ? g_voices.find(speaker->refID) : g_voices.end();
+            if (it == g_voices.end())
+                return false;
+            voice = it->second;
+            g_voices.erase(it);
+        }
+        bool playing = IsPlaying(voice);
+        StopSound(voice);
         return playing;
     }
 
@@ -4639,16 +4784,70 @@ namespace game
         return item.base && !(item.flags & (layout::kRefDeleted | layout::kRefDisabled));
     }
 
-    TESObjectREFR* PlaceItem(uint32_t base, int count, float x, float y, float z)
+    Condition ItemCondition(TESObjectREFR* ref)
+    {
+        Condition c;
+        NVSEArrayVarInterface::Element result;
+        if (!g_itemCondition || !ref || !ref->baseForm || (ref->baseForm->typeID != kFormType_TESObjectWEAP &&
+            ref->baseForm->typeID != kFormType_TESObjectARMO) ||
+            !g_scripts->CallFunction(g_itemCondition, ref, nullptr, &result, 0))
+            return c;
+        int n = static_cast<int>(result.GetNumber());
+        if (n >= 0 && n % 256 <= 100)
+            c.health = static_cast<uint8_t>(n % 256);
+        if (n >= 0 && n / 256 <= 7)
+            c.mods = static_cast<uint8_t>(n / 256);
+        return c;
+    }
+
+    namespace
+    {
+        void SetWorldWeaponMods(TESObjectREFR* ref, uint8_t mods)
+        {
+            if (!ref || !ref->baseForm || ref->baseForm->typeID != kFormType_TESObjectWEAP)
+                return;
+            for (uint32_t slot = 0; slot < 3; ++slot)
+                if (!At<const void*>(ref->baseForm, layout::kWeaponMods + 4 * slot))
+                    mods &= ~(1u << slot);
+            if (!mods)
+                return;
+            using GetByTypeFn = void*(__thiscall*)(void* list, uint8_t type);
+            if (void* extra = reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&ref->extraDataList,
+                layout::kExtraWeaponModFlags))
+                *(static_cast<uint8_t*>(extra) + layout::kWeaponModFlagsValue) = mods;
+            else
+            {
+                auto* made = static_cast<uint32_t*>(reinterpret_cast<void* (__cdecl*)(size_t)>(addr::kFormHeapAllocate)(
+                    layout::kExtraWeaponModFlagsSize));
+                if (!made)
+                    return;
+                made[0] = static_cast<uint32_t>(layout::kVtblExtraWeaponModFlags);
+                made[1] = layout::kExtraWeaponModFlags;
+                made[2] = 0;
+                made[3] = 0;
+                *(reinterpret_cast<uint8_t*>(made) + layout::kWeaponModFlagsValue) = mods;
+                using AddFn = void*(__thiscall*)(void* list, void* extra);
+                if (!reinterpret_cast<AddFn>(addr::kExtraListAdd)(&ref->extraDataList, made))
+                    return;
+            }
+            if (g_update3D)
+                g_scripts->CallFunctionAlt(g_update3D, ref, 0);
+        }
+    }
+
+    TESObjectREFR* PlaceItem(uint32_t base, int count, float x, float y, float z, uint8_t health, uint8_t mods)
     {
         TESForm* form = LookupForm(base);
         NVSEArrayVarInterface::Element result;
         if (!g_placeItem || !Player() || !form || !IsItem(base) || count < 1 ||
-            !g_scripts->CallFunction(g_placeItem, Player(), nullptr, &result, 5, form, static_cast<uint32_t>(count),
-                FloatArg(x), FloatArg(y), FloatArg(z)))
+            !g_scripts->CallFunction(g_placeItem, Player(), nullptr, &result, 6, form, static_cast<uint32_t>(count),
+                FloatArg(x), FloatArg(y), FloatArg(z), static_cast<uint32_t>(health)))
             return nullptr;
         TESForm* made = result.GetTESForm();
-        return made ? LookupRef(made->refID) : nullptr;
+        TESObjectREFR* ref = made ? LookupRef(made->refID) : nullptr;
+        if (ref && mods)
+            SetWorldWeaponMods(ref, mods);
+        return ref;
     }
 
     void MoveItem(TESObjectREFR* ref, float x, float y, float z, float rx, float ry, float rz)
@@ -5489,7 +5688,7 @@ namespace game
     {
         SetPlayerEssential(false);
         if (g_compiled && Player())
-            g_scripts->CallFunctionAlt(g_kill, Player(), 0);
+            g_scripts->CallFunctionAlt(g_kill, Player(), 1, static_cast<uint32_t>(-1));
     }
 
     void KnockOut(TESObjectREFR* ref)

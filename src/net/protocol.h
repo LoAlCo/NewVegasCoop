@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 67;
+    constexpr uint32_t kProtocolVersion = 69;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -156,6 +156,7 @@ namespace net
     constexpr size_t kMaxModFiles = 1024;
     constexpr size_t kModFilesPerMessage = 200;
     constexpr size_t kMaxModFileNameLength = 200;
+    constexpr uint64_t kMaxModFileSize = 1ull << 40;
     bool IsPlainModFileName(const std::string& name, ModKind kind);
     struct ModFiles
     {
@@ -190,6 +191,7 @@ namespace net
     constexpr uint8_t kKnownPlayerStateFlags = 0x03;
     constexpr float kMaxPitch = 1.6f;
     constexpr size_t kMaxGearItems = 32;
+    constexpr uint8_t kNoCondition = 255;
     struct PlayerGear
     {
         uint8_t playerId = 0;
@@ -335,10 +337,16 @@ namespace net
     bool Decode(Reader& r, Attack& m);
     bool Decode(Reader& r, Travel& m);
     bool Decode(Reader& r, NpcStates& m);
+    struct WornItem
+    {
+        uint32_t item = 0;
+        uint8_t health = kNoCondition;
+        bool operator==(const WornItem& o) const { return item == o.item && health == o.health; }
+    };
     struct NpcGear
     {
         uint32_t ref = 0;
-        std::vector<uint32_t> items;
+        std::vector<WornItem> items;
     };
     Bytes Encode(const NpcGear& m);
     bool Decode(Reader& r, NpcGear& m);
@@ -370,7 +378,6 @@ namespace net
 
     constexpr size_t kMaxItemKinds = 500;
     constexpr int32_t kMaxItemCount = 1000000;
-    constexpr uint8_t kNoCondition = 255;
     struct ItemCount
     {
         uint32_t item = 0;
@@ -411,6 +418,8 @@ namespace net
         bool held = false;
         uint32_t parent = 0;
         bool parentOn = false;
+        uint8_t health = kNoCondition;
+        uint8_t mods = 0;
     };
     constexpr float kMaxItemAngle = 7;
     struct ItemStates
@@ -422,12 +431,16 @@ namespace net
         uint32_t ref = 0;
         uint32_t base = 0;
         int32_t count = 1;
+        uint8_t health = kNoCondition;
+        uint8_t mods = 0;
     };
     struct ItemDrop
     {
         uint32_t base = 0;
         int32_t count = 1;
         float x = 0, y = 0, z = 0;
+        uint8_t health = kNoCondition;
+        uint8_t mods = 0;
     };
     Bytes Encode(const ItemStates& m);
     bool Decode(Reader& r, ItemStates& m);

@@ -21,6 +21,7 @@ namespace coop
             std::vector<net::ContainerChange>& changes);
         void Settle(const std::vector<net::ItemCount>& local) { m_snapshot = local; }
         void Heard(const net::ContainerContents& m);
+        void Reset() { *this = FriendContainer(); }
 
     private:
         uint32_t m_ref = 0;

@@ -27,8 +27,10 @@ the requirements and how to play. Discord: https://discord.gg/dU3g6CZK8F
 ## Credits
 Built on [xNVSE](https://github.com/xNVSE/NVSE). Facts about the game's memory and functions were learned from the
 source of [JIP LN NVSE](https://github.com/jazzisparis/JIP-LN-NVSE), JohnnyGuitar NVSE, kNVSE, ShowOff NVSE and
-Real Time Menus, and from reverse engineering with Ghidra; thanks to their authors. AI (Claude) was used as a coding
-assistant. No game code is included.
+Real Time Menus, and from reverse engineering with Ghidra; thanks to their authors. A big thank you also to the
+[FNV decompilation](https://fnvdecomp.com) project ([source](https://github.com/momusdigital/fnv_decomp)) and its
+community of contributors, who rebuilt the game function by function: it let us check how the game really works.
+AI (Claude) was used as a coding assistant. No game code is included.
 
 ## License
 See [LICENSE](LICENSE). In short: use it and change it however you like; don't reupload the original; you may share

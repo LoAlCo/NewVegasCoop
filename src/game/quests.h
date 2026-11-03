@@ -17,6 +17,7 @@ namespace game
     public:
         void Update(coop::Coop& coop, uint32_t now);
         void Stop();
+        void Forget() { m_switched.clear(); }
 
     private:
         void Host(coop::Coop& coop, uint32_t now);

@@ -139,6 +139,7 @@ namespace dev
             Say("coop box: what the open container screen shows; coop boxadd N: N stimpaks into it (negative: out)");
             Say("coop items: list the items lying near you; coop itempick K: pick up item K of that list");
             Say("coop where N: where reference N (decimal id; or the selected one) is, turned how, and its 3D");
+            Say("coop body N: what actor N (decimal id; or the selected one) wears and holds");
             Say("coop hide N / coop show N: switch reference N off or on in this game only (desync lab)");
             Say("coop party: who's following us (companions not told to wait)");
             Say("coop quests: list started quests; coop questpick K: pick one; then coop queststage N (mark stage N done),");
@@ -538,6 +539,27 @@ namespace dev
                         Say("  %08X x%d", item.id, item.count);
                     else
                         Say("  %08X x%d at %u%%, mods %u", item.id, item.count, item.health, item.mods);
+            }
+            else if (_stricmp(action, "body") == 0)
+            {
+                TESObjectREFR* who = hasNumber ? game::LookupRef(static_cast<uint32_t>(number)) : selected;
+                if (!who || !game::IsActor(who))
+                    return Say("coop body N: an actor's reference id, decimal (or select one)");
+                game::BaseInfo b = game::DescribeBase(who);
+                Say("%08X %s (base %08X, levelled from %08X): %s", game::RefId(who), game::Name(who), b.base,
+                    b.leveledBase, game::IsDead(who) ? "dead" : "alive");
+                for (uint32_t id : game::Gear(who, false))
+                    Say("  wears %08X", id);
+                for (const net::WornItem& w : game::WornGear(who))
+                    Say("  armour %08X at %u%%", w.item, w.health);
+                std::vector<game::Item> items;
+                if (!game::Contents(who, items))
+                    return Say("  COULDN'T READ its items");
+                for (const game::Item& item : items)
+                    if (item.health == net::kNoCondition)
+                        Say("  has %08X x%d", item.id, item.count);
+                    else
+                        Say("  has %08X x%d at %u%%, mods %u", item.id, item.count, item.health, item.mods);
             }
             else if (_stricmp(action, "where") == 0)
             {

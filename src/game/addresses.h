@@ -14,6 +14,7 @@ namespace game::addr
     constexpr uintptr_t kMobileObjectJump = 0x00930640;
     constexpr int kActorReloadSlot = 0x3E8 / 4;
     constexpr uintptr_t kExtraListGetByType = 0x00410220;
+    constexpr uintptr_t kExtraListAdd = 0x0040FF60;
     constexpr uintptr_t kCompassTargetSet = 0x00966F20;
     constexpr uintptr_t kCompassTargetRemove = 0x00967350;
     constexpr uintptr_t kContainerMenu = 0x011D93F8;
@@ -299,6 +300,11 @@ namespace game::layout
     constexpr uint32_t kSubtitleShowFor = 0x108;
     constexpr uint8_t kExtraCount = 0x24;
     constexpr uint32_t kCountValue = 0x0C;
+    constexpr uint8_t kExtraWeaponModFlags = 0x8D;
+    constexpr uint32_t kWeaponModFlagsValue = 0x0C;
+    constexpr uint32_t kExtraWeaponModFlagsSize = 0x10;
+    constexpr uintptr_t kVtblExtraWeaponModFlags = 0x010159A4;
+    constexpr uint32_t kWeaponMods = 0x350;
     constexpr uint32_t kDataHandlerWorldSpaces = 0x10;
     constexpr uint32_t kWorldSpaceCell = 0x34;
     constexpr uint32_t kCellObjects = 0xAC;

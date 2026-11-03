@@ -849,7 +849,7 @@ TEST(friends_see_the_hosts_npcs_and_forget_the_ones_it_stops_sharing)
     host.Stop();
 }
 
-TEST(npcs_made_while_playing_need_a_base_and_carry_gear)
+TEST(npcs_made_while_playing_need_a_base_and_all_npcs_carry_gear)
 {
     auto decodes = [](const NpcStates& in, NpcStates& out) {
         Bytes b = Encode(in);
@@ -873,35 +873,47 @@ TEST(npcs_made_while_playing_need_a_base_and_carry_gear)
         MsgType t;
         return r.Type(t) && t == MsgType::NpcGear && Decode(r, out);
     };
-    NpcGear gear{0xFF000801, {0x1234, 0x5678}};
+    NpcGear gear{0xFF000801, {{0x1234, 35}, {0x5678, kNoCondition}}};
     NpcGear got;
     CHECK(gearDecodes(gear, got) && got.ref == 0xFF000801 && got.items == gear.items);
-    for (int i = 0; i < 3; ++i)
+    gear.ref = 0x104C80;
+    CHECK(gearDecodes(gear, got) && got.ref == 0x104C80 && got.items == gear.items);
+    for (int i = 0; i < 5; ++i)
     {
         NpcGear m = gear;
-        if (i == 0) m.ref = 0x104C79;
-        if (i == 1) m.items[1] = 0;
-        if (i == 2) m.items[1] = 0xFF000123;
+        if (i == 0) m.ref = 0;
+        if (i == 1) m.ref = 0x14;
+        if (i == 2) m.items[1].item = 0;
+        if (i == 3) m.items[1].item = 0xFF000123;
+        if (i == 4) m.items[0].health = 101;
         CHECK(!gearDecodes(m, got));
     }
     NpcGear lots{0xFF000801, {}};
     for (uint32_t i = 0; i < kMaxGearItems + 5; ++i)
-        lots.items.push_back(0x1000 + i);
+        lots.items.push_back({0x1000 + i, 100});
     CHECK(gearDecodes(lots, got) && got.items.size() == kMaxGearItems);
 
     coop::Coop host, a;
     CHECK(host.Host(kTestPort, "Host"));
     CHECK(a.Join("127.0.0.1", kTestPort, "A"));
     CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
-    host.SetNpcGear(0xFF000801, {0x5678, 0x1234, 0x1234, 0xFF000002});
-    host.SetNpcs(0xDA726, in.npcs);
+    host.SetNpcGear(0xFF000801, {{0x5678, 50}, {0x1234, 35}, {0x1234, 35}, {0xFF000002, 100}, {0x9999, 200}});
+    std::vector<NpcState> both = in.npcs;
+    both.push_back({0x104C80, 4, 5, 6, 0, 0, 0, 65, 65, 0, 0, 0});
+    both.push_back({0x104C81, 7, 8, 9, 0, 0, 0, 45, 45, 0, 0, 0});
+    host.SetNpcGear(0x104C80, {{0x153A0E, 100}, {0x33598, 40}});
+    host.SetNpcGear(0x104C81, {});
+    host.SetNpcs(0xDA726, both);
     CHECK(RunUntil({&host, &a}, [&] {
-        auto it = a.Npcs().find(0xFF000801);
-        return it != a.Npcs().end() && it->second.gearChanges > 0;
+        auto it = a.Npcs().find(0xFF000801), placed = a.Npcs().find(0x104C80), bare = a.Npcs().find(0x104C81);
+        return it != a.Npcs().end() && it->second.gearChanges > 0 && placed != a.Npcs().end() &&
+            placed->second.gearChanges > 0 && bare != a.Npcs().end() && bare->second.gearChanges > 0;
     }, coop::kNpcGearResendMs + 2000));
     const coop::RemoteNpc& npc = a.Npcs().at(0xFF000801);
-    CHECK(npc.base == 0x101440 && npc.gear == std::vector<uint32_t>({0x1234, 0x5678}));
-    a.SetNpcGear(0xFF000801, {1});
+    CHECK(npc.base == 0x101440 && npc.gear == std::vector<WornItem>({{0x1234, 35}, {0x5678, 50}}));
+    CHECK(a.Npcs().at(0x104C80).gear == std::vector<WornItem>({{0x33598, 40}, {0x153A0E, 100}}));
+    CHECK(a.Npcs().at(0x104C81).gear.empty());
+    a.SetNpcGear(0xFF000801, {{1, 100}});
     a.Stop();
     host.Stop();
 }
@@ -1683,6 +1695,38 @@ TEST(container_changes_reach_the_host_and_contents_reach_the_friend)
     host.Stop();
 }
 
+TEST(a_friend_joining_again_sees_the_hosts_box_contents)
+{
+    coop::Coop host, buddy;
+    CHECK(host.Host(kTestPort, "Host"));
+    const uint32_t box = 0x1062A9;
+    const std::vector<ItemCount> hostHas{{0x15169, 3}};
+    for (int round = 0; round < 2; ++round)
+    {
+        CHECK(buddy.Join("127.0.0.1", kTestPort, "Buddy"));
+        CHECK((RunUntil({&host, &buddy}, [&] { return buddy.GetFriendState() == coop::FriendState::Joined; })));
+        buddy.ViewContainer(box);
+        CHECK((RunUntil({&host, &buddy}, [&] { return host.ViewedContainers() == std::vector<uint32_t>{box}; })));
+        host.SetContainerContents(box, hostHas);
+        std::vector<ItemCount> fixes;
+        buddy.LookAtContainer({{0x15169, 1}});
+        CHECK((RunUntil({&host, &buddy}, [&] { fixes = buddy.LookAtContainer({{0x15169, 1}}); return !fixes.empty(); })));
+        CHECK((fixes == (std::vector<ItemCount>{{0x15169, 2}})));
+        buddy.ContainerSettled(hostHas);
+        buddy.LookAtContainer({});
+        std::vector<coop::Coop::ItemChangeFrom> asked;
+        CHECK((RunUntil({&host, &buddy}, [&] {
+            for (auto& c : host.TakeContainerChanges())
+                asked.push_back(c);
+            return !asked.empty();
+        })));
+        host.ContainerChangeDone(asked[0].playerId, asked[0].change.seq, asked[0].change.change);
+        buddy.Stop();
+        CHECK((RunUntil({&host, &buddy}, [&] { return host.ViewedContainers().empty(); })));
+    }
+    host.Stop();
+}
+
 TEST(item_messages_round_trip_and_checks)
 {
     auto decodes = [](const ItemStates& in, ItemStates& out) {
@@ -1692,11 +1736,14 @@ TEST(item_messages_round_trip_and_checks)
         return r.Type(t) && t == MsgType::ItemStates && Decode(r, out);
     };
     ItemStates in{{{0x171CAA, 0x171CE0, 1, true, -73107, 1302, 8891}, {0xFF00131C, 0x15169, 2, false, 1, 2, 3}}};
+    in.items[0].health = 45;
+    in.items[0].mods = 5;
     ItemStates out;
     CHECK(decodes(in, out) && out.items.size() == 2 && out.items[1].ref == 0xFF00131C && out.items[1].count == 2 &&
-        !out.items[1].present && out.items[0].x == -73107.0f);
+        !out.items[1].present && out.items[0].x == -73107.0f && out.items[0].health == 45 && out.items[0].mods == 5 &&
+        out.items[1].health == kNoCondition && out.items[1].mods == 0);
     CHECK(!decodes(ItemStates{}, out));
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < 7; ++i)
     {
         ItemStates m = in;
         if (i == 0) m.items[1].ref = m.items[0].ref;
@@ -1704,17 +1751,36 @@ TEST(item_messages_round_trip_and_checks)
         if (i == 2) m.items[1].base = 0;
         if (i == 3) m.items[1].count = 0;
         if (i == 4) m.items[1].count = kMaxItemCount + 1;
+        if (i == 5) m.items[0].health = 101;
+        if (i == 6) m.items[0].mods = 8;
         CHECK(!decodes(m, out));
     }
     Bytes b = Encode(ItemDrop{0x15169, 2, 1, 2, 3});
     Reader r(b);
     MsgType t;
     ItemDrop drop;
-    CHECK(r.Type(t) && t == MsgType::ItemDrop && Decode(r, drop) && drop.base == 0x15169 && drop.count == 2 && drop.z == 3);
+    CHECK(r.Type(t) && t == MsgType::ItemDrop && Decode(r, drop) && drop.base == 0x15169 && drop.count == 2 &&
+        drop.z == 3 && drop.health == kNoCondition);
+    Bytes gb = Encode(ItemDrop{0x4332, 1, 1, 2, 3, 30, 3});
+    Reader gr(gb);
+    CHECK(gr.Type(t) && Decode(gr, drop) && drop.health == 30 && drop.mods == 3);
+    Bytes bad = Encode(ItemDrop{0x4332, 1, 1, 2, 3, 200});
+    Reader br(bad);
+    CHECK(br.Type(t) && !Decode(br, drop));
+    Bytes badMods = Encode(ItemDrop{0x4332, 1, 1, 2, 3, 30, 9});
+    Reader bm(badMods);
+    CHECK(bm.Type(t) && !Decode(bm, drop));
     Bytes tb = Encode(ItemTake{0x171CAA, 0x171CE0, 1});
     Reader tr(tb);
     ItemTake take;
-    CHECK(tr.Type(t) && t == MsgType::ItemTake && Decode(tr, take) && take.ref == 0x171CAA);
+    CHECK(tr.Type(t) && t == MsgType::ItemTake && Decode(tr, take) && take.ref == 0x171CAA &&
+        take.health == kNoCondition && take.mods == 0);
+    Bytes gt = Encode(ItemTake{0xFF001400, 0x4332, 1, 30, 7});
+    Reader gtr(gt);
+    CHECK(gtr.Type(t) && Decode(gtr, take) && take.health == 30 && take.mods == 7);
+    Bytes badTake = Encode(ItemTake{0xFF001400, 0x4332, 1, 30, 8});
+    Reader btr(badTake);
+    CHECK(btr.Type(t) && !Decode(btr, take));
 }
 
 TEST(friend_items_follow_the_host_and_send_own_pickups_and_drops)
@@ -1775,6 +1841,36 @@ TEST(friend_items_follow_the_host_and_send_own_pickups_and_drops)
     LocalItem distant{0xFF000400, 0x4240, 1, true, 900, 0, 0, false};
     a = items.Look({distant});
     CHECK(a.drops.empty() && a.remove == std::vector<uint32_t>{0xFF000400});
+
+    LocalItem gun{0xFF000500, 0x4332, 1, true, 7, 8, 9, true};
+    gun.health = 45;
+    gun.mods = 2;
+    a = items.Look({gun});
+    CHECK(a.drops.size() == 1 && a.drops[0].health == 45 && a.drops[0].mods == 2);
+    net::ItemState hostGun{0xFF001400, 0x4332, 1, true, 50, 0, 0};
+    hostGun.health = 30;
+    hostGun.mods = 7;
+    items.Heard(hostGun);
+    a = items.Look({});
+    CHECK(a.make.size() == 1 && a.make[0].ref == 0xFF001400 && a.make[0].health == 30 && a.make[0].mods == 7);
+
+    items.Made(0xFF001400, 0xFF000600);
+    LocalItem gunCopy{0xFF000600, 0x4332, 1, true, 50, 0, 0, true};
+    gunCopy.health = 30;
+    gunCopy.mods = 7;
+    a = items.Look({gunCopy});
+    CHECK(a.takes.empty() && a.remove.empty());
+    gunCopy.present = false;
+    gunCopy.health = kNoCondition;
+    gunCopy.mods = 0;
+    a = items.Look({gunCopy});
+    CHECK(a.takes.size() == 1 && a.takes[0].ref == 0xFF001400 && a.takes[0].health == 30 && a.takes[0].mods == 7);
+    LocalItem placedGun{0x172300, 0x4332, 1, true, 60, 0, 0, true};
+    placedGun.health = 55;
+    placedGun.mods = 1;
+    a = items.Look({placedGun});
+    a = items.Look({});
+    CHECK(a.takes.size() == 1 && a.takes[0].ref == 0x172300 && a.takes[0].health == 55 && a.takes[0].mods == 1);
 }
 
 TEST(item_pickups_and_drops_reach_the_host_and_items_reach_friends)
@@ -1784,20 +1880,29 @@ TEST(item_pickups_and_drops_reach_the_host_and_items_reach_friends)
     CHECK(buddy.Join("127.0.0.1", kTestPort, "Buddy"));
     CHECK(RunUntil({&host, &buddy}, [&] { return buddy.GetFriendState() == coop::FriendState::Joined; }));
 
-    host.SetWorldItems({{0xFF00131C, 0x15169, 2, true, 100, 0, 0}});
+    net::ItemState stims{0xFF00131C, 0x15169, 2, true, 100, 0, 0};
+    net::ItemState gun{0xFF001400, 0x4332, 1, true, 50, 0, 0};
+    gun.health = 30;
+    gun.mods = 4;
+    host.SetWorldItems({stims, gun});
     coop::ItemActions a;
     buddy.LookAtItems({}, true);
-    CHECK(RunUntil({&host, &buddy}, [&] { a = buddy.LookAtItems({}, true); return !a.make.empty(); }));
-    CHECK((a.make.size() == 1 && a.make[0].ref == 0xFF00131C));
+    CHECK(RunUntil({&host, &buddy}, [&] { a = buddy.LookAtItems({}, true); return a.make.size() == 2; }));
+    CHECK((a.make.size() == 2 && a.make[0].ref == 0xFF00131C && a.make[0].health == net::kNoCondition &&
+        a.make[1].ref == 0xFF001400 && a.make[1].health == 30 && a.make[1].mods == 4));
 
-    buddy.LookAtItems({{0xFF000300, 0x4240, 24, true, 7, 8, 9, true}}, true);
+    coop::LocalItem droppedGun{0xFF000310, 0x4332, 1, true, 7, 8, 9, true};
+    droppedGun.health = 45;
+    droppedGun.mods = 1;
+    buddy.LookAtItems({{0xFF000300, 0x4240, 24, true, 7, 8, 9, true}, droppedGun}, true);
     std::vector<coop::Coop::ItemDropFrom> drops;
     CHECK(RunUntil({&host, &buddy}, [&] {
         for (auto& d : host.TakeItemDrops())
             drops.push_back(d);
-        return !drops.empty();
+        return drops.size() >= 2;
     }));
-    CHECK((drops.size() == 1 && drops[0].playerId == 1 && drops[0].drop.count == 24));
+    CHECK((drops.size() == 2 && drops[0].playerId == 1 && drops[0].drop.count == 24 &&
+        drops[0].drop.health == net::kNoCondition && drops[1].drop.health == 45 && drops[1].drop.mods == 1));
 
     host.SetWorldItems({});
     bool gone = false;
@@ -2780,7 +2885,7 @@ TEST(mod_lists_round_trip_and_bad_names_are_dropped)
             got.files[i].hash == m.files[i].hash);
 
     for (const char* bad : {"..\\evil.esp", "a/b.esp", "C:evil.esp", "CON.esp", "nul .esp", "evil.dll", "evil.esp ",
-        ".esp", "x?.esp", "evil.esp.exe"})
+        ".esp", "x?.esp", "evil.esp.exe", "COM\xB9.esp", "lpt\xB2.esp", "COM0.esp", "CONIN$.esp", "conout$.esp"})
     {
         ModFiles one;
         one.files = {Mod(bad, ModKind::Plugin, 1)};
@@ -2793,6 +2898,21 @@ TEST(mod_lists_round_trip_and_bad_names_are_dropped)
     CHECK(net::IsPlainModFileName("DeadMoney - Main.BSA", ModKind::Archive));
     CHECK(!net::IsPlainModFileName("DeadMoney - Main.bsa", ModKind::Plugin));
     CHECK(net::IsPlainModFileName("jip_nvse.dll", ModKind::Dll));
+    CHECK(net::IsPlainModFileName("COM10.esp", ModKind::Plugin) && net::IsPlainModFileName("Commonwealth.esp",
+        ModKind::Plugin) && net::IsPlainModFileName("LPTX.esp", ModKind::Plugin));
+
+    {
+        ModFiles big;
+        big.files = {Mod("Big.esp", ModKind::Plugin, 1ull << 63)};
+        Bytes e = Encode(big);
+        Reader er(e);
+        ModFiles out;
+        CHECK(er.Type(t) && !Decode(er, out));
+        big.files = {Mod("Big.esp", ModKind::Plugin, net::kMaxModFileSize)};
+        Bytes ok = Encode(big);
+        Reader okr(ok);
+        CHECK(okr.Type(t) && Decode(okr, out) && out.files[0].size == net::kMaxModFileSize);
+    }
 
     Bytes cut = Encode(m);
     cut.pop_back();
@@ -4260,6 +4380,64 @@ TEST(players_looks_reach_everyone)
     a.SetMyLooks(hers);
     CHECK(RunUntil({&host, &a, &b2}, [&] { return b2.LooksChanges() > changes; }));
     CHECK(b2.Looks().at(ann).hairLength == 0.9f);
+}
+
+TEST(a_friend_who_then_hosts_sends_only_its_own_looks)
+{
+    coop::Coop oldHost, me, other;
+    net::PlayerLooks hostLooks;
+    hostLooks.race = 0x42;
+    net::PlayerLooks mine;
+    mine.race = 0x19;
+    CHECK(oldHost.Host(kTestPort, "Old"));
+    oldHost.SetMyLooks(hostLooks);
+    CHECK(me.Join("127.0.0.1", kTestPort, "Me"));
+    me.SetMyLooks(mine);
+    CHECK(RunUntil({&oldHost, &me}, [&] { return me.Looks().count(coop::kHostPlayerId) == 1; }));
+    me.Stop();
+    oldHost.Stop();
+    CHECK(me.Looks().empty());
+    CHECK(me.Host(kTestPort, "Me"));
+    CHECK(other.Join("127.0.0.1", kTestPort, "Other"));
+    CHECK(RunUntil({&me, &other}, [&] { return other.Looks().count(coop::kHostPlayerId) == 1; }));
+    for (int i = 0; i < 30; ++i)
+    {
+        me.Update();
+        other.Update();
+        Sleep(10);
+    }
+    CHECK(other.Looks().at(coop::kHostPlayerId).race == 0x19);
+    other.Stop();
+    me.Stop();
+}
+
+TEST(a_friend_not_yet_let_in_takes_no_save_orders)
+{
+    Session raw;
+    CHECK(raw.StartHost(kTestPort, 4));
+    coop::Coop a;
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    bool answered = false;
+    std::vector<SaveOrder> heard;
+    for (int i = 0; i < 300 && heard.empty(); ++i)
+    {
+        a.Update();
+        for (auto& o : a.TakeSaveOrders())
+            heard.push_back(o);
+        Event ev;
+        while (raw.Poll(ev))
+            if (ev.kind == Event::Kind::Received && !answered)
+            {
+                answered = true;
+                raw.Send(ev.peer, Encode(SaveOrder{true, "Before"}));
+                raw.Send(ev.peer, Encode(Welcome{1, "Host"}));
+                raw.Send(ev.peer, Encode(SaveOrder{true, "After"}));
+            }
+        Sleep(10);
+    }
+    CHECK(answered && heard.size() == 1 && heard[0].name == "After" && heard[0].load);
+    a.Stop();
+    raw.Stop();
 }
 
 TEST(the_hosts_xp_comes_with_the_welcome)

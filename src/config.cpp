@@ -146,7 +146,12 @@ Config Config::Load(const std::string& iniPath)
     else if (_stricmp(mode.c_str(), "menu") == 0) c.mode = Mode::Menu;
     else if (_stricmp(mode.c_str(), "host") == 0) c.mode = Mode::Host;
     else if (_stricmp(mode.c_str(), "join") == 0) c.mode = Mode::Join;
-    else c.mode = Mode::Auto;
+    else if (_stricmp(mode.c_str(), "auto") == 0) c.mode = Mode::Auto;
+    else
+    {
+        LOG_WARN("Settings: Mode=%s isn't one we know; using menu", mode.c_str());
+        c.mode = Mode::Menu;
+    }
 
     c.address = Read(iniPath, "Address", c.address.c_str());
     int port = std::atoi(Read(iniPath, "Port", "27960").c_str());

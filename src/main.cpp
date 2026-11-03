@@ -51,6 +51,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <future>
 #include <map>
 #include <utility>
@@ -59,7 +60,7 @@
 namespace
 {
     PluginHandle g_handle = kPluginHandle_Invalid;
-    coop::Coop g_coop;
+    coop::Coop& g_coop = *new coop::Coop;
     Config g_config;
     game::StandIns g_standIns;
     Speech g_speech;
@@ -430,6 +431,7 @@ namespace
     bool g_askedWhoToJoin = false, g_askedHowToJoin = false, g_typingAddress = false;
     std::vector<JoinTarget> g_joinChoices;
     enum class JoinHow { SteamFriend, TypeAddress, LastAddress, LanCoop };
+    constexpr const char* kLanCoopLabel = "LanCoop (NVCoop.ini's Address)";
     std::vector<JoinHow> g_howChoices;
     size_t g_addressShown = 0;
 
@@ -442,7 +444,7 @@ namespace
         g_howChoices.clear();
         if (g_config.lanCoop)
         {
-            buttons.push_back(g_config.address + " (LanCoop)");
+            buttons.push_back(kLanCoopLabel);
             g_howChoices.push_back(JoinHow::LanCoop);
         }
         buttons.push_back("A Steam friend's game");
@@ -591,7 +593,7 @@ namespace
                     case JoinHow::LastAddress:
                         JoinHost({0, g_config.joinAddress, "the host by IP", g_config.joinPort});
                         break;
-                    case JoinHow::LanCoop: JoinHost({0, g_config.address, g_config.address + " (LanCoop)"}); break;
+                    case JoinHow::LanCoop: JoinHost({0, g_config.address, kLanCoopLabel}); break;
                     }
             }
         }
@@ -2055,6 +2057,13 @@ namespace
         }
     }
 
+    void CrashAtExit()
+    {
+        LOG_WARN("Lab: crashing as the game closes; Steam's steamclient.dll is %s",
+            GetModuleHandleA("steamclient.dll") ? "still loaded" : "gone");
+        *reinterpret_cast<volatile int*>(0x10) = 1;
+    }
+
     std::string RunLabLine(std::string line)
     {
         while (!line.empty() && line.back() == ' ')
@@ -2212,8 +2221,8 @@ namespace
                 JoinHost({0, g_config.joinAddress, "the host by IP", g_config.joinPort});
                 return "picked the last IP address";
             case JoinHow::LanCoop:
-                JoinHost({0, g_config.address, g_config.address + " (LanCoop)"});
-                return "picked " + g_config.address + " (LanCoop)";
+                JoinHost({0, g_config.address, kLanCoopLabel});
+                return std::string("picked ") + kLanCoopLabel;
             }
             return "cancelled";
         }
@@ -2250,6 +2259,18 @@ namespace
             *reinterpret_cast<volatile int*>(0x10) = 1;
             return "";
         }
+        if (line == "crashtest exit")
+        {
+            std::atexit(CrashAtExit);
+            LOG_WARN("Lab: the game will crash as it closes, on purpose");
+            return "it will crash as it closes";
+        }
+        if (line == "crashtest param")
+        {
+            char tiny[2];
+            errno_t error = strcpy_s(tiny, sizeof(tiny), line.c_str());
+            return "the runtime said invalid parameter (" + std::to_string(error) + ") and the game went on";
+        }
         if (line == "freezetest")
         {
             LOG_WARN("Lab: stopping the game for 10 s on purpose");
@@ -2277,6 +2298,14 @@ namespace
             return g_worldLoaded ? game::Evaluate(line.c_str() + 5) : "no world loaded";
         if (_strnicmp(line.c_str(), "note ", 5) == 0)
             return "noted";
+        if (_strnicmp(line.c_str(), "on ", 3) == 0 && g_worldLoaded)
+        {
+            char* rest = nullptr;
+            TESObjectREFR* on = game::LookupRef(std::strtoul(line.c_str() + 3, &rest, 16));
+            if (!on || *rest != ' ')
+                return "on <ref id, hex> <console line>: no such reference here";
+            return game::RunConsoleLine(rest + 1, on) ? "ran" : "the console didn't take it";
+        }
         return game::RunConsoleLine(line.c_str()) ? "ran" : "the console didn't take it";
     }
 
@@ -2455,7 +2484,15 @@ namespace
         if (!modReport.empty() && !(g_menuMatched && g_worldLoaded))
             game::ShowMessage(modReport);
         if (g_modScan.valid() && g_modScan.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-            ConnectCoop();
+        {
+            if (g_worldLoaded)
+                ConnectCoop();
+            else
+            {
+                g_modScan.get();
+                LOG_INFO("Mods read, but the world they were read for is gone: co-op starts with the next one");
+            }
+        }
         game::RetryMessageBoxes();
         FixMods(GetTickCount());
         CheckModsAtMenu(GetTickCount());
@@ -3037,6 +3074,7 @@ namespace
             g_doors.Forget();
             g_mines.Forget();
             g_progress.Forget();
+            g_quests.Forget();
             g_coop.ForgetMyPlace();
             g_hasTravel = false;
             g_inspector.Forget();
@@ -3063,7 +3101,10 @@ namespace
         }
         case NVSEMessagingInterface::kMessage_PostLoadGame:
             g_loadingSave = false;
-            LOG_INFO("Save loaded");
+            if (msg->data)
+                LOG_INFO("Save loaded");
+            else
+                LOG_WARN("The save didn't load (the game says it failed)");
             OnWorldLoaded();
             break;
         case NVSEMessagingInterface::kMessage_NewGame:

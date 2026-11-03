@@ -20,10 +20,12 @@
 namespace
 {
     LPTOP_LEVEL_EXCEPTION_FILTER g_previous = nullptr;
+    LPTOP_LEVEL_EXCEPTION_FILTER g_first = nullptr;
     LONG g_dumped = 0;
 
     void* g_spare = nullptr;
     HANDLE g_dumpWanted = nullptr, g_dumpDone = nullptr;
+    HANDLE g_dumpWriter = nullptr;
     EXCEPTION_POINTERS* g_dumpInfo = nullptr;
     DWORD g_dumpThread = 0;
     char g_dumpPath[MAX_PATH];
@@ -54,14 +56,17 @@ namespace
         return 0;
     }
 
-    void WriteDump(EXCEPTION_POINTERS* info)
+    void WriteDump(EXCEPTION_POINTERS* info, bool fatal = true)
     {
-        if (InterlockedExchange(&g_dumped, 1) != 0)
+        static LONG s_errorDumped = 0;
+        if (InterlockedExchange(fatal ? &g_dumped : &s_errorDumped, 1) != 0)
             return;
         SYSTEMTIME t;
         GetLocalTime(&t);
         std::snprintf(g_dumpPath, sizeof(g_dumpPath), "NVCoop-crash-%04d%02d%02d-%02d%02d%02d.dmp",
             t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+        if (!fatal)
+            return Dump(info, GetCurrentThreadId());
         if (g_spare)
         {
             VirtualFree(g_spare, 0, MEM_RELEASE);
@@ -69,6 +74,8 @@ namespace
         }
         if (g_dumpWanted && g_dumpDone)
         {
+            if (WaitForSingleObject(g_dumpWriter, 0) == WAIT_OBJECT_0)
+                return LOG_ERROR("No crash dump: the game was closing (the stack above says where)");
             g_dumpInfo = info;
             g_dumpThread = GetCurrentThreadId();
             SetEvent(g_dumpWanted);
@@ -80,13 +87,13 @@ namespace
         Dump(info, GetCurrentThreadId());
     }
 
-    void DumpHere()
+    void DumpHere(bool fatal)
     {
         __try
         {
             RaiseException(0xE0C00000, 0, 0, nullptr);
         }
-        __except (WriteDump(GetExceptionInformation()), EXCEPTION_EXECUTE_HANDLER)
+        __except (WriteDump(GetExceptionInformation(), fatal), EXCEPTION_EXECUTE_HANDLER)
         {
         }
     }
@@ -150,6 +157,16 @@ namespace
 
     LONG WINAPI OnCrash(EXCEPTION_POINTERS* info)
     {
+        static LONG depth = 0;
+        struct Leave { ~Leave() { InterlockedDecrement(&depth); } } leave;
+        LONG in = InterlockedIncrement(&depth);
+        if (in == 2)
+        {
+            LOG_ERROR("Crash: the crash reporter after ours passed it back to ours; it goes to the one before ours");
+            return g_first && g_first != g_previous ? g_first(info) : EXCEPTION_CONTINUE_SEARCH;
+        }
+        if (in > 2)
+            return EXCEPTION_CONTINUE_SEARCH;
         static LONG once = 0;
         if (InterlockedExchange(&once, 1) == 0)
         {
@@ -185,7 +202,7 @@ namespace
         LOG_ERROR("C++ runtime %s: %s", type == _CRT_ASSERT ? "check failed" : "error", message ? message : "");
         static int dumps = 0;
         if (dumps++ < 3)
-            DumpHere();
+            DumpHere(false);
         if (returnValue)
             *returnValue = 0;
         return TRUE;
@@ -195,13 +212,13 @@ namespace
     void __cdecl OnAbort(int)
     {
         LOG_ERROR("C++ runtime: abort() called");
-        DumpHere();
+        DumpHere(true);
     }
 
     void OnTerminate()
     {
         LOG_ERROR("C++ runtime: an error was never caught (std::terminate)");
-        DumpHere();
+        DumpHere(true);
         std::abort();
     }
 
@@ -210,7 +227,7 @@ namespace
     {
         LOG_ERROR("C++ runtime: invalid parameter (%ls in %ls, %ls:%u)", expression ? expression : L"?",
             function ? function : L"?", file ? file : L"?", line);
-        DumpHere();
+        DumpHere(false);
     }
 }
 
@@ -307,11 +324,11 @@ void InstallCrashReporter()
     if (g_dumpWanted && g_dumpDone)
     {
         if (HANDLE thread = CreateThread(nullptr, 256 * 1024, DumpThread, nullptr, 0, nullptr))
-            CloseHandle(thread);
+            g_dumpWriter = thread;
         else
             g_dumpWanted = g_dumpDone = nullptr;
     }
-    g_previous = SetUnhandledExceptionFilter(OnCrash);
+    g_previous = g_first = SetUnhandledExceptionFilter(OnCrash);
 #ifdef _DEBUG
     _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, OnRuntimeReport);
 #endif
@@ -325,6 +342,10 @@ void CheckCrashReporter()
     LPTOP_LEVEL_EXCEPTION_FILTER current = SetUnhandledExceptionFilter(OnCrash);
     if (current == OnCrash)
         return;
-    LOG_WARN("Something replaced our crash reporter; put it back in front (theirs still runs after ours)");
+    char whose[96] = "?";
+    if (current)
+        Describe(reinterpret_cast<uintptr_t>(current), whose, sizeof(whose));
+    LOG_WARN("Something replaced our crash reporter (%s); put it back in front (theirs still runs after ours)",
+        whose);
     g_previous = current;
 }

@@ -110,7 +110,7 @@ namespace coop
         m_friendDoors.Clear();
         m_views.clear();
         m_itemChanges.clear();
-        m_friendContainer.View(0);
+        m_friendContainer.Reset();
         m_refunds.clear();
         m_myItems.clear();
         m_sentItems.clear();
@@ -139,6 +139,8 @@ namespace coop
         m_teleports.clear();
         m_anims.clear();
         m_modAnims.clear();
+        m_looks.clear();
+        ++m_looksChanges;
         m_repGains.clear();
         m_talk.Clear();
         m_wait = WaitVote{};
@@ -206,6 +208,9 @@ namespace coop
                     m_frozen = false;
                     m_remotes.clear();
                     m_npcs.clear();
+                    m_looks.clear();
+                    ++m_looksChanges;
+                    m_friendContainer.Reset();
                 }
                 break;
 
@@ -1123,7 +1128,7 @@ namespace coop
         else if (type == MsgType::SaveOrder)
         {
             SaveOrder m;
-            if (!Decode(r, m))
+            if (!Decode(r, m) || m_friendState != FriendState::Joined)
                 return;
             if (SaveNameOf(m.name) != m.name)
             {
@@ -1232,7 +1237,7 @@ namespace coop
             if (!Decode(r, m))
                 return;
             auto it = m_npcs.find(m.ref);
-            if (it != m_npcs.end() && it->second.gear != m.items)
+            if (it != m_npcs.end() && (it->second.gear != m.items || it->second.gearChanges == 0))
             {
                 it->second.gear = std::move(m.items);
                 ++it->second.gearChanges;
@@ -2098,6 +2103,17 @@ namespace coop
         }
         char size[32];
         std::snprintf(size, sizeof(size), "%.1f MB", bytes / 1048576.0);
+        ULARGE_INTEGER available{};
+        if (bytes && GetDiskFreeSpaceExA(m_modFolders.data.c_str(), &available, nullptr, nullptr) &&
+            bytes > available.QuadPart)
+        {
+            char room[32];
+            std::snprintf(room, sizeof(room), "%.1f MB", available.QuadPart / 1048576.0);
+            LOG_WARN("Mods: the host's files need %s and the disk has %s free: not fetching them", size, room);
+            m_modReport = text + "\nThe host's files need " + size + " and your disk has " + room + " free: make room, "
+                "then join again.";
+            return Stop();
+        }
         if (m_modsWanted.empty())
             text += "\n\nFix your mods to match the host's? (Nothing is deleted; changes are backed up.)";
         else
@@ -2420,14 +2436,17 @@ namespace coop
         }
     }
 
-    void Coop::SetNpcGear(uint32_t ref, std::vector<uint32_t> items)
+    void Coop::SetNpcGear(uint32_t ref, std::vector<WornItem> items)
     {
-        if (m_role != Role::Host || !IsMadeWhilePlaying(ref))
+        if (m_role != Role::Host || !IsSharedRef(ref))
             return;
-        std::sort(items.begin(), items.end());
-        items.erase(std::unique(items.begin(), items.end()), items.end());
-        items.erase(std::remove_if(items.begin(), items.end(),
-            [](uint32_t id) { return id == 0 || IsMadeWhilePlaying(id); }), items.end());
+        std::sort(items.begin(), items.end(), [](const WornItem& a, const WornItem& b) {
+            return a.item != b.item ? a.item < b.item : a.health < b.health; });
+        items.erase(std::unique(items.begin(), items.end(),
+            [](const WornItem& a, const WornItem& b) { return a.item == b.item; }), items.end());
+        items.erase(std::remove_if(items.begin(), items.end(), [](const WornItem& i) {
+            return i.item == 0 || IsMadeWhilePlaying(i.item) || (i.health > 100 && i.health != kNoCondition); }),
+            items.end());
         if (items.size() > kMaxGearItems)
             items.resize(kMaxGearItems);
         auto it = m_npcGear.find(ref);
@@ -2733,12 +2752,19 @@ namespace coop
         }
         for (const ItemTake& t : actions.takes)
         {
-            LOG_DEBUG("I picked up %08X (%d of %08X)", t.ref, t.count, t.base);
+            if (t.health != kNoCondition || t.mods)
+                LOG_DEBUG("I picked up %08X (%d of %08X at %d%% condition, mods %d)", t.ref, t.count, t.base, t.health,
+                    t.mods);
+            else
+                LOG_DEBUG("I picked up %08X (%d of %08X)", t.ref, t.count, t.base);
             m_net->Send(1, Encode(t), true);
         }
         for (const ItemDrop& d : actions.drops)
         {
-            LOG_DEBUG("I dropped %d of %08X", d.count, d.base);
+            if (d.health != kNoCondition || d.mods)
+                LOG_DEBUG("I dropped %d of %08X at %d%% condition, mods %d", d.count, d.base, d.health, d.mods);
+            else
+                LOG_DEBUG("I dropped %d of %08X", d.count, d.base);
             m_net->Send(1, Encode(d), true);
         }
         return actions;

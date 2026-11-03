@@ -104,8 +104,12 @@ namespace game
                 if (parent && net::IsMadeWhilePlaying(RefId(parent)))
                     parent = nullptr;
                 if (w.base && w.count >= 1)
+                {
+                    Condition c = ItemCondition(ref);
                     states.push_back({RefId(ref), w.base, w.count, IsThere(w), w.x, w.y, w.z, w.rx, w.ry, w.rz,
-                        RefId(ref) == m_grabbed, parent ? RefId(parent) : 0, parent && IsEnabled(parent)});
+                        RefId(ref) == m_grabbed, parent ? RefId(parent) : 0, parent && IsEnabled(parent), c.health,
+                        c.mods});
+                }
             }
             coop.SetWorldItems(states);
         }
@@ -125,6 +129,9 @@ namespace game
                 local.push_back({id, w.base, w.count, IsThere(w), w.x, w.y, w.z,
                     dx * dx + dy * dy + dz * dz < reach * reach, w.rx, w.ry, w.rz, id == m_grabbed,
                     Following(id, now), movable, (w.flags & layout::kRefDeleted) != 0});
+                Condition c = ItemCondition(refs[i]);
+                local.back().health = c.health;
+                local.back().mods = c.mods;
                 if (TESObjectREFR* parent = TopEnableParent(refs[i]))
                 {
                     local.back().parent = RefId(parent);
@@ -138,11 +145,17 @@ namespace game
             m_area = area;
             for (const net::ItemState& h : actions.make)
             {
-                TESObjectREFR* made = PlaceItem(h.base, h.count, h.x, h.y, h.z);
+                TESObjectREFR* made = PlaceItem(h.base, h.count, h.x, h.y, h.z, h.health, h.mods);
                 coop.ItemMade(h.ref, made ? RefId(made) : 0);
                 if (made && !net::IsMadeWhilePlaying(h.ref))
                     LOG_DEBUG("Items: %08X was picked up in our save but is there in the host's game: a copy (%08X) "
                         "in its place", h.ref, RefId(made));
+                if (made && (h.health != net::kNoCondition || h.mods))
+                {
+                    Condition ours = ItemCondition(made);
+                    LOG_DEBUG("Items: a copy (%08X) of the host's %08X at its condition, %d%%, mods %d (ours reads "
+                        "%d%%, mods %d)", RefId(made), h.ref, h.health, h.mods, ours.health, ours.mods);
+                }
                 if (made)
                     ++m_made;
                 else
@@ -208,7 +221,7 @@ namespace game
             }
             else
             {
-                coop.RefundItems(t.playerId, {t.take.base, -t.take.count});
+                coop.RefundItems(t.playerId, {t.take.base, -t.take.count, t.take.health, t.take.mods});
                 ++m_refunds;
                 LOG_DEBUG("Items: %s picked up %08X, already gone here", coop.NameOf(t.playerId).c_str(), t.take.ref);
             }
@@ -216,14 +229,23 @@ namespace game
         for (const coop::Coop::ItemDropFrom& d : coop.TakeItemDrops())
         {
             const net::ItemDrop& drop = d.drop;
-            if (PlaceItem(drop.base, drop.count, drop.x, drop.y, drop.z))
+            if (TESObjectREFR* placed = PlaceItem(drop.base, drop.count, drop.x, drop.y, drop.z, drop.health,
+                drop.mods))
             {
                 ++m_drops;
-                LOG_DEBUG("Items: %s dropped %d of %08X", coop.NameOf(d.playerId).c_str(), drop.count, drop.base);
+                if (drop.health != net::kNoCondition || drop.mods)
+                {
+                    Condition ours = ItemCondition(placed);
+                    LOG_DEBUG("Items: %s dropped %d of %08X at %d%% condition, mods %d (ours, %08X, reads %d%%, "
+                        "mods %d)", coop.NameOf(d.playerId).c_str(), drop.count, drop.base, drop.health, drop.mods,
+                        RefId(placed), ours.health, ours.mods);
+                }
+                else
+                    LOG_DEBUG("Items: %s dropped %d of %08X", coop.NameOf(d.playerId).c_str(), drop.count, drop.base);
             }
             else
             {
-                coop.RefundItems(d.playerId, {drop.base, drop.count});
+                coop.RefundItems(d.playerId, {drop.base, drop.count, drop.health, drop.mods});
                 ++m_refunds;
                 LOG_WARN("Items: couldn't place %s's drop (%d of %08X); given back", coop.NameOf(d.playerId).c_str(),
                     drop.count, drop.base);

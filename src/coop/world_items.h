@@ -36,6 +36,8 @@ namespace coop
         bool deleted = false;
         uint32_t parent = 0;
         bool parentOn = false;
+        uint8_t health = net::kNoCondition;
+        uint8_t mods = 0;
     };
 
     struct ItemPose
@@ -78,7 +80,11 @@ namespace coop
         std::map<uint32_t, net::ItemState> m_host;
         std::map<uint32_t, uint32_t> m_heardAt;
         std::map<uint32_t, uint32_t> m_copies;
-        struct Seen { bool present; int32_t count; uint32_t base; bool nearMe; ItemPose pose; bool movable; };
+        struct Seen
+        {
+            bool present; int32_t count; uint32_t base; bool nearMe; ItemPose pose; bool movable;
+            uint8_t health = net::kNoCondition; uint8_t mods = 0;
+        };
         std::map<uint32_t, Seen> m_seen;
         struct Own { ItemPose sent; bool held = false; uint32_t movedAt = 0, sentAt = 0; };
         std::map<uint32_t, Own> m_own;

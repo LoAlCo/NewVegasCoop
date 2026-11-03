@@ -451,18 +451,22 @@ namespace net
         size_t count = m.items.size() < kMaxGearItems ? m.items.size() : kMaxGearItems;
         w.U8(static_cast<uint8_t>(count));
         for (size_t i = 0; i < count; ++i)
-            w.U32(m.items[i]);
+        {
+            w.U32(m.items[i].item);
+            w.U8(m.items[i].health);
+        }
         return w.Take();
     }
 
     bool Decode(Reader& r, NpcGear& m)
     {
         uint8_t count;
-        if (!r.U32(m.ref) || !IsMadeWhilePlaying(m.ref) || !r.U8(count) || count > kMaxGearItems)
+        if (!r.U32(m.ref) || !IsSharedRef(m.ref) || !r.U8(count) || count > kMaxGearItems)
             return false;
         m.items.resize(count);
-        for (uint32_t& id : m.items)
-            if (!r.U32(id) || id == 0 || IsMadeWhilePlaying(id))
+        for (WornItem& i : m.items)
+            if (!r.U32(i.item) || i.item == 0 || IsMadeWhilePlaying(i.item) || !r.U8(i.health) ||
+                (i.health > 100 && i.health != kNoCondition))
                 return false;
         return r.AtEnd();
     }
@@ -660,6 +664,17 @@ namespace net
             w.U32(base);
             w.U32(static_cast<uint32_t>(count));
         }
+
+        bool ReadCondition(Reader& r, uint8_t& health, uint8_t& mods)
+        {
+            return r.U8(health) && (health <= 100 || health == kNoCondition) && r.U8(mods) && mods <= 7;
+        }
+
+        void WriteCondition(Writer& w, uint8_t health, uint8_t mods)
+        {
+            w.U8(health);
+            w.U8(mods);
+        }
     }
 
     Bytes Encode(const ItemStates& m)
@@ -681,6 +696,7 @@ namespace net
             w.F32(it.rx);
             w.F32(it.ry);
             w.F32(it.rz);
+            WriteCondition(w, it.health, it.mods);
         }
         return w.Take();
     }
@@ -700,7 +716,8 @@ namespace net
                 return false;
             if ((flags & 4) && (!r.U32(it.parent) || !IsSharedRef(it.parent) || IsMadeWhilePlaying(it.parent)))
                 return false;
-            if (!r.F32(it.x) || !r.F32(it.y) || !r.F32(it.z) || !ReadAngles(r, it.rx, it.ry, it.rz))
+            if (!r.F32(it.x) || !r.F32(it.y) || !r.F32(it.z) || !ReadAngles(r, it.rx, it.ry, it.rz) ||
+                !ReadCondition(r, it.health, it.mods))
                 return false;
             it.present = (flags & 1) != 0;
             it.held = (flags & 2) != 0;
@@ -758,12 +775,14 @@ namespace net
         Writer w(MsgType::ItemTake);
         w.U32(m.ref);
         WriteStack(w, m.base, m.count);
+        WriteCondition(w, m.health, m.mods);
         return w.Take();
     }
 
     bool Decode(Reader& r, ItemTake& m)
     {
-        return r.U32(m.ref) && IsSharedRef(m.ref) && ReadStack(r, m.base, m.count) && r.AtEnd();
+        return r.U32(m.ref) && IsSharedRef(m.ref) && ReadStack(r, m.base, m.count) &&
+            ReadCondition(r, m.health, m.mods) && r.AtEnd();
     }
 
     Bytes Encode(const ItemDrop& m)
@@ -773,12 +792,14 @@ namespace net
         w.F32(m.x);
         w.F32(m.y);
         w.F32(m.z);
+        WriteCondition(w, m.health, m.mods);
         return w.Take();
     }
 
     bool Decode(Reader& r, ItemDrop& m)
     {
-        return ReadStack(r, m.base, m.count) && r.F32(m.x) && r.F32(m.y) && r.F32(m.z) && r.AtEnd();
+        return ReadStack(r, m.base, m.count) && r.F32(m.x) && r.F32(m.y) && r.F32(m.z) &&
+            ReadCondition(r, m.health, m.mods) && r.AtEnd();
     }
 
     Bytes Encode(const QuestStates& m)
@@ -1581,11 +1602,16 @@ namespace net
         std::string stem = name.substr(0, name.find('.'));
         while (!stem.empty() && stem.back() == ' ')
             stem.pop_back();
-        static const char* const kDevices[] = {"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5",
-            "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"};
+        static const char* const kDevices[] = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"};
         for (const char* device : kDevices)
             if (_stricmp(stem.c_str(), device) == 0)
                 return false;
+        if (stem.size() == 4 && (_strnicmp(stem.c_str(), "COM", 3) == 0 || _strnicmp(stem.c_str(), "LPT", 3) == 0))
+        {
+            unsigned char digit = static_cast<unsigned char>(stem[3]);
+            if ((digit >= '0' && digit <= '9') || digit == 0xB9 || digit == 0xB2 || digit == 0xB3)
+                return false;
+        }
         return true;
     }
 
@@ -1627,7 +1653,8 @@ namespace net
             f.kind = static_cast<ModKind>(kind);
             f.size = (uint64_t(high) << 32) | low;
             f.hashed = hashed == 1;
-            if (!IsPlainModFileName(f.name, f.kind) || (f.hashed && !r.Block(f.hash.data(), f.hash.size())))
+            if (f.size > kMaxModFileSize || !IsPlainModFileName(f.name, f.kind) ||
+                (f.hashed && !r.Block(f.hash.data(), f.hash.size())))
                 return false;
         }
         return r.AtEnd();

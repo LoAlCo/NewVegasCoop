@@ -44,8 +44,10 @@ namespace coop
             return;
         it->second = ourRef;
         if (ourRef)
-            m_seen[ourRef] = {true, m_host[hostRef].count, m_host[hostRef].base, false, PoseOf(m_host[hostRef]),
-                false};
+        {
+            const net::ItemState& host = m_host[hostRef];
+            m_seen[ourRef] = {true, host.count, host.base, false, PoseOf(host), false, host.health, host.mods};
+        }
     }
 
     void FriendItems::Taken(uint32_t ourRef, uint32_t hostRef)
@@ -99,8 +101,9 @@ namespace coop
             }
             auto was = m_seen.find(l.ref);
             bool wasPresent = was == m_seen.end() ? l.present : was->second.present;
-            looked[l.ref] = {l.present, l.present || was == m_seen.end() ? l.count : was->second.count, l.base,
-                l.nearMe, PoseOf(l), l.movable};
+            bool afresh = l.present || was == m_seen.end();
+            looked[l.ref] = {l.present, afresh ? l.count : was->second.count, l.base, l.nearMe, PoseOf(l), l.movable,
+                afresh ? l.health : was->second.health, afresh ? l.mods : was->second.mods};
             bool made = net::IsMadeWhilePlaying(l.ref);
             auto copy = hostOf.find(l.ref);
             uint32_t hostRef = !made ? l.ref : copy != hostOf.end() ? copy->second : 0;
@@ -127,7 +130,7 @@ namespace coop
 
             if (wasPresent && !l.present && l.nearMe && hostRef && !l.movable && !m_removed.count(l.ref))
             {
-                out.takes.push_back({hostRef, l.base, was->second.count});
+                out.takes.push_back({hostRef, l.base, was->second.count, was->second.health, was->second.mods});
                 Taken(l.ref, copy != hostOf.end() ? hostRef : 0);
                 continue;
             }
@@ -162,7 +165,7 @@ namespace coop
             if (made && !hostRef)
             {
                 if (m_started && l.nearMe && !net::IsMadeWhilePlaying(l.base) && m_dropped.insert(l.ref).second)
-                    out.drops.push_back({l.base, l.count, l.x, l.y, l.z});
+                    out.drops.push_back({l.base, l.count, l.x, l.y, l.z, l.health, l.mods});
                 out.remove.push_back(l.ref);
                 continue;
             }
@@ -273,7 +276,7 @@ namespace coop
                 hostRef = copy->second;
             if (sameArea && seen.present && seen.nearMe && hostRef && !seen.movable && !m_removed.count(ref))
             {
-                out.takes.push_back({hostRef, seen.base, seen.count});
+                out.takes.push_back({hostRef, seen.base, seen.count, seen.health, seen.mods});
                 Taken(ref, net::IsMadeWhilePlaying(ref) ? hostRef : 0);
             }
             else if (hostOf.find(ref) != hostOf.end())

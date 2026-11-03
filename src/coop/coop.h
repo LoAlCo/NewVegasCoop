@@ -123,7 +123,7 @@ namespace coop
         uint32_t idle = 0;
         uint32_t weapon = 0;
         uint32_t base = 0;
-        std::vector<uint32_t> gear;
+        std::vector<net::WornItem> gear;
         uint32_t gearChanges = 0;
     };
 
@@ -227,7 +227,7 @@ namespace coop
         void SetNpcs(uint32_t space, std::vector<net::NpcState> npcs);
         const std::map<uint32_t, RemoteNpc>& Npcs() const { return m_npcs; }
         void NpcAttacked(uint32_t ref, uint8_t shots, bool reloaded = false, bool released = false);
-        void SetNpcGear(uint32_t ref, std::vector<uint32_t> items);
+        void SetNpcGear(uint32_t ref, std::vector<net::WornItem> items);
         std::vector<net::NpcAttack> TakeNpcAttacks() { return std::move(m_npcAttacks); }
         void SetDoors(std::vector<net::DoorState> doors);
         std::vector<net::DoorState> TakeDoorUses() { return std::move(m_doorUses); }
@@ -417,7 +417,7 @@ namespace coop
         uint32_t m_npcUpdatesSent = 0, m_npcBytesSent = 0;
         uint32_t m_playerCommandsSent = 0, m_playerCommandBytesSent = 0;
         std::map<uint32_t, net::NpcAttack> m_npcShots;
-        struct NpcGearSent { std::vector<uint32_t> items; uint32_t sentAt = 0; bool changed = true; };
+        struct NpcGearSent { std::vector<net::WornItem> items; uint32_t sentAt = 0; bool changed = true; };
         std::map<uint32_t, NpcGearSent> m_npcGear;
         std::vector<net::NpcAttack> m_npcAttacks;
         std::map<uint32_t, RemoteNpc> m_npcs;

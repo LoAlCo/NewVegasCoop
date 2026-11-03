@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.1.9
+- Everyone needs 0.1.9 to play together.
+- Weapons and armour lying on the ground keep their condition and weapon mods for everyone: a worn, modded gun dropped
+  by one player came out brand new and without its mods in the others' games (a free repair; duplicated ones were all
+  at full condition).
+- Two players grabbing the same item at once: the slower one gives back that very item, not another of the same kind
+  from their inventory (say, their own gun in place of the worn, modded one they just grabbed).
+- Closing the game's window during co-op (instead of using Exit Game) no longer crashes the game as it closes, and a
+  crash while the game is closing no longer leaves it hanging for a minute.
+- Mr. House now dies in friends' games too when he's killed in the host's (their copy of him stayed alive).
+- Looting a body as a friend: it keeps the clothes and armour it wore, at the host's condition. A friend's game
+  dressed most NPCs in its own random outfits, so a body's gear changed as it was looted, and a body could take out
+  its own gun as it died.
+- Fixed from a check of the whole mod against the decompiled game:
+  - Joining again without restarting the game: boxes and bodies showed your own loot instead of the host's until
+    you took something.
+  - After the host loaded an earlier save, friends' games kept switching on or off what the host's had before the
+    load (NPCs and objects the host didn't have).
+  - Someone who joined a game and then hosted one could show their new friends the old host's face.
+  - Stopping a friend's conversation line early stopped working once many NPCs had spoken in a session.
+  - The game over's kill no longer asks the game to cut off a body part.
+  - Crash reports: a crash could bounce between ours and Steam's crash reporter, and a small runtime error could use up
+    the crash dump.
+  - Mod downloads: a host's file list can't fill a friend's disk any more (checked against free space), and a few
+    more Windows device names are refused as file names.
+  - A friend not yet let in no longer loads or saves when the host says so.
+  - A typo in NVCoop.ini's Mode no longer turns on the testing mode that hosts by IP by itself.
+- Fixed NPCs missing from a friend's game while the host could see them: on the Strip, two Securitrons, a traveller
+  and four NCR soldiers vanished for a friend who walked past one of the Strip's street scenes (the game's own
+  script for the scene ran in the friend's game alone, with the friend's own save's values).
+
 ## 0.1.8
 - Co-op balanced and friendly fire are now two switches in the Mod Configuration Menu, for all your games, both off
   at first, and changeable any time (the host's count for everyone; friends already in get a change at once). A new

@@ -406,10 +406,10 @@ namespace
     class FakeNpcs
     {
     public:
-        FakeNpcs(uint32_t count, bool cycle) : m_count(count), m_cycle(cycle) {}
+        FakeNpcs(uint32_t count, bool cycle, uint32_t real) : m_count(count), m_cycle(cycle), m_real(real) {}
         void Update(coop::Coop& coop, uint32_t now)
         {
-            if (!m_count || coop.GetRole() != coop::Role::Host)
+            if ((!m_count && !m_real) || coop.GetRole() != coop::Role::Host)
                 return;
             coop::Pose them;
             bool found = false;
@@ -417,6 +417,11 @@ namespace
                 found = found || remote.motion.Sample(now, them);
             if (!found)
                 return;
+            if (m_real && !m_realState.ref)
+            {
+                m_realState = {m_real, them.x + 300, them.y, them.z, 0, 0, 0, 100, 100, 0, 0, 0};
+                LOG_INFO("Sharing NPC %08X (from the game's files), standing still", m_real);
+            }
             if (m_cycle && m_npcs.size() == m_count && coop::IsDue(now, m_cycleAt))
             {
                 LOG_INFO("Dropping the %zu NPCs; making them again", m_npcs.size());
@@ -434,9 +439,12 @@ namespace
                 if (m_npcs.size() == m_count)
                     m_cycleAt = now + 10000;
             }
-            coop.SetNpcs(them.space, m_npcs);
+            std::vector<net::NpcState> npcs = m_npcs;
+            if (m_realState.ref)
+                npcs.push_back(m_realState);
+            coop.SetNpcs(them.space, std::move(npcs));
             for (const net::NpcState& n : m_npcs)
-                coop.SetNpcGear(n.ref, {kHockeyMask, kJumpsuit});
+                coop.SetNpcGear(n.ref, {{kHockeyMask, 60}, {kJumpsuit, 80}});
         }
 
     private:
@@ -444,6 +452,8 @@ namespace
         static constexpr uint32_t kHockeyMask = 0x00033598, kJumpsuit = 0x00153A0E;
         uint32_t m_count;
         bool m_cycle;
+        uint32_t m_real;
+        net::NpcState m_realState{};
         std::vector<net::NpcState> m_npcs;
         uint32_t m_serial = 1, m_nextAddAt = 0, m_cycleAt = 0;
     };
@@ -452,6 +462,7 @@ namespace
     {
         std::printf("usage:\n  fakefriend join [address] [port] [name] [hit=<ref id>] [still] [down] [revive] [attack] [far]\n"
             "  fakefriend host [port] [name] [hurt] [still] [down] [revive] [attack] [far] [npcs=<count> [cycle]]\n"
+            "      [npc=<ref id>]\n"
             "  either can add: record=<file>, replay=<file> [here], lag=<ping>[,<jitter>[,<lost %%>]]\n");
         return 1;
     }
@@ -469,6 +480,7 @@ int main(int argc, char** argv)
     bool here = false;
     uint32_t npcCount = 0;
     bool npcCycle = false;
+    uint32_t npcReal = 0;
     const char* recordTo = nullptr;
     const char* replayFrom = nullptr;
     net::FakeLag lag;
@@ -496,6 +508,8 @@ int main(int argc, char** argv)
             int count = std::atoi(argv[i] + 5);
             npcCount = static_cast<uint32_t>(count < 0 ? 0 : count > 40 ? 40 : count);
         }
+        else if (std::strncmp(argv[i], "npc=", 4) == 0)
+            npcReal = std::strtoul(argv[i] + 4, nullptr, 16);
         else if (std::strcmp(argv[i], "cycle") == 0)
             npcCycle = true;
         else if (std::strncmp(argv[i], "record=", 7) == 0)
@@ -554,7 +568,7 @@ int main(int argc, char** argv)
     }
 
     Walker walker(still, startFar);
-    FakeNpcs fakeNpcs(npcCount, npcCycle);
+    FakeNpcs fakeNpcs(npcCount, npcCycle, npcReal);
     uint32_t nextHit = 0;
     uint32_t nextAttack = 0, attacks = 0;
     float health = 100;

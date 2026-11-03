@@ -61,8 +61,9 @@ namespace game
             {
                 ChangeItem(Player(), r);
                 ++m_refunds;
-                LOG_INFO("Containers: %d of %08X %s our inventory (someone got there first)",
-                    r.count < 0 ? -r.count : r.count, r.item, r.count < 0 ? "taken back out of" : "given back to");
+                LOG_INFO("Containers: %d of %08X (condition %d, mods %d) %s our inventory (someone got there first)",
+                    r.count < 0 ? -r.count : r.count, r.item, r.health, r.mods,
+                    r.count < 0 ? "taken back out of" : "given back to");
                 Notify(r.count < 0 ? "Someone else took that first" : "That couldn't go in there: given back");
             }
             if (!refunds.empty())

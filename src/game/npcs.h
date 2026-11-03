@@ -47,6 +47,9 @@ namespace game
             uint32_t allGifts = 0;
             uint32_t nextSitCheck = 0;
             uint32_t sittingSince = 0;
+            uint32_t gearChanges = 0;
+            uint32_t nextGearCheck = 0;
+            uint32_t dressings = 0;
         };
         void UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
         TESObjectREFR* Find(uint32_t ref) const;
@@ -75,7 +78,6 @@ namespace game
         struct Made
         {
             uint32_t localId = 0;
-            uint32_t gearChanges = 0;
             uint32_t loadedAt = 0;
         };
         std::map<uint32_t, Made> m_made;
@@ -86,6 +88,8 @@ namespace game
         struct Killed { uint32_t at = 0; uint16_t limbs = 0; uint8_t pile = 0; };
         std::map<uint32_t, Killed> m_killed;
         std::map<uint32_t, uint32_t> m_nextRevive;
+        struct SwitchedOff { uint32_t since = 0; uint32_t nextTry = 0; uint32_t tries = 0; };
+        std::map<uint32_t, SwitchedOff> m_switchedOff;
         std::map<uint32_t, uint32_t> m_localDeaths;
         std::set<uint32_t> m_piled;
         uint32_t m_nextShare = 0;

@@ -22,6 +22,7 @@ namespace game
         constexpr float kShowMargin = 800;
         constexpr uint32_t kBringEveryMs = 1000;
         constexpr uint32_t kGearEveryMs = 2000;
+        constexpr uint32_t kMaxDressings = 3;
         constexpr uint32_t kGunCheckEveryMs = 1000;
         constexpr uint32_t kMakeEveryMs = 250;
         constexpr uint32_t kSettleMs = 1500;
@@ -32,6 +33,10 @@ namespace game
         constexpr uint32_t kMaxGiftsPerCopy = 10;
         constexpr uint32_t kSitCheckEveryMs = 250;
         constexpr uint32_t kStandAfterMs = 1000;
+        constexpr uint32_t kSwitchOnAfterMs = 3000;
+        constexpr uint32_t kSwitchOnHeardMs = 1000;
+        constexpr uint32_t kSwitchOnEveryMs = 3000;
+        constexpr uint32_t kMaxSwitchOns = 5;
 
         double MsSince(const LARGE_INTEGER& start)
         {
@@ -107,7 +112,7 @@ namespace game
                 BaseInfo b = DescribeBase(actor);
                 base = b.leveledBase ? b.leveledBase : b.base;
             }
-            if (actor == Player() || standIns.IsStandIn(actor) || !net::IsSharedRef(ref) ||
+            if (actor == Player() || standIns.IsStandIn(actor) || !net::IsSharedRef(ref) || !IsEnabled(actor) ||
                 (net::IsMadeWhilePlaying(ref) && (!base || net::IsMadeWhilePlaying(base))))
             {
                 ++notShared;
@@ -177,10 +182,10 @@ namespace game
                 watched[ref] = w;
                 continue;
             }
-            if (base && coop::IsDue(now, w.nextGearAt))
+            if (coop::IsDue(now, w.nextGearAt))
             {
                 w.nextGearAt = now + kGearEveryMs;
-                coop.SetNpcGear(ref, Gear(actor, true));
+                coop.SetNpcGear(ref, WornGear(actor));
             }
 
             int action = AnimAction(actor);
@@ -208,9 +213,9 @@ namespace game
         if (found.empty() != m_foundNone)
         {
             m_foundNone = found.empty();
-            LOG_INFO("NPCs: %s near us (%zu actors: %u players or ones a friend can't make, %u in another place; "
-                "we're in %08X)", m_foundNone ? "no one to share" : "sharing again", m_nearby.size(), notShared,
-                elsewhere, myPose.space);
+            LOG_INFO("NPCs: %s near us (%zu actors: %u players, switched off or ones a friend can't make, %u in "
+                "another place; we're in %08X)", m_foundNone ? "no one to share" : "sharing again", m_nearby.size(),
+                notShared, elsewhere, myPose.space);
         }
         coop.SetNpcs(myPose.space, std::move(npcs));
 
@@ -253,6 +258,11 @@ namespace game
             {
                 if (!npc.dead)
                     saw({coop::DesyncKind::Npc, ref, coop::DesyncAspect::There, "not here"});
+                continue;
+            }
+            if (!IsEnabled(ours))
+            {
+                saw({coop::DesyncKind::Npc, ref, coop::DesyncAspect::There, "switched off here"});
                 continue;
             }
             bool dead = IsDead(ours);
@@ -318,6 +328,8 @@ namespace game
             it = shared.count(it->first) ? std::next(it) : m_killed.erase(it);
         for (auto it = m_nextRevive.begin(); it != m_nextRevive.end();)
             it = shared.count(it->first) ? std::next(it) : m_nextRevive.erase(it);
+        for (auto it = m_switchedOff.begin(); it != m_switchedOff.end();)
+            it = shared.count(it->first) ? std::next(it) : m_switchedOff.erase(it);
 
         const float showDistance = ShowDistance();
         for (auto& [ref, npc] : shared)
@@ -346,6 +358,26 @@ namespace game
                 continue;
             }
 
+            if (!IsEnabled(actor))
+            {
+                SwitchedOff& off = m_switchedOff[ref];
+                if (!off.since)
+                    off.since = now;
+                else if (now - off.since >= kSwitchOnAfterMs && now - npc.heardAt <= kSwitchOnHeardMs &&
+                    off.tries < kMaxSwitchOns && coop::IsDue(now, off.nextTry))
+                {
+                    off.nextTry = now + kSwitchOnEveryMs;
+                    ++off.tries;
+                    SetEnabled(actor, true);
+                    LOG_INFO("NPCs: %s (%08X) was switched off here, not in the host's game; switched it on%s",
+                        Name(actor), ref, off.tries == kMaxSwitchOns ? " (the last try: something keeps switching it "
+                        "off here)" : "");
+                }
+                continue;
+            }
+            if (auto off = m_switchedOff.find(ref); off != m_switchedOff.end())
+                off->second.since = 0;
+
             if (IsDead(actor))
             {
                 uint32_t& diedAt = m_localDeaths[ref];
@@ -365,8 +397,6 @@ namespace game
 
             if (npc.dead)
             {
-                if (it != m_entries.end())
-                    Release(ref);
                 auto killed = m_killed.find(ref);
                 if (!IsDead(actor) && (killed == m_killed.end() || now - killed->second.at > 3000))
                 {
@@ -381,6 +411,8 @@ namespace game
                     Kill(actor, npc.limbs & ~killed->second.limbs);
                     killed->second.limbs |= npc.limbs;
                 }
+                if (it != m_entries.end())
+                    Release(ref);
                 if (npc.pile && IsDead(actor) && !m_piled.count(ref))
                 {
                     MakePile(actor, npc.pile);
@@ -515,26 +547,40 @@ namespace game
                     settled = now - m->second.loadedAt >= kSettleMs;
                 }
             }
-            if (made && settled && npc.gearChanges)
+            if (settled && npc.gearChanges && coop::IsDue(now, e.nextGearCheck))
             {
-                auto m = m_made.find(ref);
-                if (m != m_made.end() && m->second.gearChanges != npc.gearChanges)
+                e.nextGearCheck = now + kGearEveryMs;
+                if (e.gearChanges != npc.gearChanges)
                 {
-                    m->second.gearChanges = npc.gearChanges;
-                    size_t takenOff = 0;
-                    if (s_labSteps & 1)
-                        for (uint32_t item : Gear(actor, true))
-                            if (std::find(npc.gear.begin(), npc.gear.end(), item) == npc.gear.end())
-                            {
-                                Unequip(actor, item);
-                                ++takenOff;
-                            }
+                    e.gearChanges = npc.gearChanges;
+                    e.dressings = 0;
+                }
+                std::vector<net::WornItem> worn = WornGear(actor);
+                if (worn != npc.gear && e.dressings < kMaxDressings)
+                {
+                    ++e.dressings;
+                    size_t takenOut = 0, putOn = 0;
                     if (s_labSteps & 2)
-                        for (uint32_t item : npc.gear)
-                            Wear(actor, item);
+                        for (const net::WornItem& h : npc.gear)
+                            if (std::find(worn.begin(), worn.end(), h) == worn.end() && Wear(actor, h))
+                                ++putOn;
+                    if (s_labSteps & 1)
+                        for (const net::WornItem& w : worn)
+                            if (std::none_of(npc.gear.begin(), npc.gear.end(),
+                                [&](const net::WornItem& h) { return h.item == w.item; }))
+                            {
+                                RemoveItem(actor, w.item);
+                                ++takenOut;
+                            }
                     ++m_dressed;
-                    LOG_DEBUG("NPCs: dressed our copy of %08X in %zu items (took off %zu of its own)", ref,
-                        npc.gear.size(), takenOff);
+                    LOG_DEBUG("NPCs: dressed our copy of %08X like the host's (%zu items; put on %zu, took out %zu)",
+                        ref, npc.gear.size(), putOn, takenOut);
+                }
+                else if (worn != npc.gear && e.dressings == kMaxDressings)
+                {
+                    ++e.dressings;
+                    LOG_INFO("NPCs: our copy of %08X still wears something else than the host's after %u tries", ref,
+                        kMaxDressings);
                 }
             }
             if (npc.weapon != e.weapon)
@@ -680,6 +726,8 @@ namespace game
         m_made.erase(ref);
         m_killed.erase(ref);
         m_nextRevive.erase(ref);
+        m_localDeaths.erase(ref);
+        m_piled.erase(ref);
         ++m_unmadeCount;
         LOG_DEBUG("NPCs: deleted our copy of %08X", ref);
     }
@@ -710,6 +758,7 @@ namespace game
             Release(m_entries.begin()->first);
         m_killed.clear();
         m_nextRevive.clear();
+        m_switchedOff.clear();
     }
 
     void Npcs::Forget()
@@ -718,6 +767,11 @@ namespace game
         m_made.clear();
         m_killed.clear();
         m_nextRevive.clear();
+        m_switchedOff.clear();
+        for (auto it = m_localDeaths.begin(); it != m_localDeaths.end();)
+            it = net::IsMadeWhilePlaying(it->first) ? m_localDeaths.erase(it) : std::next(it);
+        for (auto it = m_piled.begin(); it != m_piled.end();)
+            it = net::IsMadeWhilePlaying(*it) ? m_piled.erase(it) : std::next(it);
         m_watched.clear();
     }
 
