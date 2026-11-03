@@ -3,6 +3,7 @@
 #pragma once
 
 #include "coop/smoothing.h"
+#include "coop/talk_log.h"
 #include "net/protocol.h"
 
 #include <cstdint>
@@ -230,6 +231,16 @@ namespace game
     };
     void ShowFriendMarkers(const std::vector<FriendMark>& friends);
     void ShowReviveBar(const std::string& text);
+    struct TalkLogLook
+    {
+        float scale = 1;
+        float gap = 6;
+        bool dividers = true, hudColor = false;
+        int style = 1;  // what helps it read: 0 nothing, 1 outline, 2 drop shadow, 3 dark bar
+        uint8_t red = 255, green = 255, blue = 255;
+    };
+    // Shows the nearby conversations log at the top left, oldest line first
+    void ShowTalkLog(const std::vector<coop::TalkLog::Shown>& lines, const TalkLogLook& look);
     void SetSpeedMult(TESObjectREFR* actor, int mult);
     float CachedRunSpeed(TESObjectREFR* actor);
     std::vector<std::string> ModAnimFiles(TESObjectREFR* actor);
@@ -349,6 +360,7 @@ namespace game
     void* TopicInfo(uint32_t id);
     uint32_t TopicInfoId(const void* info);
     std::string TopicInfoPrompt(const void* info);
+    std::string PlayerReplyText(uint32_t topic, uint32_t info);
     bool HasResultScript(void* info, bool onEnd);
     uint16_t ScreenCommandIn(void* info, bool onEnd, int* statements = nullptr);
     void Greet(TESObjectREFR* actor);

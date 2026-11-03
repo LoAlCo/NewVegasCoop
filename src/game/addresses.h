@@ -47,6 +47,7 @@ namespace game::addr
     constexpr uintptr_t kTileGetValue = 0x00A01000;
     constexpr uint32_t kTileValueString = 0xFC4;
     constexpr uintptr_t kInterfaceManager = 0x011D8A80;
+    constexpr uintptr_t kNiAVObjectUpdate = 0x00A59C60;
     constexpr uint32_t kMenuStack = 0x114;
     constexpr int kMenuStackSlots = 10;
     constexpr uintptr_t kMessageBoxBusy = 0x011DA4EC;
@@ -284,6 +285,11 @@ namespace game::layout
     constexpr uint16_t kMineBaseMask = 0x426, kMineBaseFlags = 0x26;
     constexpr uint32_t kContainerMenuRef = 0x74;
     constexpr uint32_t kBarterMenuMerchant = 0x80;
+    constexpr uint32_t kInterfaceMenuRoot = 0x9C;
+    constexpr uint32_t kTileFirstChild = 0x04, kTileName = 0x20, kTileNode = 0x2C;
+    constexpr uint32_t kChildNodeNext = 0x00, kChildNodeTile = 0x08;
+    constexpr uint32_t kNiLocalTranslate = 0x58, kNiLocalScale = 0x64;
+    constexpr uint32_t kNiNodeChildren = 0xA0, kNiNodeChildSlots = 0xA6;
     constexpr uint32_t kDialogMenuPartner = 0x80;
     constexpr uint32_t kDialogMenuTopicNode = 0x70;
     constexpr uint32_t kMenuTopicResponses = 0x0C;

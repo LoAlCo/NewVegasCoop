@@ -73,6 +73,7 @@ namespace coop
     constexpr size_t kMaxQueuedItemMoves = 128;
 
     bool SamePlace(const Pose& a, const Pose& b);
+    bool Within(const Pose& a, const Pose& b, float distance);
 
     inline bool IsDowned(float health, float maxHealth) { return maxHealth > 0 && health <= 0; }
 

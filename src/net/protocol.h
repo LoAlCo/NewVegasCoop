@@ -576,6 +576,7 @@ namespace net
         uint8_t playerId = 0;
         uint32_t speaker = 0;
         bool stop = false;
+        bool reply = false;
         uint32_t topic = 0;
         uint32_t info = 0;
         uint8_t response = 0;

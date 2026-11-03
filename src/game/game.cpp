@@ -3,9 +3,12 @@
 #include "game/game.h"
 #include "game/level_up.h"
 #include "coop/chat.h"
+#include "coop/talk_log.h"
 #include "coop/balance.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <atomic>
 #include <utility>
 #include <array>
@@ -134,6 +137,11 @@ namespace game
         Script* g_itemCount = nullptr;
         Script* g_sitNearest = nullptr;
         Script* g_reviveBar = nullptr;
+        constexpr int kTalkSlots = static_cast<int>(coop::TalkLog::kMostLines);
+        constexpr int kTalkEdges = 4;
+        Script* g_talkText[kTalkSlots] = {};
+        Script* g_talkPlace[kTalkSlots] = {};
+        Script* g_talkBack[kTalkSlots] = {};
         Script* g_speedMult = nullptr;
         Script* g_actorAlpha = nullptr;
         Script* g_collision = nullptr;
@@ -836,6 +844,94 @@ namespace game
             "  endif\n"
             "  SetUIFloat \"HUDMainMenu/NVCoopRevive/visible\" iShow\n"
             "End\n");
+        for (int slot = 0; slot < kTalkSlots; ++slot)
+        {
+            // Per line of the nearby conversations log: its text, four copies of it behind (the outline, or one of
+            // them as a drop shadow), a bar behind it all and a divider under it
+            std::string n = std::to_string(slot);
+            std::string text = "HUDMainMenu/NVCoopTalk" + n;
+            std::string edge = "HUDMainMenu/NVCoopTalkEdge" + n + "x";
+            std::string line = "HUDMainMenu/NVCoopTalkLine" + n;
+            std::string bar = "HUDMainMenu/NVCoopTalkBar" + n;
+            std::string setText = "  SetUIStringEx \"" + text + "/string\" \"%z\" sText\n";
+            for (int e = 0; e < kTalkEdges; ++e)
+                setText += "  SetUIStringEx \"" + edge + std::to_string(e) + "/string\" \"%z\" sText\n";
+            g_talkText[slot] = Compile("talk log text",
+                "string_var sText\n"
+                "float fBright\n"
+                "float fRed\n"
+                "float fGreen\n"
+                "float fBlue\n"
+                "Begin Function {sText, fBright, fRed, fGreen, fBlue}\n" + setText +
+                "  SetUIFloat \"" + text + "/brightness\" fBright\n"
+                "  SetUIFloat \"" + text + "/red\" fRed\n"
+                "  SetUIFloat \"" + text + "/green\" fGreen\n"
+                "  SetUIFloat \"" + text + "/blue\" fBlue\n"
+                "End\n");
+            // iEdges: 0 none, 1 all four (outline), 2 only the lower right one (drop shadow)
+            std::string placeEdges;
+            for (int e = 0; e < kTalkEdges; ++e)
+            {
+                std::string path = edge + std::to_string(e);
+                placeEdges += std::string("  set fX to ") + (e % 2 ? "30 + fOff" : "30 - fOff") + "\n"
+                    "  set fEdgeY to fY " + (e / 2 ? "+" : "-") + " fOff\n"
+                    "  SetUIFloat \"" + path + "/x\" fX\n"
+                    "  SetUIFloat \"" + path + "/y\" fEdgeY\n"
+                    "  SetUIFloat \"" + path + "/wrapwidth\" fWrap\n"
+                    "  SetUIFloat \"" + path + "/alpha\" fEdge\n"
+                    "  SetUIFloat \"" + path + "/visible\" " + (e == 3 ? "iLast" : "iShow") + "\n";
+            }
+            g_talkPlace[slot] = Compile("talk log place",
+                "float fY\n"
+                "float fWrap\n"
+                "float fAlpha\n"
+                "float fEdge\n"
+                "float fOff\n"
+                "int iEdges\n"
+                "float fX\n"
+                "float fEdgeY\n"
+                "int iShow\n"
+                "int iLast\n"
+                "Begin Function {fY, fWrap, fAlpha, fEdge, fOff, iEdges}\n"
+                "  set iShow to fAlpha > 0\n"
+                "  SetUIFloat \"" + text + "/y\" fY\n"
+                "  SetUIFloat \"" + text + "/wrapwidth\" fWrap\n"
+                "  SetUIFloat \"" + text + "/alpha\" fAlpha\n"
+                "  SetUIFloat \"" + text + "/visible\" iShow\n"
+                "  set iShow to 0\n"
+                "  if fEdge > 0\n"
+                "    if iEdges > 0\n"
+                "      set iShow to 1\n"
+                "    endif\n"
+                "  endif\n"
+                "  set iLast to iShow\n"
+                "  if iEdges == 2\n"
+                "    set iShow to 0\n"
+                "  endif\n" + placeEdges +
+                "End\n");
+            g_talkBack[slot] = Compile("talk log back",
+                "float fLineY\n"
+                "float fLineWidth\n"
+                "float fLine\n"
+                "float fBarY\n"
+                "float fBarHeight\n"
+                "float fBarWidth\n"
+                "float fBar\n"
+                "int iShow\n"
+                "Begin Function {fLineY, fLineWidth, fLine, fBarY, fBarHeight, fBarWidth, fBar}\n"
+                "  set iShow to fLine > 0\n"
+                "  SetUIFloat \"" + line + "/y\" fLineY\n"
+                "  SetUIFloat \"" + line + "/width\" fLineWidth\n"
+                "  SetUIFloat \"" + line + "/alpha\" fLine\n"
+                "  SetUIFloat \"" + line + "/visible\" iShow\n"
+                "  set iShow to fBar > 0\n"
+                "  SetUIFloat \"" + bar + "/y\" fBarY\n"
+                "  SetUIFloat \"" + bar + "/height\" fBarHeight\n"
+                "  SetUIFloat \"" + bar + "/width\" fBarWidth\n"
+                "  SetUIFloat \"" + bar + "/alpha\" fBar\n"
+                "  SetUIFloat \"" + bar + "/visible\" iShow\n"
+                "End\n");
+        }
         g_sitNearest = Compile("sit nearest",
             "ref rActor\n"
             "ref rChair\n"
@@ -4395,6 +4491,20 @@ namespace game
         return text ? text : "";
     }
 
+    std::string PlayerReplyText(uint32_t topic, uint32_t info)
+    {
+        constexpr uint8_t kTopicTypeTopic = 0;
+        const TESForm* form = LookupForm(topic);
+        if (!form || form->typeID != kFormType_TESTopic ||
+            static_cast<const TESTopic*>(form)->type != kTopicTypeTopic)
+            return "";
+        std::string prompt = TopicInfoPrompt(TopicInfo(info));
+        if (!prompt.empty())
+            return prompt;
+        const char* name = static_cast<const TESTopic*>(form)->fullName.name.m_data;
+        return name ? name : "";
+    }
+
     bool HasResultScript(void* info, bool onEnd)
     {
         using Fn = void*(__thiscall*)(void*, uint32_t);
@@ -5667,6 +5777,34 @@ namespace game
                 "<font>2</font><justify>&center;</justify><wrapwidth>900</wrapwidth>"
                 "<systemcolor>1</systemcolor><string> </string></text>";
             g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, kRevive);
+            for (int slot = 0; slot < kTalkSlots; ++slot)
+            {
+                // locus: the text's node sits at its x and y, so scaling it (ScaleTile) shrinks it in place.
+                // brightness -1: the red, green and blue below, not the HUD's colour (brightness 255 and systemcolor).
+                // zoom -1 stretches an image's whole texture over its width and height
+                std::string n = std::to_string(slot);
+                std::string text = "<locus>1</locus><y>24</y><alpha>0</alpha><font>3</font><justify>&left;</justify>"
+                    "<wrapwidth>600</wrapwidth><brightness>-1</brightness><string> </string>";
+                std::string xml = "<image name=\"NVCoopTalkBar" + n + "\"><visible>0</visible>"
+                    "<filename>interface\\shared\\solid_black.dds</filename>"
+                    "<x>22</x><y>24</y><depth>1</depth><width>616</width><height>20</height><zoom>-1</zoom>"
+                    "<alpha>0</alpha></image>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                for (int e = 0; e < kTalkEdges; ++e)
+                {
+                    xml = "<text name=\"NVCoopTalkEdge" + n + "x" + std::to_string(e) + "\"><visible>0</visible>"
+                        "<x>30</x><depth>2</depth>" + text + "<red>0</red><green>0</green><blue>0</blue></text>";
+                    g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                }
+                xml = "<text name=\"NVCoopTalk" + n + "\"><visible>0</visible><x>30</x><depth>3</depth>" + text +
+                    "<systemcolor>1</systemcolor><red>255</red><green>255</green><blue>255</blue></text>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                xml = "<image name=\"NVCoopTalkLine" + n + "\"><visible>0</visible>"
+                    "<filename>interface\\shared\\line\\glow_tip_line_horizontal.dds</filename>"
+                    "<x>30</x><y>24</y><depth>4</depth><width>740</width><height>8</height><zoom>-1</zoom><alpha>0</alpha>"
+                    "<brightness>-1</brightness><red>255</red><green>255</green><blue>255</blue></image>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+            }
             for (int slot = 0; slot < kMarkSlots; ++slot)
             {
                 std::string xml = "<text name=\"NVCoopMark" + std::to_string(slot) + "\"><visible>0</visible>"
@@ -6596,6 +6734,179 @@ namespace game
         g_scripts->CallFunction(g_reviveBar, Player(), nullptr, nullptr, 2, text.empty() ? " " : text.c_str(),
             static_cast<uint32_t>(text.empty() ? 0 : 1));
         s_shown = text;
+    }
+
+    namespace
+    {
+        const void* ChildTile(const void* parent, const char* name)
+        {
+            int guard = 0;
+            for (const void* node = parent ? At<const void*>(parent, layout::kTileFirstChild) : nullptr;
+                 node && guard < 1024; node = At<const void*>(node, layout::kChildNodeNext), ++guard)
+            {
+                const void* child = At<const void*>(node, layout::kChildNodeTile);
+                const char* childName = child ? At<const char*>(child, layout::kTileName) : nullptr;
+                if (childName && _stricmp(childName, name) == 0)
+                    return child;
+            }
+            return nullptr;
+        }
+
+        float TileValue(const void* tile, uint32_t trait)
+        {
+            using GetFloat = float(__thiscall*)(const void*, uint32_t);
+            return tile ? reinterpret_cast<GetFloat>(addr::kTileGetValueFloat)(tile, trait) : 0;
+        }
+
+        // No trait scales a text tile's letters, so the tile's own node is scaled. The game makes the text a new node
+        // whenever it changes, so the scale is set every frame and the node brought up to date the way the game's
+        // own menus do (NiAVObject::Update, time 0, no controllers): text and its outline never differ in size.
+        // A locus tile's node already sits at the tile's x and y, but the game also builds its text at x and y
+        // inside it, and only when the text changes: that inner offset is zeroed (as the game does itself for a
+        // locus whose children it moves), or a line that moves up would be drawn at both, scaled, from before
+        void ScaleTile(const void* tile, float scale)
+        {
+            char* node = tile ? At<char*>(tile, layout::kTileNode) : nullptr;
+            if (!node)
+                return;
+            *reinterpret_cast<float*>(node + layout::kNiLocalScale) = scale;
+            char* const* children = At<char* const*>(node, layout::kNiNodeChildren);
+            uint16_t slots = At<uint16_t>(node, layout::kNiNodeChildSlots);
+            for (uint16_t i = 0; children && i < slots && i < 64; ++i)
+                if (children[i])
+                    std::fill_n(reinterpret_cast<float*>(children[i] + layout::kNiLocalTranslate), 3, 0.0f);
+            struct { float time = 0; uint8_t flags[12] = {}; } update;
+            using Fn = void(__thiscall*)(void*, void*);
+            reinterpret_cast<Fn>(addr::kNiAVObjectUpdate)(node, &update);
+        }
+
+        struct TalkSlot
+        {
+            const void* tile = nullptr;
+            uint32_t id = 0;
+            uint32_t look = 0xFFFFFFFF;
+            float place[6] = {-1, -1, -1, -1, -1, -1};
+            float back[7] = {-1, -1, -1, -1, -1, -1, -1};
+        };
+        TalkSlot g_talkSlots[kTalkSlots];
+
+        template <size_t N> bool Changed(float (&cached)[N], const float (&now)[N])
+        {
+            bool same = true;
+            for (size_t i = 0; i < N; ++i)
+                same = same && std::fabs(now[i] - cached[i]) < 0.5f;
+            if (!same)
+                std::copy(std::begin(now), std::end(now), cached);
+            return !same;
+        }
+
+        void PlaceTalkSlot(int slot, const float (&place)[6], const float (&back)[7])
+        {
+            TalkSlot& s = g_talkSlots[slot];
+            if (g_talkPlace[slot] && Changed(s.place, place))
+                g_scripts->CallFunction(g_talkPlace[slot], Player(), nullptr, nullptr, 6, FloatArg(place[0]),
+                    FloatArg(place[1]), FloatArg(place[2]), FloatArg(place[3]), FloatArg(place[4]),
+                    static_cast<uint32_t>(place[5]));
+            if (g_talkBack[slot] && Changed(s.back, back))
+                g_scripts->CallFunction(g_talkBack[slot], Player(), nullptr, nullptr, 7, FloatArg(back[0]),
+                    FloatArg(back[1]), FloatArg(back[2]), FloatArg(back[3]), FloatArg(back[4]), FloatArg(back[5]),
+                    FloatArg(back[6]));
+        }
+    }
+
+    void ShowTalkLog(const std::vector<coop::TalkLog::Shown>& lines, const TalkLogLook& look)
+    {
+        constexpr float kX = 30, kTop = 24, kWidth = 600, kAlpha = 235, kLineAlpha = 150;
+        constexpr float kBarAlpha = 120, kBarPad = 6;
+        // The divider is the game's glow_tip_line_horizontal: a white line, solid on the left, fading out about 4/5
+        // of the way across, so it's stretched for that fade to end at the log's right edge. Its bright core is the
+        // middle of the texture's height, so the image is centred on where the line goes. A line of text has more
+        // room under its letters than over them (about a fifth of a line), so the divider goes up by that to sit
+        // halfway between the letters above and below it
+        constexpr float kDividerWidth = 740, kDividerHeight = 8, kTextLine = 32, kUnderLetters = 0.2f;
+        constexpr uint32_t kHeight = 0xFB0;
+        static bool s_showing = true;  // nothing to do while there's nothing to show and it's all hidden
+        if (!Player() || !g_talkText[0] || !g_talkPlace[0] || !g_talkBack[0] || !g_chatHud ||
+            (lines.empty() && !s_showing))
+            return;
+        MakeChatHud();
+        auto* manager = *reinterpret_cast<const uint8_t* const*>(addr::kInterfaceManager);
+        const void* hud = ChildTile(manager ? At<const void*>(manager, layout::kInterfaceMenuRoot) : nullptr,
+            "HUDMainMenu");
+        if (!hud)
+            return;
+        // NVCoopTalk<slot> is a line's text, NVCoopTalkEdge<slot>x<n> its outline copies
+        const void* text[kTalkSlots] = {};
+        const void* edges[kTalkSlots][kTalkEdges] = {};
+        int guard = 0;
+        for (const void* node = At<const void*>(hud, layout::kTileFirstChild); node && guard < 4096;
+             node = At<const void*>(node, layout::kChildNodeNext), ++guard)
+        {
+            const void* child = At<const void*>(node, layout::kChildNodeTile);
+            const char* name = child ? At<const char*>(child, layout::kTileName) : nullptr;
+            if (!name || std::strncmp(name, "NVCoopTalk", 10) != 0)
+                continue;
+            bool isEdge = std::strncmp(name + 10, "Edge", 4) == 0;
+            char* end = nullptr;
+            const char* digits = name + (isEdge ? 14 : 10);
+            if (*digits < '0' || *digits > '9')
+                continue;
+            long slot = std::strtol(digits, &end, 10);
+            if (slot < 0 || slot >= kTalkSlots)
+                continue;
+            if (!isEdge)
+                text[slot] = child;
+            else if (*end == 'x' && end[1] >= '0' && end[1] < '0' + kTalkEdges)
+                edges[slot][end[1] - '0'] = child;
+        }
+
+        float scale = std::clamp(look.scale, 0.2f, 3.0f);
+        uint32_t lookKey = (look.hudColor ? 1u << 24 : 0) | look.red << 16 | look.green << 8 | look.blue;
+        int style = std::clamp(look.style, 0, 3);
+        bool used[kTalkSlots] = {};
+        float y = kTop;
+        for (const coop::TalkLog::Shown& l : lines)
+        {
+            int slot = static_cast<int>(l.id % kTalkSlots);
+            TalkSlot& s = g_talkSlots[slot];
+            if (s.tile != text[slot])
+                s = TalkSlot{text[slot]};
+            if (!text[slot])
+                continue;
+            used[slot] = true;
+            if (s.id != l.id || s.look != lookKey)
+            {
+                g_scripts->CallFunction(g_talkText[slot], Player(), nullptr, nullptr, 5,
+                    l.text.empty() ? " " : l.text.c_str(), FloatArg(look.hudColor ? 255.0f : -1.0f),
+                    FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue));
+                s.id = l.id;
+                s.look = lookKey;
+            }
+            ScaleTile(text[slot], scale);
+            for (const void* edge : edges[slot])
+                ScaleTile(edge, scale);
+            float measured = TileValue(text[slot], kHeight);
+            float height = (measured > 0 ? measured : kTextLine) * scale;
+            float alpha = kAlpha * l.alpha;
+            // Outline: four copies 1 pixel off diagonally; shadow: one copy 2 pixels down and right
+            const float place[6] = {y, kWidth / scale, alpha, style == 1 || style == 2 ? alpha : 0,
+                style == 2 ? 2.0f : 1.0f, style == 1 ? 1.0f : style == 2 ? 2.0f : 0.0f};
+            float divider = y + height + look.gap / 2 - kTextLine * kUnderLetters * scale;
+            const float back[7] = {divider - kDividerHeight / 2, kDividerWidth,
+                look.dividers ? kLineAlpha * l.alpha : 0,
+                y - kBarPad / 2, height + kBarPad, kWidth + 2 * (kX - 22), style == 3 ? kBarAlpha * l.alpha : 0};
+            PlaceTalkSlot(slot, place, back);
+            y += height + look.gap;
+        }
+        for (int slot = 0; slot < kTalkSlots; ++slot)
+            if (!used[slot])
+            {
+                g_talkSlots[slot].id = 0;
+                const float hidden[6] = {kTop, kWidth, 0, 0, 1, 0};
+                const float hiddenBack[7] = {kTop, kWidth, 0, kTop, 1, kWidth, 0};
+                PlaceTalkSlot(slot, hidden, hiddenBack);
+            }
+        s_showing = !lines.empty();
     }
 
     void SetSpeedMult(TESObjectREFR* actor, int mult)

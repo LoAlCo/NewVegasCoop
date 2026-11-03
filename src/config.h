@@ -20,6 +20,16 @@ struct Config
     bool desyncNotices = true;
     int fieldOfView = 0;
     bool friendMarkers = true;
+    bool talkLog = true;
+    int talkLogSize = 65;
+    int talkLogLines = 4;
+    int talkLogSeconds = 15;
+    int talkLogGap = 6;
+    int talkLogRange = 1500;
+    bool talkLogDividers = true;
+    int talkLogStyle = 1;
+    bool talkLogHudColor = false;
+    int talkLogRed = 255, talkLogGreen = 255, talkLogBlue = 255;
     bool coopBalanced = false;
     bool friendlyFire = false;
     bool askMode = true;

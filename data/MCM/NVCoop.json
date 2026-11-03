@@ -376,6 +376,227 @@
 					]
 				}
 			}
+		},
+		"1": {
+			"listTitle": "Conversations",
+			"pageTitle": "Nearby Conversations",
+			"columns": 1,
+			"enable": 1,
+			"options": {
+				"1": {
+					"title": "General",
+					"enable": 1,
+					"type": 0
+				},
+				"2": {
+					"title": "Show Nearby Conversations",
+					"type": 5,
+					"enable": 1,
+					"mouse": "When a friend near you talks to someone, what they both say is listed at the top left",
+					"vars": [
+						{
+							"configINI": "Settings:bTalkLog",
+							"default": 1
+						}
+					]
+				},
+				"3": {
+					"title": "Distance",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How close you need to be to the one talking (1500: as far as you hear them)",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogRange",
+							"default": 1500
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 250,
+						"valueMin": 250,
+						"valueMax": 8000
+					}
+				},
+				"4": {
+					"title": "Lines",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How many lines show at once",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogLines",
+							"default": 4
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 1,
+						"valueMax": 10
+					}
+				},
+				"5": {
+					"title": "Seconds",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How long each line stays before it fades out",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogSeconds",
+							"default": 15
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 3,
+						"valueMax": 60
+					}
+				},
+				"6": {
+					"title": "Look",
+					"enable": 1,
+					"type": 0
+				},
+				"7": {
+					"title": "Text Size",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How big the lines are, in percent",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogSize",
+							"default": 65
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 5,
+						"valueMin": 40,
+						"valueMax": 150
+					}
+				},
+				"8": {
+					"title": "Spacing",
+					"type": 2,
+					"enable": 1,
+					"mouse": "The gap between lines",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogGap",
+							"default": 6
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 0,
+						"valueMax": 40
+					}
+				},
+				"9": {
+					"title": "Readability",
+					"type": 1,
+					"enable": 1,
+					"mouse": "What helps the text read over bright places: a thin dark outline, a drop shadow or a dark bar behind it",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogStyle",
+							"default": 1
+						}
+					],
+					"strings": [
+						"None",
+						"Outline",
+						"Shadow",
+						"Dark Bar"
+					]
+				},
+				"10": {
+					"title": "Dividers",
+					"type": 5,
+					"enable": 1,
+					"mouse": "A thin line under each line",
+					"vars": [
+						{
+							"configINI": "Settings:bTalkLogDividers",
+							"default": 1
+						}
+					]
+				},
+				"11": {
+					"title": "Colour",
+					"enable": 1,
+					"type": 0
+				},
+				"12": {
+					"title": "Use HUD Colour",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Show the lines in your HUD's colour instead of the colour below",
+					"vars": [
+						{
+							"configINI": "Settings:bTalkLogHudColor",
+							"default": 0
+						}
+					]
+				},
+				"13": {
+					"title": "Red",
+					"type": 2,
+					"enable": 1,
+					"mouse": "The red in the lines' colour",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogRed",
+							"default": 255
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 5,
+						"valueMin": 0,
+						"valueMax": 255
+					}
+				},
+				"14": {
+					"title": "Green",
+					"type": 2,
+					"enable": 1,
+					"mouse": "The green in the lines' colour",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogGreen",
+							"default": 255
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 5,
+						"valueMin": 0,
+						"valueMax": 255
+					}
+				},
+				"15": {
+					"title": "Blue",
+					"type": 2,
+					"enable": 1,
+					"mouse": "The blue in the lines' colour",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogBlue",
+							"default": 255
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 5,
+						"valueMin": 0,
+						"valueMax": 255
+					}
+				}
+			}
 		}
 	}
 }

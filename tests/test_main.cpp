@@ -14,6 +14,7 @@
 #include "coop/shot_counter.h"
 #include "coop/clock.h"
 #include "coop/steer.h"
+#include "coop/talk_log.h"
 #include "coop/item_stacks.h"
 #include "dev/inspect_text.h"
 #include "dev/lab_channel.h"
@@ -3745,6 +3746,10 @@ TEST(subtitles_reach_everyone_else_and_only_from_the_talker)
     stop.stop = true;
     stop.text = "ignored";
     CHECK(sub(stop, s) && s.stop && s.text.empty() && s.speaker == 0x104E85);
+    Subtitle reply = said(0x104E85, 0x10F1A0, 0x10F1A2, 1, "What happened here?");
+    reply.reply = true;
+    CHECK(sub(reply, s) && s.reply && !s.stop && s.text == "What happened here?" && s.info == 0x10F1A2);
+    CHECK(sub(said(0x104E85, 0, 0, 0, "Not a reply"), s) && !s.reply);
 
     coop::Coop host, a, b;
     CHECK(host.Host(kTestPort, "Host"));
@@ -3788,6 +3793,43 @@ TEST(subtitles_reach_everyone_else_and_only_from_the_talker)
     a.Stop();
     b.Stop();
     host.Stop();
+}
+
+TEST(nearby_conversations_log_keeps_the_newest_lines_for_a_while)
+{
+    coop::TalkLog log;
+    log.Configure(4, 10000);
+    CHECK(log.Update(1000).empty());
+    log.Add("Doc Mitchell: Easy now.", 1000);
+    log.Add("Ana: Who are you?", 2000);
+    auto shown = log.Update(2000);
+    CHECK(shown.size() == 2 && shown[0].text == "Doc Mitchell: Easy now." && shown[1].text == "Ana: Who are you?");
+    CHECK(shown[0].alpha == 1 && shown[0].id && shown[1].id && shown[0].id != shown[1].id);
+    uint32_t ana = shown[1].id;
+    shown = log.Update(11000 - coop::TalkLog::kFadeMs / 2);
+    CHECK(shown.size() == 2 && shown[0].alpha > 0.4f && shown[0].alpha < 0.6f && shown[1].alpha == 1);
+    shown = log.Update(11000);
+    CHECK(shown.size() == 1 && shown[0].id == ana);
+    CHECK(log.Update(12000).empty());
+    for (int i = 0; i < 12; ++i)
+        log.Add(std::to_string(i), 20000);
+    shown = log.Update(20000);
+    CHECK(shown.size() == 4 && shown[0].text == "8" && shown[3].text == "11");
+    log.Configure(2, 10000);
+    shown = log.Update(20000);
+    CHECK(shown.size() == 2 && shown[0].text == "10");
+    log.Configure(50, 10);
+    for (int i = 0; i < 12; ++i)
+        log.Add(std::to_string(i), 20000);
+    CHECK(log.Update(20000).size() == coop::TalkLog::kMostLines);
+    CHECK(log.Update(20000 + coop::TalkLog::kFadeMs).empty());
+    log.Clear();
+    log.Configure(4, 10000);
+    log.Add("Wraps", 0xFFFFF000u);
+    shown = log.Update(0x00000100u);
+    CHECK(shown.size() == 1 && shown[0].text == "Wraps");
+    CHECK(coop::TalkLine("Easy Pete", "Who are you?") == "EASY PETE: Who are you?");
+    CHECK(coop::TalkLine("", "Just text") == "Just text");
 }
 
 TEST(only_the_games_own_quests_are_the_hosts_to_run)
