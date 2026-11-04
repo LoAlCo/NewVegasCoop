@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.10
+- Everyone needs 0.1.10 to play together.
+- New: a log of nearby conversations on the left of the screen (by LoAlCo). When a friend near you talks to someone,
+  you see what they picked and what they were told, in your HUD's colour. Its own page in the Mod Configuration Menu
+  (New Vegas Co-op > Conversations): on or off, distance, how many lines, how long they stay, text size, spacing, an
+  outline, shadow or dark bar to read it over bright places, dividers and colour.
+- The new game's co-op questions and Quick start (with its "finish your character" menu) are only for a new, level 1
+  character. A played character ending up in Doc Mitchell's house, as Tale of Two Wastelands' train from the Capital
+  Wasteland seems to do, was asked again and could redo their S.P.E.C.I.A.L. and skills.
+
 ## 0.1.9
 - Everyone needs 0.1.9 to play together.
 - Weapons and armour lying on the ground keep their condition and weapon mods for everyone: a worn, modded gun dropped
@@ -13,13 +23,17 @@
 - Looting a body as a friend: it keeps the clothes and armour it wore, at the host's condition. A friend's game
   dressed most NPCs in its own random outfits, so a body's gear changed as it was looted, and a body could take out
   its own gun as it died.
+- Fixed NPCs missing from a friend's game while the host could see them: on the Strip, two Securitrons, a traveller
+  and four NCR soldiers vanished for a friend who walked past one of the Strip's street scenes (the game's own
+  script for the scene ran in the friend's game alone, with the friend's own save's values).
 - Fixed from a check of the whole mod against the decompiled game:
   - Joining again without restarting the game: boxes and bodies showed your own loot instead of the host's until
     you took something.
   - After the host loaded an earlier save, friends' games kept switching on or off what the host's had before the
     load (NPCs and objects the host didn't have).
   - Someone who joined a game and then hosted one could show their new friends the old host's face.
-  - Stopping a friend's conversation line early stopped working once many NPCs had spoken in a session.
+  - When a friend skipped a line in a conversation, the NPC kept talking in your game once many NPCs had spoken in a
+    session.
   - The game over's kill no longer asks the game to cut off a body part.
   - Crash reports: a crash could bounce between ours and Steam's crash reporter, and a small runtime error could use up
     the crash dump.
@@ -27,9 +41,6 @@
     more Windows device names are refused as file names.
   - A friend not yet let in no longer loads or saves when the host says so.
   - A typo in NVCoop.ini's Mode no longer turns on the testing mode that hosts by IP by itself.
-- Fixed NPCs missing from a friend's game while the host could see them: on the Strip, two Securitrons, a traveller
-  and four NCR soldiers vanished for a friend who walked past one of the Strip's street scenes (the game's own
-  script for the scene ran in the friend's game alone, with the friend's own save's values).
 
 ## 0.1.8
 - Co-op balanced and friendly fire are now two switches in the Mod Configuration Menu, for all your games, both off

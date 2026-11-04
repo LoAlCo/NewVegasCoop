@@ -2205,8 +2205,13 @@ namespace coop
 
     bool SamePlace(const Pose& a, const Pose& b)
     {
+        return Within(a, b, kSamePlaceDistance);
+    }
+
+    bool Within(const Pose& a, const Pose& b, float distance)
+    {
         float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
-        return a.space == b.space && dx * dx + dy * dy + dz * dz <= kSamePlaceDistance * kSamePlaceDistance;
+        return a.space == b.space && dx * dx + dy * dy + dz * dz <= distance * distance;
     }
 
     bool Coop::TakeTravel(Pose& out, uint8_t& leader)

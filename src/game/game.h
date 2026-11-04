@@ -3,6 +3,7 @@
 #pragma once
 
 #include "coop/smoothing.h"
+#include "coop/talk_log.h"
 #include "net/protocol.h"
 
 #include <cstdint>
@@ -136,6 +137,7 @@ namespace game
     TESObjectREFR* PlaceActor(uint32_t baseId);
     bool Is3DLoaded(TESObjectREFR* ref);
     float Health(TESObjectREFR* ref);
+    int PlayerLevel();
     float MaxHealth(TESObjectREFR* ref);
     void ChangeHealth(TESObjectREFR* ref, float amount);
     void MakeCompanion(TESObjectREFR* ref);
@@ -230,6 +232,15 @@ namespace game
     };
     void ShowFriendMarkers(const std::vector<FriendMark>& friends);
     void ShowReviveBar(const std::string& text);
+    struct TalkLogLook
+    {
+        float scale = 1;
+        float gap = 6;
+        bool dividers = true, hudColor = true;
+        int style = 1;
+        uint8_t red = 255, green = 255, blue = 255;
+    };
+    void ShowTalkLog(const std::vector<coop::TalkLog::Shown>& lines, const TalkLogLook& look);
     void SetSpeedMult(TESObjectREFR* actor, int mult);
     float CachedRunSpeed(TESObjectREFR* actor);
     std::vector<std::string> ModAnimFiles(TESObjectREFR* actor);
@@ -349,6 +360,7 @@ namespace game
     void* TopicInfo(uint32_t id);
     uint32_t TopicInfoId(const void* info);
     std::string TopicInfoPrompt(const void* info);
+    std::string PlayerReplyText(uint32_t topic, uint32_t info);
     bool HasResultScript(void* info, bool onEnd);
     uint16_t ScreenCommandIn(void* info, bool onEnd, int* statements = nullptr);
     void Greet(TESObjectREFR* actor);

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "coop/coop.h"
+#include "coop/talk_log.h"
 #include "game/game.h"
 
 #include <cstdint>
@@ -22,6 +23,15 @@ namespace game
         void Update(uint32_t now);
         uint32_t TakeCompanionAsk() { uint32_t r = m_companionAsk; m_companionAsk = 0; return r; }
         void AllowTalk(uint32_t hostRef, uint32_t until) { m_talkAllowed = hostRef; m_talkAllowedUntil = until; }
+        struct TalkLogSettings
+        {
+            bool on = true;
+            int size = 65, lines = 4, seconds = 15, gap = 6, range = 1500;
+            int style = 1;
+            bool dividers = true, hudColor = true;
+            uint8_t red = 255, green = 255, blue = 255;
+        };
+        void SetTalkLog(const TalkLogSettings& settings) { m_talkLogSettings = settings; }
         bool LastFriendLine(uint8_t& player, uint32_t& at) const
         {
             player = m_lastFriendLine;
@@ -52,6 +62,10 @@ namespace game
         bool m_reportedTalking = false;
         uint32_t m_reportedNpc = 0;
         uintptr_t m_lastSpoken = 0;
+        uint32_t m_replyInfo = 0;
+        int m_replyResponse = 0;
+        coop::TalkLog m_talkLog;
+        TalkLogSettings m_talkLogSettings;
         uint32_t m_spokenSpeaker = 0;
         uint32_t m_spokenAt = 0;
         bool m_sawTalking = false;

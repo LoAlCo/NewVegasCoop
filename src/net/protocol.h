@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 69;
+    constexpr uint32_t kProtocolVersion = 70;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -589,6 +589,7 @@ namespace net
         uint8_t playerId = 0;
         uint32_t speaker = 0;
         bool stop = false;
+        bool reply = false;
         uint32_t topic = 0;
         uint32_t info = 0;
         uint8_t response = 0;

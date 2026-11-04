@@ -1955,6 +1955,9 @@ namespace
             if (s_asked || !game::InDocMitchellsHouse())
                 return;
             s_asked = true;
+            if (int level = game::PlayerLevel(); level > 1)
+                return LOG_INFO("Quick start: not asked: in Doc Mitchell's house with the tutorial at stage %d, but at "
+                    "level %d (not a new game)", stage, level);
             game::HoldTutorial(true);
             AskSwitches();
             game::AskChoice("Quick start: skip Doc Mitchell's house?\n\nYou'll be outside his door with the game's "
@@ -2717,6 +2720,20 @@ namespace
         g_partClock.Done(kPartItems);
         g_quests.Update(g_coop, now);
         g_partClock.Done(kPartQuests);
+        game::Dialogue::TalkLogSettings talkLog;
+        talkLog.on = g_config.talkLog;
+        talkLog.size = g_config.talkLogSize;
+        talkLog.lines = g_config.talkLogLines;
+        talkLog.seconds = g_config.talkLogSeconds;
+        talkLog.gap = g_config.talkLogGap;
+        talkLog.range = g_config.talkLogRange;
+        talkLog.dividers = g_config.talkLogDividers;
+        talkLog.style = g_config.talkLogStyle;
+        talkLog.hudColor = g_config.talkLogHudColor;
+        talkLog.red = static_cast<uint8_t>(g_config.talkLogRed);
+        talkLog.green = static_cast<uint8_t>(g_config.talkLogGreen);
+        talkLog.blue = static_cast<uint8_t>(g_config.talkLogBlue);
+        g_dialogue.SetTalkLog(talkLog);
         g_dialogue.Update(now);
         g_partClock.Done(kPartDialogue);
         if (uint8_t player = 0; g_coop.GetRole() == coop::Role::Host)

@@ -77,6 +77,18 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bDesyncNotices", desyncNotices);
         Write(path, "iFieldOfView", fieldOfView);
         Write(path, "bFriendMarkers", friendMarkers);
+        Write(path, "bTalkLog", talkLog);
+        Write(path, "iTalkLogSize", talkLogSize);
+        Write(path, "iTalkLogLines", talkLogLines);
+        Write(path, "iTalkLogSeconds", talkLogSeconds);
+        Write(path, "iTalkLogGap", talkLogGap);
+        Write(path, "iTalkLogRange", talkLogRange);
+        Write(path, "bTalkLogDividers", talkLogDividers);
+        Write(path, "iTalkLogStyle", talkLogStyle);
+        Write(path, "bTalkLogHudColor", talkLogHudColor);
+        Write(path, "iTalkLogRed", talkLogRed);
+        Write(path, "iTalkLogGreen", talkLogGreen);
+        Write(path, "iTalkLogBlue", talkLogBlue);
         Write(path, "bShowAddress", showAddress);
         WriteSwitches(path);
     }
@@ -114,6 +126,18 @@ void Config::LoadPlayer(const std::string& path)
     desyncNotices = flag("bDesyncNotices", desyncNotices);
     fieldOfView = number("iFieldOfView", fieldOfView, 0, 120);
     friendMarkers = flag("bFriendMarkers", friendMarkers);
+    talkLog = flag("bTalkLog", talkLog);
+    talkLogSize = number("iTalkLogSize", talkLogSize, 40, 150);
+    talkLogLines = number("iTalkLogLines", talkLogLines, 1, 10);
+    talkLogSeconds = number("iTalkLogSeconds", talkLogSeconds, 3, 60);
+    talkLogGap = number("iTalkLogGap", talkLogGap, 0, 40);
+    talkLogRange = number("iTalkLogRange", talkLogRange, 250, 8000);
+    talkLogDividers = flag("bTalkLogDividers", talkLogDividers);
+    talkLogStyle = number("iTalkLogStyle", talkLogStyle, 0, 3);
+    talkLogHudColor = flag("bTalkLogHudColor", talkLogHudColor);
+    talkLogRed = number("iTalkLogRed", talkLogRed, 0, 255);
+    talkLogGreen = number("iTalkLogGreen", talkLogGreen, 0, 255);
+    talkLogBlue = number("iTalkLogBlue", talkLogBlue, 0, 255);
     showAddress = flag("bShowAddress", showAddress);
     coopBalanced = flag("bCoopBalanced", coopBalanced);
     friendlyFire = flag("bFriendlyFire", friendlyFire);

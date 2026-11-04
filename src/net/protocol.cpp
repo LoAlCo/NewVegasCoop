@@ -1129,7 +1129,7 @@ namespace net
         Writer w(MsgType::Subtitle);
         w.U8(m.playerId);
         w.U32(m.speaker);
-        w.U8(m.stop ? 1 : 0);
+        w.U8(m.stop ? 1 : m.reply ? 2 : 0);
         if (m.stop)
             return w.Take();
         w.U32(m.topic);
@@ -1142,9 +1142,10 @@ namespace net
     bool Decode(Reader& r, Subtitle& m)
     {
         uint8_t stop;
-        if (!r.U8(m.playerId) || !r.U32(m.speaker) || !IsSharedRef(m.speaker) || !r.U8(stop) || stop > 1)
+        if (!r.U8(m.playerId) || !r.U32(m.speaker) || !IsSharedRef(m.speaker) || !r.U8(stop) || stop > 2)
             return false;
         m.stop = stop == 1;
+        m.reply = stop == 2;
         m.topic = m.info = 0;
         m.response = 0;
         m.text.clear();

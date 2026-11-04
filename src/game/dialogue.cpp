@@ -231,6 +231,8 @@ namespace game
             m_openSince = 0;
             m_reportedTalking = false;
             m_reportedNpc = 0;
+            m_talkLog.Clear();
+            ShowTalkLog({}, TalkLogLook{});
             return;
         }
         bool host = m_coop->GetRole() == coop::Role::Host;
@@ -320,6 +322,24 @@ namespace game
             m_lastSpoken = spoken.id;
             if (uint32_t speaker = HostRef(partner))
             {
+                if (m_replyInfo && (spoken.info != m_replyInfo || spoken.response <= m_replyResponse))
+                {
+                    std::string said = PlayerReplyText(spoken.topic, spoken.info);
+                    if (!said.empty())
+                    {
+                        net::Subtitle r;
+                        r.speaker = speaker;
+                        r.reply = true;
+                        r.topic = spoken.topic;
+                        r.info = spoken.info;
+                        r.response = static_cast<uint8_t>(spoken.response);
+                        r.text = said;
+                        m_coop->ShareSubtitle(r);
+                        LOG_DEBUG("Dialogue: we say \"%s\" (line %08X; shared)", said.c_str(), spoken.info);
+                    }
+                }
+                m_replyInfo = spoken.info;
+                m_replyResponse = spoken.response;
                 net::Subtitle s;
                 s.speaker = speaker;
                 s.topic = spoken.topic;
@@ -353,13 +373,24 @@ namespace game
                 m_spokenLive = false;
         }
         if (!talking)
-            m_lastSpoken = 0;
+            m_lastSpoken = 0, m_replyInfo = 0, m_replyResponse = 0;
 
         bool host = m_coop->GetRole() == coop::Role::Host;
         coop::Pose me, at;
         bool placed = GetPose(Player(), me);
+        const TalkLogSettings& log = m_talkLogSettings;
+        auto within = [&](const net::Subtitle& s, float distance) -> TESObjectREFR* {
+            TESObjectREFR* speaker = host ? LookupRef(s.speaker) : m_npcs->OurRefOf(s.speaker);
+            return placed && speaker && GetPose(speaker, at) && coop::Within(me, at, distance) ? speaker : nullptr;
+        };
         for (const net::Subtitle& s : m_coop->TakeSubtitles())
         {
+            if (s.reply)
+            {
+                if (log.on && within(s, static_cast<float>(log.range)))
+                    m_talkLog.Add(coop::TalkLine(m_coop->NameOf(s.playerId), s.text), now);
+                continue;
+            }
             if (s.stop)
             {
                 if (s.speaker == m_heardSpeaker)
@@ -373,8 +404,10 @@ namespace game
             StopSound(m_heard);
             EndSubtitle(m_heardText);
             m_heardText = s.text;
-            TESObjectREFR* speaker = host ? LookupRef(s.speaker) : m_npcs->OurRefOf(s.speaker);
-            if (!placed || !speaker || !GetPose(speaker, at) || !coop::SamePlace(me, at))
+            if (TESObjectREFR* who = log.on ? within(s, static_cast<float>(log.range)) : nullptr)
+                m_talkLog.Add(coop::TalkLine(Name(who), s.text), now);
+            TESObjectREFR* speaker = within(s, coop::kSamePlaceDistance);
+            if (!speaker)
             {
                 ++m_subtitlesFar;
                 continue;
@@ -392,5 +425,18 @@ namespace game
             LOG_DEBUG("Dialogue: %s's conversation: %s says \"%s\" (line %08X response %u; sound %08X)",
                 m_coop->NameOf(s.playerId).c_str(), name, s.text.c_str(), s.info, s.response, m_heard.id);
         }
+        if (!log.on)
+            m_talkLog.Clear();
+        m_talkLog.Configure(static_cast<size_t>(log.lines), static_cast<uint32_t>(log.seconds) * 1000);
+        TalkLogLook look;
+        look.scale = log.size / 100.0f;
+        look.gap = static_cast<float>(log.gap);
+        look.dividers = log.dividers;
+        look.style = log.style;
+        look.hudColor = log.hudColor;
+        look.red = log.red;
+        look.green = log.green;
+        look.blue = log.blue;
+        ShowTalkLog(m_talkLog.Update(now), look);
     }
 }
