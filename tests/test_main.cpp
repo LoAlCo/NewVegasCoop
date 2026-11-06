@@ -1509,7 +1509,8 @@ TEST(a_revive_that_doesnt_take_tries_again_later_then_gives_up)
         auto failed = r.Look(kBody, now, true, false, false, true);
         CHECK(failed.action == Do::SwitchOn);
         CHECK(failed.news == News::StillDead);
-        CHECK(r.Look(kBody, now + coop::kReviveRetryMs - 1, true, true, true, true).action == Do::Nothing);
+        for (uint32_t t = 500; t < coop::kReviveRetryMs; t += 500)
+            CHECK(r.Look(kBody, now + t, true, true, true, true).action == Do::Nothing);
         now += coop::kReviveRetryMs;
     }
     auto last = r.Look(kBody, now, true, true, true, true);
@@ -1531,11 +1532,50 @@ TEST(menus_and_loading_screens_hold_a_revive_back_and_say_so_once)
     CHECK(waiting.news == News::Waiting);
     CHECK(r.Look(kBody, now + 100, true, true, true, false).news == News::None);
     CHECK(!r.Busy(kBody));
-    CHECK(r.Look(kBody, now + 200, true, true, true, true).action == Do::SwitchOff);
+    CHECK(r.Look(kBody, now + 200, true, true, true, true).action == Do::Nothing);
+    CHECK(r.Look(kBody, now + 100 + coop::kReviveAfterMs, true, true, true, true).action == Do::SwitchOff);
+}
 
-    now += 200 + coop::kReviveMinOffMs;
-    CHECK(r.Look(kBody, now, true, false, false, false).action == Do::Nothing);
-    CHECK(r.Look(kBody, now + 1, true, false, false, true).action == Do::Resurrect);
+TEST(a_menu_opening_with_the_body_off_switches_it_back_on_without_using_a_try)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(SeenDeadThenDue(r, kBody, now).tries == 1);
+    now += 20;
+    auto s = r.Look(kBody, now, true, false, false, false);
+    CHECK(s.action == Do::SwitchOn);
+    CHECK(s.news == News::Waiting);
+    CHECK(s.tries == 0);
+    CHECK(!r.Busy(kBody));
+    CHECK(r.Look(kBody, now + 20, true, true, true, false).news == News::None);
+
+    for (uint32_t t = 500; t < coop::kReviveRetryMs; t += 500)
+        CHECK(r.Look(kBody, now + t, true, true, true, t < 2000 ? false : true).action == Do::Nothing);
+    auto again = r.Look(kBody, now + coop::kReviveRetryMs + 500, true, true, true, true);
+    CHECK(again.action == Do::SwitchOff);
+    CHECK(again.tries == 1);
+}
+
+TEST(a_body_back_in_view_after_a_while_gets_the_whole_wait_again)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(r.Look(kBody, now, true, true, true, true).action == Do::Nothing);
+    now += 60000;
+    CHECK(r.Look(kBody, now, true, true, true, true).action == Do::Nothing);
+    CHECK(!r.Busy(kBody));
+    CHECK(r.Look(kBody, now + coop::kReviveAfterMs - 1, true, true, true, true).action == Do::Nothing);
+    CHECK(r.Look(kBody, now + coop::kReviveAfterMs, true, true, true, true).action == Do::SwitchOff);
+}
+
+TEST(a_body_that_gave_up_on_going_off_is_still_asked_to_come_on_in_case_it_goes_off_late)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(SeenDeadThenDue(r, kBody, now).action == Do::SwitchOff);
+    auto s = r.Look(kBody, now + coop::kReviveTimeoutMs, true, true, true, true);
+    CHECK(s.news == News::BodyStayed);
+    CHECK(s.action == Do::SwitchOn);
 }
 
 TEST(bodies_come_back_one_at_a_time)
