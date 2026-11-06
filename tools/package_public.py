@@ -17,6 +17,8 @@ Port=27960
 HostQuestMods=
 ; 1 keeps Discord's overlay out of the game (it crashes New Vegas, even when turned off in Discord)
 BlockDiscordOverlay=1
+; Testing only: lets a second copy of the game run on this PC.
+AllowSecondCopy=1
 '''
 
 README = f'''New Vegas Co-op {version}
