@@ -3952,6 +3952,20 @@ TEST(nearby_conversations_log_keeps_the_newest_lines_for_a_while)
     CHECK(coop::TalkLine("", "Just text") == "Just text");
 }
 
+TEST(detached_quest_scripts_are_back_only_for_the_call)
+{
+    int a, b, other;
+    void* first = nullptr;
+    void* second = nullptr;
+    void* taken = &other;
+    const std::vector<coop::DetachedSlot> detached{{&first, &a}, {&second, &b}, {&taken, &a}};
+    bool seen = coop::WithDetachedPutBack(detached, [&] { return first == &a && second == &b && taken == &other; });
+    CHECK(seen);
+    CHECK(first == nullptr && second == nullptr);
+    CHECK(taken == &other);
+    CHECK(coop::WithDetachedPutBack(std::vector<coop::DetachedSlot>{}, [] { return 7; }) == 7);
+}
+
 TEST(only_the_games_own_quests_are_the_hosts_to_run)
 {
     CHECK(coop::IsGameFile("FalloutNV.esm") && coop::IsGameFile("falloutnv.ESM") && coop::IsGameFile("DeadMoney.esm"));

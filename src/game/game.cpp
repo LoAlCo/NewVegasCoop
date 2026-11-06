@@ -3,6 +3,7 @@
 #include "game/game.h"
 #include "game/level_up.h"
 #include "coop/chat.h"
+#include "coop/quests.h"
 #include "coop/talk_log.h"
 #include "coop/balance.h"
 
@@ -3682,9 +3683,38 @@ namespace game
         return text;
     }
 
+    namespace
+    {
+        std::vector<coop::DetachedSlot> g_detachedQuestScripts;
+        Cmd_Execute g_hasScriptCommand = nullptr;
+
+        // xNVSE's HasScriptCommand reads through a script's lines, and on a line using a quest's variable, it reads that
+        // quest's script without checking there is one. Mods call it on whatever is under the crosshair (Just Assorted
+        // Mods' loot window does), so a detached quest's script is back in place while it reads. Nothing runs meanwhile.
+        bool HasScriptCommandWithQuestScripts(COMMAND_ARGS)
+        {
+            return coop::WithDetachedPutBack(g_detachedQuestScripts, [&] {
+                return g_hasScriptCommand(PASS_COMMAND_ARGS);
+            });
+        }
+
+        void GuardHasScriptCommand()
+        {
+            if (g_hasScriptCommand || !g_cmdTable)
+                return;
+            auto* info = const_cast<CommandInfo*>(g_cmdTable->GetByName("HasScriptCommand"));
+            if (!info || !info->execute)
+                return LOG_WARN("Quests: no HasScriptCommand to guard");
+            g_hasScriptCommand = info->execute;
+            info->execute = HasScriptCommandWithQuestScripts;
+            LOG_INFO("Quests: HasScriptCommand sees detached quests' scripts while it reads");
+        }
+    }
+
     std::vector<std::pair<uint32_t, void*>> DetachQuestScripts(bool (*accept)(uint32_t id, const void* context),
         const void* context)
     {
+        GuardHasScriptCommand();
         std::vector<std::pair<uint32_t, void*>> detached;
         const void* data = *reinterpret_cast<const void* const*>(addr::kDataHandler);
         if (!data)
@@ -3696,6 +3726,7 @@ namespace game
             if (*slot && accept(id, context))
             {
                 detached.push_back({id, *slot});
+                g_detachedQuestScripts.push_back({slot, *slot});
                 *slot = nullptr;
             }
         });
@@ -3704,6 +3735,7 @@ namespace game
 
     void PutBackQuestScripts(const std::vector<std::pair<uint32_t, void*>>& scripts)
     {
+        g_detachedQuestScripts.clear();
         for (auto& [id, script] : scripts)
             if (TESForm* quest = QuestById(id))
             {
