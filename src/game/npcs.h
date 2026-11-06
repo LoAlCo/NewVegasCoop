@@ -7,6 +7,7 @@
 #include "coop/coop.h"
 #include "coop/given_rounds.h"
 #include "coop/holds.h"
+#include "coop/revive.h"
 #include "coop/shot_counter.h"
 #include "game/game.h"
 #include "game/puppet.h"
@@ -73,6 +74,9 @@ namespace game
         TESObjectREFR* Make(uint32_t ref, const coop::RemoteNpc& npc, const coop::Pose& pose, uint32_t now);
         void Unmake(uint32_t ref);
         void Release(uint32_t ref);
+        void StepRevives(const coop::Coop& coop, uint32_t now);
+        void ApplyRevive(uint32_t ref, TESObjectREFR* actor, const coop::ReviveSteps::Step& step,
+            const coop::RemoteNpc& npc);
         struct TakeBack
         {
             uint32_t ourRef = 0;
@@ -116,6 +120,7 @@ namespace game
         bool m_saidAiRunning = false;
         std::map<uint32_t, coop::CopyKill> m_killed;
         std::map<uint32_t, uint32_t> m_nextRevive;
+        coop::ReviveSteps m_revive;
         struct SwitchedOff { uint32_t since = 0; uint32_t nextTry = 0; uint32_t tries = 0; };
         std::map<uint32_t, SwitchedOff> m_switchedOff;
         std::map<uint32_t, uint32_t> m_localDeaths;
