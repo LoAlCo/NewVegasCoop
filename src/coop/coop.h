@@ -37,9 +37,9 @@ namespace coop
     constexpr uint32_t kMaxExplosionsPerSecond = 16;
     constexpr uint32_t kMaxHostExplosionsPerSecond = 32;
     constexpr size_t kMaxQueuedExplosions = 64;
-    constexpr uint32_t kMaxShotPathsPerSecond = 16;
-    constexpr uint32_t kMaxHostShotPathsPerSecond = 48;
-    constexpr size_t kMaxQueuedShotPaths = 64;
+    constexpr uint32_t kMaxShotPathsPerSecond = 60;
+    constexpr uint32_t kMaxHostShotPathsPerSecond = 180;
+    constexpr size_t kMaxQueuedShotPaths = 128;
 
     struct JoinAsk
     {
@@ -152,6 +152,7 @@ namespace coop
         uint8_t shots = 0;
         bool release = false;
         bool reload = false;
+        bool paths = false;
     };
 
     struct SessionState
@@ -380,7 +381,7 @@ namespace coop
         bool HostSaysFighting() const { return m_hostSaysFighting; }
         std::vector<MineFrom> TakeMines() { return std::move(m_mines); }
         std::vector<HitReport> TakeHits() { return std::move(m_hits); }
-        void Attack(uint8_t shots, bool release = false, bool reload = false);
+        void Attack(uint8_t shots, bool release = false, bool reload = false, bool paths = false);
         void ShareExplosion(const net::ExplosionAt& e);
         void ShareShotPath(net::ShotPath path);
         void SawDesync(const Disagreement& d);
@@ -557,7 +558,7 @@ namespace coop
         void ForgetOldNpcs(uint32_t now);
         void HeardNpcs(const net::NpcStates& m);
         void SetRemoteGear(uint8_t id, std::vector<uint32_t> items);
-        void QueueAttack(uint8_t playerId, uint8_t shots, bool release, bool reload);
+        void QueueAttack(uint8_t playerId, uint8_t shots, bool release, bool reload, bool paths);
         void CheckDowned(uint32_t now);
         void EndGame(net::GameOverReason reason, uint8_t playerId);
         void HostRevive(uint8_t reviver, uint8_t target);

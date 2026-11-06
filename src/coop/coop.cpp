@@ -966,7 +966,7 @@ namespace coop
                 return;
             m.playerId = player.id;
             SendToJoined(Encode(m), true, peer);
-            QueueAttack(player.id, m.shots, m.release, m.reload);
+            QueueAttack(player.id, m.shots, m.release, m.reload, m.paths);
             return;
         }
 
@@ -987,7 +987,7 @@ namespace coop
             if (!Decode(r, m) || !WithinLimit(player.shotPathsSince, player.shotPaths, kMaxShotPathsPerSecond))
                 return;
             m.playerId = player.id;
-            SendToJoined(Encode(m), true, peer);
+            SendToJoined(Encode(m), m.mustArrive, peer);
             if (m_shotPaths.size() < kMaxQueuedShotPaths)
                 m_shotPaths.push_back(m);
             return;
@@ -1368,7 +1368,7 @@ namespace coop
         {
             net::Attack m;
             if (Decode(r, m) && m.playerId != m_myId && m_remotes.count(m.playerId))
-                QueueAttack(m.playerId, m.shots, m.release, m.reload);
+                QueueAttack(m.playerId, m.shots, m.release, m.reload, m.paths);
         }
         else if (type == MsgType::ShotPath)
         {
@@ -1551,13 +1551,13 @@ namespace coop
             m_net->Send(1, Encode(Hit{m_myId, targetRef, damage}), true);
     }
 
-    void Coop::Attack(uint8_t shots, bool release, bool reload)
+    void Coop::Attack(uint8_t shots, bool release, bool reload, bool paths)
     {
         reload = reload && !release;
         if (!InGame() || (shots == 0 && !release && !reload))
             return;
         Bytes msg = Encode(net::Attack{m_myId, release ? uint8_t(0) : shots < net::kMaxShots ? shots : net::kMaxShots,
-            release, reload});
+            release, reload, paths && shots > 0 && !release});
         if (m_role == Role::Host)
             SendToJoined(msg, true);
         else
@@ -1733,16 +1733,16 @@ namespace coop
             return;
         path.playerId = m_myId;
         if (m_role == Role::Host)
-            SendToJoined(Encode(path), true);
+            SendToJoined(Encode(path), path.mustArrive);
         else
-            m_net->Send(1, Encode(path), true);
+            m_net->Send(1, Encode(path), path.mustArrive);
     }
 
-    void Coop::QueueAttack(uint8_t playerId, uint8_t shots, bool release, bool reload)
+    void Coop::QueueAttack(uint8_t playerId, uint8_t shots, bool release, bool reload, bool paths)
     {
         if (m_attacks.size() >= kMaxQueuedAttacks)
             return LOG_WARN("Too many attacks at once, dropped one from player %u", playerId);
-        m_attacks.push_back({playerId, shots, release, reload});
+        m_attacks.push_back({playerId, shots, release, reload, paths});
     }
 
     void Coop::SetMyHealth(float health, float maxHealth)

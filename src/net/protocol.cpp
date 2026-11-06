@@ -320,20 +320,21 @@ namespace net
         Writer w(MsgType::Attack);
         w.U8(m.playerId);
         w.U8(m.release ? 0 : m.shots);
-        w.U8(m.release ? 1 : m.reload ? 2 : 0);
+        w.U8(m.release ? 1 : (m.reload ? 2 : 0) | (m.paths && m.shots ? 4 : 0));
         return w.Take();
     }
 
     bool Decode(Reader& r, Attack& m)
     {
         uint8_t flags;
-        if (!r.U8(m.playerId) || !r.U8(m.shots) || !r.U8(flags) || !r.AtEnd() || flags > 2)
+        if (!r.U8(m.playerId) || !r.U8(m.shots) || !r.U8(flags) || !r.AtEnd() || flags > 6 || ((flags & 1) && flags != 1))
             return false;
         m.release = flags == 1;
-        m.reload = flags == 2;
+        m.reload = (flags & 2) != 0;
+        m.paths = (flags & 4) != 0;
         if (m.release)
             return m.shots == 0;
-        return m.shots <= kMaxShots && (m.shots >= 1 || m.reload);
+        return m.shots <= kMaxShots && (m.shots >= 1 || m.reload) && (m.shots >= 1 || !m.paths);
     }
 
     Bytes Encode(const Travel& m)
@@ -1739,25 +1740,76 @@ namespace net
             r.F32(m.x) && r.F32(m.y) && r.F32(m.z) && r.AtEnd();
     }
 
+    namespace
+    {
+        constexpr float kShotAngleUnits = 10000; // a hundredth of a milliradian: 1 unit off at 10000 units away
+        constexpr float kShotSpreadUnits = 500;
+        constexpr uint8_t kPathHasForm = 1, kPathHasSpeed = 2, kPathHasPellets = 4, kPathMustArrive = 8;
+
+        void WriteAngle(Writer& w, float angle)
+        {
+            float wrapped = std::remainder(angle, 6.2831853f);
+            w.U16(static_cast<uint16_t>(static_cast<int16_t>(std::lround(wrapped * kShotAngleUnits))));
+        }
+
+        bool ReadAngle(Reader& r, float& out)
+        {
+            uint16_t raw;
+            if (!r.U16(raw))
+                return false;
+            out = static_cast<int16_t>(raw) / kShotAngleUnits;
+            return true;
+        }
+    }
+
     Bytes Encode(const ShotPath& m)
     {
         Writer w(MsgType::ShotPath);
+        bool speed = std::fabs(m.speedMult - 1) > 0.001f, pellets = m.pellets != 1;
         w.U8(m.playerId);
-        w.U32(m.projectile);
+        w.U8((m.projectile ? kPathHasForm : 0) | (speed ? kPathHasSpeed : 0) | (pellets ? kPathHasPellets : 0) |
+            (m.mustArrive ? kPathMustArrive : 0));
         w.F32(m.x);
         w.F32(m.y);
         w.F32(m.z);
-        w.F32(m.rotX);
-        w.F32(m.rotZ);
-        w.F32(m.speedMult);
+        WriteAngle(w, m.rotX);
+        WriteAngle(w, m.rotZ);
+        if (m.projectile)
+            w.U32(m.projectile);
+        if (speed)
+            w.F32(m.speedMult);
+        if (pellets)
+        {
+            w.U8(m.pellets);
+            float spread = m.spread < kMaxShotPelletSpread ? m.spread : kMaxShotPelletSpread;
+            w.U8(static_cast<uint8_t>(std::lround(spread * kShotSpreadUnits)));
+        }
         return w.Take();
     }
 
     bool Decode(Reader& r, ShotPath& m)
     {
-        return r.U8(m.playerId) && r.U32(m.projectile) && m.projectile != 0 && !IsMadeWhilePlaying(m.projectile) &&
-            r.F32(m.x) && r.F32(m.y) && r.F32(m.z) && r.F32(m.rotX) && std::fabs(m.rotX) <= 100 && r.F32(m.rotZ) &&
-            std::fabs(m.rotZ) <= 100 && r.F32(m.speedMult) && m.speedMult > 0 && m.speedMult <= 100 && r.AtEnd();
+        uint8_t flags;
+        if (!r.U8(m.playerId) || !r.U8(flags) || flags > (kPathHasForm | kPathHasSpeed | kPathHasPellets | kPathMustArrive) ||
+            !r.F32(m.x) || !r.F32(m.y) || !r.F32(m.z) || !ReadAngle(r, m.rotX) || !ReadAngle(r, m.rotZ))
+            return false;
+        m.mustArrive = (flags & kPathMustArrive) != 0;
+        m.projectile = 0;
+        m.speedMult = 1;
+        m.pellets = 1;
+        m.spread = 0;
+        if ((flags & kPathHasForm) && (!r.U32(m.projectile) || m.projectile == 0 || IsMadeWhilePlaying(m.projectile)))
+            return false;
+        if ((flags & kPathHasSpeed) && (!r.F32(m.speedMult) || !(m.speedMult > 0) || m.speedMult > 100))
+            return false;
+        if (flags & kPathHasPellets)
+        {
+            uint8_t spread;
+            if (!r.U8(m.pellets) || m.pellets < 2 || m.pellets > kMaxShotPellets || !r.U8(spread))
+                return false;
+            m.spread = spread / kShotSpreadUnits;
+        }
+        return r.AtEnd();
     }
 
     Bytes Encode(const ModsMatch& m)

@@ -2216,12 +2216,13 @@ namespace
                 LOG_DEBUG("Explosions: %s %08X at %.0f, %.0f, %.0f", shown ? "showing" : "couldn't show", e.form, e.x,
                     e.y, e.z);
             }
+        game::SetShotPaths(g_config.shotPaths);
         for (const net::ShotPath& shot : game::TakeMyShots())
             g_coop.ShareShotPath(shot);
         game::MyAttack mine = game::TakeMyAttacks();
         if (mine.shots || mine.reload)
         {
-            g_coop.Attack(mine.shots, false, mine.reload);
+            g_coop.Attack(mine.shots, false, mine.reload, mine.paths);
             g_mirror.Attack(mine.shots, false, mine.reload);
         }
         if (mine.release)
@@ -2252,7 +2253,7 @@ namespace
         UpdateReinforcements(now);
         UpdateLootThinning(now);
         for (const coop::AttackReport& attack : g_coop.TakeAttacks())
-            g_standIns.Attack(attack.playerId, attack.shots, attack.release, attack.reload);
+            g_standIns.Attack(attack.playerId, attack.shots, attack.release, attack.reload, attack.paths);
         for (const net::ShotPath& path : g_coop.TakeShotPaths())
             g_standIns.FireAlong(path);
         if (g_coop.InGame())

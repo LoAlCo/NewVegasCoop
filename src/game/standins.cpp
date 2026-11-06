@@ -317,11 +317,11 @@ namespace game
         return e.ref && LookupRef(e.refId) == e.ref ? e.ref : nullptr;
     }
 
-    void StandIns::Attack(uint8_t playerId, uint8_t shots, bool release, bool reload)
+    void StandIns::Attack(uint8_t playerId, uint8_t shots, bool release, bool reload, bool paths)
     {
         auto it = m_entries.find(playerId);
         if (it != m_entries.end() && Live(it->second) && !it->second.loading && !it->second.downed)
-            it->second.puppet.Attack(it->second.ref, shots, release, reload);
+            it->second.puppet.Attack(it->second.ref, shots, release, reload, paths);
     }
 
     void StandIns::FireAlong(const net::ShotPath& path)
