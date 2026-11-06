@@ -2549,7 +2549,7 @@ namespace
                 g_thisGame.game = NewSaveTagId();
             g_thisGame.save = NewSaveTagId();
             g_coop.SetCurrentSaveTag(g_thisGame);
-            WriteSaveTag(file);
+            WriteSaveTag(file, FileTimeNow());
             if (g_coop.GetRole() == coop::Role::Host && g_coop.InGame())
                 g_coop.ShareSave(file, false);
             if (g_coop.GetRole() == coop::Role::Friend && g_coop.InGame())
