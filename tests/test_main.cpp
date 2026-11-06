@@ -16,6 +16,7 @@
 #include "coop/steer.h"
 #include "coop/talk_log.h"
 #include "coop/item_stacks.h"
+#include "coop/made_copies.h"
 #include "dev/inspect_text.h"
 #include "dev/lab_channel.h"
 #include "dll_names.h"
@@ -4971,4 +4972,47 @@ TEST(a_stack_merged_away_is_seen_gone)
     coop::StackNode broken{&b, nullptr};
     broken.next = &broken;
     CHECK(coop::HoldsStack(&broken, &a));
+}
+
+TEST(copies_a_load_threw_away_are_seen_gone)
+{
+    int weapon, teleporter, other;
+    coop::MadeCopies copies;
+    copies.Note(0xFF000001, &weapon);
+    copies.Note(0xFF000002, &teleporter);
+    copies.Forget();
+    auto gone = copies.TakeGone([&](uint32_t id) -> void* { return id == 0xFF000001 ? nullptr : &other; });
+    CHECK(gone.gone == 2);
+    CHECK(gone.forgotten == 2);
+    gone = copies.TakeGone([](uint32_t) -> void* { return nullptr; });
+    CHECK(gone.gone == 0);
+    CHECK(gone.forgotten == 0);
+}
+
+TEST(copies_a_failed_load_left_alone_are_not_called_gone)
+{
+    int weapon;
+    coop::MadeCopies copies;
+    copies.Note(0xFF000001, &weapon);
+    copies.Forget();
+    auto gone = copies.TakeGone([&](uint32_t) -> void* { return &weapon; });
+    CHECK(gone.gone == 0);
+    CHECK(gone.forgotten == 1);
+}
+
+TEST(copies_are_only_counted_once_forgotten_and_only_once)
+{
+    int first, second;
+    coop::MadeCopies copies;
+    copies.Note(0xFF000001, &first);
+    auto gone = copies.TakeGone([](uint32_t) -> void* { return nullptr; });
+    CHECK(gone.forgotten == 0);
+    copies.Forget();
+    copies.Forget();
+    copies.Note(0xFF000002, &second);
+    gone = copies.TakeGone([](uint32_t) -> void* { return nullptr; });
+    CHECK(gone.forgotten == 1);
+    copies.Forget();
+    gone = copies.TakeGone([](uint32_t) -> void* { return nullptr; });
+    CHECK(gone.forgotten == 1);
 }
