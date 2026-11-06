@@ -3952,6 +3952,41 @@ TEST(nearby_conversations_log_keeps_the_newest_lines_for_a_while)
     CHECK(coop::TalkLine("", "Just text") == "Just text");
 }
 
+TEST(the_conversations_log_goes_where_its_set_and_stays_on_screen)
+{
+    auto at = [](float x, float y, float height) { return coop::PlaceTalkLog(x, y, 1700, 960, 600, height); };
+    coop::TalkLogCorner c = at(2, 25, 100);
+    CHECK(c.x == 34 && c.y == 240);
+    c = at(50, 50, 100);
+    CHECK(c.x == 850 && c.y == 480);
+    c = at(0, 0, 100);
+    CHECK(c.x == 8 && c.y == 8);
+    c = at(100, 100, 100);
+    CHECK(c.x == 1092 && c.y == 852);
+    c = at(100, 100, 300);
+    CHECK(c.y == 652);
+    c = at(0, 90, 2000);
+    CHECK(c.y == 8);
+    CHECK(coop::PlaceTalkLog(100, 0, 1700, 960, 1200, 100).x == 492);
+    CHECK(coop::PlaceTalkLog(100, 0, 1700, 960, 200, 100).x == 1492);
+}
+
+TEST(the_conversations_preview_shows_as_many_lines_as_the_log_would)
+{
+    CHECK(coop::TalkLogPreview(4).size() == 4);
+    CHECK(coop::TalkLogPreview(1).size() == 1);
+    CHECK(coop::TalkLogPreview(0).empty());
+    CHECK(coop::TalkLogPreview(-1).empty());
+    CHECK(coop::TalkLogPreview(99).size() == coop::TalkLog::kMostLines);
+    bool slotUsed[coop::TalkLog::kMostLines] = {};
+    for (const coop::TalkLog::Shown& line : coop::TalkLogPreview(10))
+    {
+        CHECK(line.id != 0 && line.alpha == 1.0f && !line.text.empty());
+        CHECK(!slotUsed[line.id % coop::TalkLog::kMostLines]);
+        slotUsed[line.id % coop::TalkLog::kMostLines] = true;
+    }
+}
+
 TEST(only_the_games_own_quests_are_the_hosts_to_run)
 {
     CHECK(coop::IsGameFile("FalloutNV.esm") && coop::IsGameFile("falloutnv.ESM") && coop::IsGameFile("DeadMoney.esm"));

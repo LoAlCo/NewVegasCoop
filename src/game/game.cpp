@@ -144,6 +144,7 @@ namespace game
         Script* g_talkText[kTalkSlots] = {};
         Script* g_talkPlace[kTalkSlots] = {};
         Script* g_talkBack[kTalkSlots] = {};
+        Script* g_talkSide[kTalkSlots] = {};
         Script* g_speedMult = nullptr;
         Script* g_actorAlpha = nullptr;
         Script* g_collision = nullptr;
@@ -909,15 +910,22 @@ namespace game
             std::string line = "HUDMainMenu/NVCoopTalkLine" + n;
             std::string bar = "HUDMainMenu/NVCoopTalkBar" + n;
             std::string setText = "  SetUIStringEx \"" + text + "/string\" \"%z\" sText\n";
+            setText += "  SetUIFloat \"" + text + "/justify\" fJustify\n"
+                "  SetUIStringEx \"" + line + "/filename\" \"%z\" sLine\n";
             for (int e = 0; e < kTalkEdges; ++e)
+            {
                 setText += "  SetUIStringEx \"" + edge + std::to_string(e) + "/string\" \"%z\" sText\n";
+                setText += "  SetUIFloat \"" + edge + std::to_string(e) + "/justify\" fJustify\n";
+            }
             g_talkText[slot] = Compile("talk log text",
                 "string_var sText\n"
                 "float fBright\n"
                 "float fRed\n"
                 "float fGreen\n"
                 "float fBlue\n"
-                "Begin Function {sText, fBright, fRed, fGreen, fBlue}\n" + setText +
+                "float fJustify\n"
+                "string_var sLine\n"
+                "Begin Function {sText, fBright, fRed, fGreen, fBlue, fJustify, sLine}\n" + setText +
                 "  SetUIFloat \"" + text + "/brightness\" fBright\n"
                 "  SetUIFloat \"" + text + "/red\" fRed\n"
                 "  SetUIFloat \"" + text + "/green\" fGreen\n"
@@ -927,7 +935,7 @@ namespace game
             for (int e = 0; e < kTalkEdges; ++e)
             {
                 std::string path = edge + std::to_string(e);
-                placeEdges += std::string("  set fX to ") + (e % 2 ? "30 + fOff" : "30 - fOff") + "\n"
+                placeEdges += std::string("  set fX to ") + (e % 2 ? "fBaseX + fOff" : "fBaseX - fOff") + "\n"
                     "  set fEdgeY to fY " + (e / 2 ? "+" : "-") + " fOff\n"
                     "  SetUIFloat \"" + path + "/x\" fX\n"
                     "  SetUIFloat \"" + path + "/y\" fEdgeY\n"
@@ -942,12 +950,14 @@ namespace game
                 "float fEdge\n"
                 "float fOff\n"
                 "int iEdges\n"
+                "float fBaseX\n"
                 "float fX\n"
                 "float fEdgeY\n"
                 "int iShow\n"
                 "int iLast\n"
-                "Begin Function {fY, fWrap, fAlpha, fEdge, fOff, iEdges}\n"
+                "Begin Function {fY, fWrap, fAlpha, fEdge, fOff, iEdges, fBaseX}\n"
                 "  set iShow to fAlpha > 0\n"
+                "  SetUIFloat \"" + text + "/x\" fBaseX\n"
                 "  SetUIFloat \"" + text + "/y\" fY\n"
                 "  SetUIFloat \"" + text + "/wrapwidth\" fWrap\n"
                 "  SetUIFloat \"" + text + "/alpha\" fAlpha\n"
@@ -962,6 +972,13 @@ namespace game
                 "  if iEdges == 2\n"
                 "    set iShow to 0\n"
                 "  endif\n" + placeEdges +
+                "End\n");
+            g_talkSide[slot] = Compile("talk log side",
+                "float fLineX\n"
+                "float fBarX\n"
+                "Begin Function {fLineX, fBarX}\n"
+                "  SetUIFloat \"" + line + "/x\" fLineX\n"
+                "  SetUIFloat \"" + bar + "/x\" fBarX\n"
                 "End\n");
             g_talkBack[slot] = Compile("talk log back",
                 "float fLineY\n"
@@ -6980,8 +6997,9 @@ namespace game
             const void* tile = nullptr;
             uint32_t id = 0;
             uint32_t look = 0xFFFFFFFF;
-            float place[6] = {-1, -1, -1, -1, -1, -1};
+            float place[7] = {-1, -1, -1, -1, -1, -1, -1};
             float back[7] = {-1, -1, -1, -1, -1, -1, -1};
+            float side[2] = {-1, -1};
         };
         TalkSlot g_talkSlots[kTalkSlots];
 
@@ -6995,13 +7013,16 @@ namespace game
             return !same;
         }
 
-        void PlaceTalkSlot(int slot, const float (&place)[6], const float (&back)[7])
+        void PlaceTalkSlot(int slot, const float (&place)[7], const float (&back)[7], const float (&side)[2])
         {
             TalkSlot& s = g_talkSlots[slot];
+            if (g_talkSide[slot] && Changed(s.side, side))
+                g_scripts->CallFunction(g_talkSide[slot], Player(), nullptr, nullptr, 2, FloatArg(side[0]),
+                    FloatArg(side[1]));
             if (g_talkPlace[slot] && Changed(s.place, place))
-                g_scripts->CallFunction(g_talkPlace[slot], Player(), nullptr, nullptr, 6, FloatArg(place[0]),
+                g_scripts->CallFunction(g_talkPlace[slot], Player(), nullptr, nullptr, 7, FloatArg(place[0]),
                     FloatArg(place[1]), FloatArg(place[2]), FloatArg(place[3]), FloatArg(place[4]),
-                    static_cast<uint32_t>(place[5]));
+                    static_cast<uint32_t>(place[5]), FloatArg(place[6]));
             if (g_talkBack[slot] && Changed(s.back, back))
                 g_scripts->CallFunction(g_talkBack[slot], Player(), nullptr, nullptr, 7, FloatArg(back[0]),
                     FloatArg(back[1]), FloatArg(back[2]), FloatArg(back[3]), FloatArg(back[4]), FloatArg(back[5]),
@@ -7011,18 +7032,24 @@ namespace game
 
     void ShowTalkLog(const std::vector<coop::TalkLog::Shown>& lines, const TalkLogLook& look)
     {
-        constexpr float kX = 30, kTop = 24, kWidth = 600, kAlpha = 235, kLineAlpha = 150;
-        constexpr float kBarAlpha = 120, kBarPad = 6;
-        constexpr float kDividerWidth = 740, kDividerHeight = 8, kTextLine = 32, kUnderLetters = 0.2f;
-        constexpr uint32_t kHeight = 0xFB0;
+        constexpr float kTop = 24, kAlpha = 235, kLineAlpha = 150;
+        constexpr float kBarAlpha = 120, kBarPad = 6, kBarSide = 8;
+        constexpr float kDividerPerWidth = 740.0f / 600, kDividerHeight = 8, kTextLine = 32, kUnderLetters = 0.2f;
+        constexpr uint32_t kHeight = 0xFB0, kWidthTrait = 0xFB1;
+        // The game's values for the justify trait
+        constexpr float kJustifyLeft = 1, kJustifyRight = 4;
+        // The line is solid at the text's side and fades out away from it, gone by 81% of its width. The game can't
+        // mirror a texture, so the right aligned one is the mod's own (tools/make_talk_divider.py).
+        static const char kLeftLine[] = "interface\\shared\\line\\glow_tip_line_horizontal.dds";
+        static const char kRightLine[] = "interface\\nvcoop\\talk_divider_right.dds";
         static bool s_showing = true;
         if (!Player() || !g_talkText[0] || !g_talkPlace[0] || !g_talkBack[0] || !g_chatHud ||
             (lines.empty() && !s_showing))
             return;
         MakeChatHud();
         auto* manager = *reinterpret_cast<const uint8_t* const*>(addr::kInterfaceManager);
-        const void* hud = ChildTile(manager ? At<const void*>(manager, layout::kInterfaceMenuRoot) : nullptr,
-            "HUDMainMenu");
+        const void* root = manager ? At<const void*>(manager, layout::kInterfaceMenuRoot) : nullptr;
+        const void* hud = ChildTile(root, "HUDMainMenu");
         if (!hud)
             return;
         const void* text[kTalkSlots] = {};
@@ -7050,33 +7077,44 @@ namespace game
         }
 
         float scale = std::clamp(look.scale, 0.2f, 3.0f);
-        uint32_t lookKey = (look.hudColor ? 1u << 24 : 0) | look.red << 16 | look.green << 8 | look.blue;
+        const float width = std::clamp(look.width, 200.0f, 1200.0f);
+        uint32_t lookKey = (look.alignRight ? 1u << 25 : 0) | (look.hudColor ? 1u << 24 : 0) | look.red << 16 |
+            look.green << 8 | look.blue;
         int style = std::clamp(look.style, 0, 3);
         bool used[kTalkSlots] = {};
-        float hudHeight = static_cast<float>(*reinterpret_cast<const int32_t*>(addr::kDisplayHeightSetting + 4)) *
-            *reinterpret_cast<const float*>(addr::kMenuUnitsPerPixel) * 0.5f;
-        static bool s_heightLogged = false;
-        if (!s_heightLogged)
+        // The game keeps the screen's size, in menu units, on the root of all menus
+        float screenHeight = TileValue(root, kHeight), screenWidth = TileValue(root, kWidthTrait);
+        if (screenHeight < 200)
+            screenHeight = static_cast<float>(*reinterpret_cast<const int32_t*>(addr::kDisplayHeightSetting + 4)) *
+                *reinterpret_cast<const float*>(addr::kMenuUnitsPerPixel);
+        if (screenWidth < 200)
+            screenWidth = screenHeight * 16 / 9;
+        static bool s_sizeLogged = false;
+        if (!s_sizeLogged)
         {
-            s_heightLogged = true;
-            LOG_INFO("Talk log: the screen is %.0f high in menu units; the log's top at %.0f", hudHeight,
-                hudHeight > 200 ? hudHeight * 0.5f : kTop);
+            s_sizeLogged = true;
+            LOG_INFO("Talk log: the screen is %.0f by %.0f in menu units", screenWidth, screenHeight);
         }
-        float y = hudHeight > 200 ? hudHeight * 0.5f : kTop;
+        float heights[coop::TalkLog::kMostLines] = {};
+        float total = 0;
+        size_t count = 0;
         for (const coop::TalkLog::Shown& l : lines)
         {
             int slot = static_cast<int>(l.id % kTalkSlots);
             TalkSlot& s = g_talkSlots[slot];
             if (s.tile != text[slot])
                 s = TalkSlot{text[slot]};
-            if (!text[slot])
+            size_t at = count++;
+            if (!text[slot] || at >= coop::TalkLog::kMostLines)
                 continue;
             used[slot] = true;
             if (s.id != l.id || s.look != lookKey)
             {
-                g_scripts->CallFunction(g_talkText[slot], Player(), nullptr, nullptr, 5,
+                g_scripts->CallFunction(g_talkText[slot], Player(), nullptr, nullptr, 7,
                     l.text.empty() ? " " : l.text.c_str(), FloatArg(look.hudColor ? 255.0f : -1.0f),
-                    FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue));
+                    FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue),
+                    FloatArg(look.alignRight ? kJustifyRight : kJustifyLeft),
+                    look.alignRight ? kRightLine : kLeftLine);
                 s.id = l.id;
                 s.look = lookKey;
             }
@@ -7084,24 +7122,41 @@ namespace game
             for (const void* edge : edges[slot])
                 ScaleTile(edge, scale);
             float measured = TileValue(text[slot], kHeight);
-            float height = (measured > 0 ? measured : kTextLine) * scale;
+            heights[at] = (measured > 0 ? measured : kTextLine) * scale;
+            total += heights[at] + look.gap;
+        }
+        coop::TalkLogCorner corner = coop::PlaceTalkLog(look.xPercent, look.yPercent, screenWidth, screenHeight, width,
+            total);
+        // Right justified text is drawn leftward from its x
+        const float textX = look.alignRight ? corner.x + width : corner.x;
+        const float lineWidth = width * kDividerPerWidth;
+        const float side[2] = {look.alignRight ? corner.x + width - lineWidth : corner.x, corner.x - kBarSide};
+        float y = corner.y;
+        count = 0;
+        for (const coop::TalkLog::Shown& l : lines)
+        {
+            int slot = static_cast<int>(l.id % kTalkSlots);
+            size_t at = count++;
+            if (!text[slot] || at >= coop::TalkLog::kMostLines)
+                continue;
+            float height = heights[at];
             float alpha = kAlpha * l.alpha;
-            const float place[6] = {y, kWidth / scale, alpha, style == 1 || style == 2 ? alpha : 0,
-                style == 2 ? 2.0f : 1.0f, style == 1 ? 1.0f : style == 2 ? 2.0f : 0.0f};
+            const float place[7] = {y, width / scale, alpha, style == 1 || style == 2 ? alpha : 0,
+                style == 2 ? 2.0f : 1.0f, style == 1 ? 1.0f : style == 2 ? 2.0f : 0.0f, textX};
             float divider = y + height + look.gap / 2 - kTextLine * kUnderLetters * scale;
-            const float back[7] = {divider - kDividerHeight / 2, kDividerWidth,
-                look.dividers ? kLineAlpha * l.alpha : 0,
-                y - kBarPad / 2, height + kBarPad, kWidth + 2 * (kX - 22), style == 3 ? kBarAlpha * l.alpha : 0};
-            PlaceTalkSlot(slot, place, back);
+            const float back[7] = {divider - kDividerHeight / 2, lineWidth, look.dividers ? kLineAlpha * l.alpha : 0,
+                y - kBarPad / 2, height + kBarPad, width + 2 * kBarSide, style == 3 ? kBarAlpha * l.alpha : 0};
+            PlaceTalkSlot(slot, place, back, side);
             y += height + look.gap;
         }
         for (int slot = 0; slot < kTalkSlots; ++slot)
             if (!used[slot])
             {
                 g_talkSlots[slot].id = 0;
-                const float hidden[6] = {kTop, kWidth, 0, 0, 1, 0};
-                const float hiddenBack[7] = {kTop, kWidth, 0, kTop, 1, kWidth, 0};
-                PlaceTalkSlot(slot, hidden, hiddenBack);
+                float x = g_talkSlots[slot].place[6];
+                const float hidden[7] = {kTop, width, 0, 0, 1, 0, x < 0 ? 30 : x};
+                const float hiddenBack[7] = {kTop, width, 0, kTop, 1, width, 0};
+                PlaceTalkSlot(slot, hidden, hiddenBack, side);
             }
         s_showing = !lines.empty();
     }

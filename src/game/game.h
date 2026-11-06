@@ -236,6 +236,9 @@ namespace game
     {
         float scale = 1;
         float gap = 6;
+        float xPercent = 2, yPercent = 25;
+        float width = 600;
+        bool alignRight = false;
         bool dividers = true, hudColor = true;
         int style = 1;
         uint8_t red = 255, green = 255, blue = 255;
