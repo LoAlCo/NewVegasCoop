@@ -5089,6 +5089,74 @@ TEST(a_still_body_is_never_followed_and_small_twitches_are_ignored)
         CHECK(!f.Look(t, {t % 200 ? coop::kBodyStillRange / 2 : 0.f, 0, 0}));
 }
 
+TEST(a_landed_body_is_eased_to_the_hosts_spot_once)
+{
+    coop::BodyEaser e;
+    coop::BodySpot host{0, 0, 0}, ours{100, 0, 0};
+    uint32_t t = 1000;
+    for (; t < 1000 + coop::kBodyEaseAfterMs; t += 100)
+        CHECK(!e.Look(t, host, ours));
+    CHECK(e.Look(t, host, ours));
+    ours = {60, 0, 0};
+    CHECK(e.Look(t + 100, host, ours));
+    ours = {coop::kBodyEaseStop, 0, 0};
+    CHECK(!e.Look(t + 200, host, ours));
+    CHECK(e.Done());
+    // Done for good: nothing more unless the host moves it, which is BodyFollower's.
+    ours = {100, 0, 0};
+    for (uint32_t later = t + 300; later < t + 30000; later += 100)
+        CHECK(!e.Look(later, host, ours));
+}
+
+TEST(a_body_is_not_eased_until_it_has_stopped_falling_in_both_games)
+{
+    coop::BodySpot host{0, 0, 0};
+    coop::BodyEaser oursFalling;
+    uint32_t t = 1000;
+    for (float z = 2000; z > 100; z -= 50, t += 100)
+        CHECK(!oursFalling.Look(t, host, {50, 0, z}));
+    coop::BodyEaser hostFalling;
+    t = 1000;
+    for (float z = 2000; z > 100; z -= 50, t += 100)
+        CHECK(!hostFalling.Look(t, {0, 0, z}, {50, 0, 0}));
+}
+
+TEST(close_and_far_off_bodies_are_not_eased)
+{
+    uint32_t after = 1000 + coop::kBodyEaseAfterMs;
+    coop::BodyEaser nearEnough, farOff;
+    coop::BodySpot host{0, 0, 0};
+    CHECK(!nearEnough.Look(1000, host, {coop::kBodyEaseStart, 0, 0}));
+    CHECK(!nearEnough.Look(after, host, {coop::kBodyEaseStart, 0, 0}));
+    CHECK(nearEnough.Done());
+    CHECK(!farOff.Look(1000, host, {coop::kBodyFarOff + 1, 0, 0}));
+    CHECK(!farOff.Look(after, host, {coop::kBodyFarOff + 1, 0, 0}));
+    CHECK(farOff.Done());
+}
+
+TEST(easing_a_stuck_body_gives_up)
+{
+    coop::BodyEaser e;
+    coop::BodySpot host{0, 0, 0}, stuck{100, 0, 0};
+    uint32_t start = 1000 + coop::kBodyEaseAfterMs;
+    CHECK(!e.Look(1000, host, stuck));
+    CHECK(e.Look(start, host, stuck));
+    CHECK(e.Look(start + coop::kBodyEaseMaxMs - 1, host, stuck));
+    CHECK(!e.Look(start + coop::kBodyEaseMaxMs, host, stuck));
+    CHECK(e.Done());
+}
+
+TEST(a_body_that_never_stops_moving_is_left_alone)
+{
+    coop::BodyEaser e;
+    coop::BodySpot host{0, 0, 0};
+    uint32_t t = 1000;
+    for (float x = 0; t < 1000 + coop::kBodyEaseWaitMaxMs; t += 500, x = x ? 0 : 100.f)
+        CHECK(!e.Look(t, host, {50 + x, 0, 0}));
+    CHECK(!e.Look(t, host, {50, 0, 0}));
+    CHECK(e.Done());
+}
+
 TEST(a_rested_body_that_moves_is_followed_until_it_stops)
 {
     coop::BodyFollower f;

@@ -87,6 +87,8 @@ namespace game
         {
             coop::BodyPlacer placer;
             coop::BodyFollower follower;
+            coop::BodyEaser easer;
+            bool easing = false;
             bool following = false, saidPull = false, saidNoPull = false;
             uint32_t nextPullTry = 0;
             uint32_t followFrames = 0;

@@ -660,13 +660,26 @@ namespace game
                     b.followFrames ? b.followOffSum / b.followFrames : 0, b.followOffMost,
                     b.followFrames ? b.followMs / b.followFrames : 0.0);
         }
-        if (!following || !coop::IsDue(now, b.nextPullTry) || m_bodiesPulled >= coop::kMaxBodiesFollowed || InMenu() ||
-            !GetPose(actor, at) ||
+        if (following)
+            b.easer.Finish();
+        if ((!following && b.easer.Done() && !b.easing) || !coop::IsDue(now, b.nextPullTry) ||
+            m_bodiesPulled >= coop::kMaxBodiesFollowed || InMenu() || !GetPose(actor, at) ||
             at.space != blended.space || !BodyPosition(actor, ours.x, ours.y, ours.z) ||
             GrabbedItem() == RefId(actor))
             return;
-        ++m_bodiesPulled;
         float off = ours.DistanceTo(target);
+        bool easing = b.easer.Look(now, target, ours);
+        if (easing != b.easing)
+        {
+            b.easing = easing;
+            if (easing)
+                LOG_INFO("NPCs: easing the body of %s (%08X) %.0f units to the host's spot", Name(actor), ref, off);
+            else
+                LOG_INFO("NPCs: finished easing the body of %s (%08X): %.0f units from the host's", Name(actor), ref, off);
+        }
+        if (!following && !easing)
+            return;
+        ++m_bodiesPulled;
         ++b.followFrames;
         b.followOffSum += off;
         b.followOffMost = (std::max)(b.followOffMost, off);

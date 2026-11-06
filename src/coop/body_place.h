@@ -95,6 +95,65 @@ namespace coop
         uint32_t m_restSince = 0, m_lastLook = 0;
     };
 
+    // Once a body has landed, a smaller difference than BodyPlacer's is eased away once, by the same steering as a
+    // drag: the torso ends up in the same general spot and the limbs land as they like. After that, only a move on the
+    // host does anything, so bodies lying still cost nothing. Far-off bodies are left to BodyPlacer.
+    constexpr uint32_t kBodyEaseAfterMs = 1000;
+    constexpr uint32_t kBodyEaseMaxMs = 3000;
+    constexpr uint32_t kBodyEaseWaitMaxMs = 15000;
+    constexpr float kBodyEaseStart = 30;
+    constexpr float kBodyEaseStop = 16;
+
+    class BodyEaser
+    {
+    public:
+        // Should the body be steered toward the host's spot this frame?
+        bool Look(uint32_t now, const BodySpot& host, const BodySpot& ours)
+        {
+            if (m_done)
+                return false;
+            float off = host.DistanceTo(ours);
+            if (m_easing)
+            {
+                if (off > kBodyEaseStop && now - m_easingSince < kBodyEaseMaxMs)
+                    return true;
+                m_done = true;
+                return false;
+            }
+            if (!m_started)
+            {
+                m_started = true;
+                m_host = host;
+                m_ours = ours;
+                m_firstSeen = m_stillSince = now;
+            }
+            if (host.DistanceTo(m_host) > kBodyStillRange || ours.DistanceTo(m_ours) > kBodyStillRange)
+            {
+                m_host = host;
+                m_ours = ours;
+                m_stillSince = now;
+            }
+            if (now - m_firstSeen >= kBodyEaseWaitMaxMs)
+                m_done = true;
+            else if (now - m_stillSince >= kBodyEaseAfterMs)
+            {
+                m_done = off <= kBodyEaseStart || off > kBodyFarOff;
+                m_easing = !m_done;
+                m_easingSince = now;
+            }
+            return m_easing;
+        }
+
+        // Something else has the body now, like a drag on the host.
+        void Finish() { m_done = true; }
+        bool Done() const { return m_done; }
+
+    private:
+        bool m_started = false, m_easing = false, m_done = false;
+        BodySpot m_host, m_ours;
+        uint32_t m_firstSeen = 0, m_stillSince = 0, m_easingSince = 0;
+    };
+
     class BodyPlacer
     {
     public:
