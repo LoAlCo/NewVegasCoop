@@ -387,6 +387,7 @@ namespace game::layout
     constexpr uint32_t kHudPromptRef = 0x1B8;
     constexpr uint32_t kHudPromptTiles[] = {0x9C, 0xA8, 0xAC, 0xB0};
     constexpr uint32_t kTileVisible = 0xFA3;
+    constexpr uint32_t kNiName = 0x08;
     constexpr uint32_t kDialogMenuPartner = 0x80;
     constexpr uint32_t kDialogMenuTopicNode = 0x70;
     constexpr uint32_t kMenuTopicResponses = 0x0C;

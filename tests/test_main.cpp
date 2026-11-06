@@ -6,6 +6,7 @@
 #include "coop/copy_kill.h"
 #include "coop/levelled_roll.h"
 #include "coop/attack_versions.h"
+#include "coop/body_place.h"
 #include "coop/balance.h"
 #include "coop/game_mode.h"
 #include "coop/frame_parts.h"
@@ -6501,4 +6502,99 @@ TEST(friends_face_gets_its_skin_tone_on_each_head_the_game_builds)
     CHECK(!wrap.Check(0x1000, true, 0xFFFFFFFFu));
     CHECK(!wrap.Check(0x2000, true, 0xFFFFFFFFu));
     CHECK(wrap.Check(0x2000, true, 1));
+}
+
+TEST(a_body_near_the_hosts_stays_put)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot host{100, 100, 0}, ours{200, 100, 0};
+    for (uint32_t t = 1000; t < 60000; t += 500)
+        CHECK(!p.Look(t, host, ours));
+}
+
+TEST(a_body_far_off_moves_once_both_have_settled)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot host{0, 0, 0}, ours{1000, 0, 0};
+    uint32_t t = 1000;
+    CHECK(!p.Look(t, host, ours));
+    CHECK(!p.Look(t + coop::kBodySettleMs - 1, host, ours));
+    CHECK(p.Look(t + coop::kBodySettleMs, host, ours));
+
+    coop::BodyPlacer falling;
+    for (t = 1000; t < 10000; t += 500)
+    {
+        ours.z -= 100;
+        CHECK(!falling.Look(t, host, ours));
+    }
+    CHECK(!falling.Look(t, host, ours));
+    CHECK(falling.Look(t + coop::kBodySettleMs, host, ours));
+
+    coop::BodyPlacer hostFalling;
+    coop::BodySpot fallingHost{0, 0, 0}, still{1000, 0, 0};
+    for (t = 1000; t < 10000; t += 500)
+    {
+        fallingHost.z -= 100;
+        CHECK(!hostFalling.Look(t, fallingHost, still));
+    }
+}
+
+TEST(a_small_twitch_does_not_restart_the_wait)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot ours{1000, 0, 0};
+    CHECK(!p.Look(1000, {0, 0, 0}, ours));
+    CHECK(!p.Look(2000, {coop::kBodyStillRange / 2, 0, 0}, ours));
+    CHECK(p.Look(1000 + coop::kBodySettleMs, {0, 0, 0}, ours));
+}
+
+TEST(a_moved_body_that_stays_off_is_tried_a_few_times_then_left)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot host{0, 0, 0}, ours{1000, 0, 0};
+    uint32_t t = 1000;
+    p.Look(t, host, ours);
+    t += coop::kBodySettleMs;
+    for (uint32_t i = 0; i < coop::kMaxBodyMoves; ++i)
+    {
+        CHECK(p.Look(t, host, ours));
+        p.Moved(t);
+        CHECK(!p.Look(t + coop::kBodyRetryMs - 1, host, ours));
+        t += coop::kBodyRetryMs;
+    }
+    CHECK(p.Moves() == coop::kMaxBodyMoves);
+    CHECK(!p.Look(t, host, ours));
+    CHECK(p.GaveUp());
+    CHECK(!p.Look(t + 600000, host, ours));
+
+    // The host's body goes somewhere new: worth trying again, once that has settled.
+    coop::BodySpot shoved{0, 500, 0};
+    t += 1000;
+    CHECK(!p.Look(t, shoved, ours));
+    CHECK(!p.GaveUp());
+    CHECK(p.Moves() == 0);
+    CHECK(p.Look(t + coop::kBodySettleMs, shoved, ours));
+}
+
+TEST(a_moved_body_that_landed_near_the_hosts_is_left_alone)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot host{0, 0, 0}, ours{1000, 0, 0};
+    p.Look(1000, host, ours);
+    uint32_t t = 1000 + coop::kBodySettleMs;
+    CHECK(p.Look(t, host, ours));
+    p.Moved(t);
+    for (t += 500; t < 60000; t += 500)
+        CHECK(!p.Look(t, host, {10, 0, 0}));
+    CHECK(p.Moves() == 1 && !p.GaveUp());
+}
+
+TEST(body_timers_work_past_the_tick_count_wrap)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot host{0, 0, 0}, ours{1000, 0, 0};
+    uint32_t t = 0xFFFFFFFFu - 1000;
+    CHECK(!p.Look(t, host, ours));
+    CHECK(!p.Look(t + 1500, host, ours));
+    CHECK(p.Look(t + coop::kBodySettleMs, host, ours));
 }
