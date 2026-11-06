@@ -4194,6 +4194,37 @@ TEST(rejoining_after_the_host_saved_alone_loads_our_newest_from_that_game)
     CHECK(coop::PickLinkedSave(ours, coop::SaveTag{1, 99}) == "Co-op - H - Autosave - 3");
 }
 
+TEST(a_saves_tag_is_read_back_from_the_file_beside_it)
+{
+    constexpr uint64_t kSecond = 10000000, kWritten = 1000000 * kSecond;
+    const coop::SaveTag tag{0x0123456789abcdefull, 0xfedcba9876543210ull};
+    std::string text = coop::FormatSaveTagFile(tag, kWritten);
+
+    // The game finishes writing the save just after the tag file (and may round its time down).
+    CHECK(coop::SaveTagFromFile(text, kWritten) == tag);
+    CHECK(coop::SaveTagFromFile(text, kWritten + 3 * kSecond) == tag);
+    CHECK(coop::SaveTagFromFile(text, kWritten - kSecond) == tag);
+    std::string windows = text.substr(0, text.size() - 1) + "\r\n";
+    CHECK(coop::SaveTagFromFile(windows, kWritten) == tag);
+
+    // Saved over later without us, or a save that was never written or was moved here from another name.
+    CHECK(coop::SaveTagFromFile(text, kWritten + 300 * kSecond).game == 0);
+    CHECK(coop::SaveTagFromFile(text, kWritten - 300 * kSecond).game == 0);
+
+    // Damaged or empty files aren't a game.
+    CHECK(coop::SaveTagFromFile("", kWritten).game == 0);
+    CHECK(coop::SaveTagFromFile("not a tag", kWritten).game == 0);
+    CHECK(coop::SaveTagFromFile(text.substr(0, 40), kWritten).game == 0);
+    CHECK(coop::SaveTagFromFile(coop::FormatSaveTagFile(coop::SaveTag{}, kWritten), kWritten).game == 0);
+    std::string badHex = text;
+    badHex[3] = 'x';
+    CHECK(coop::SaveTagFromFile(badHex, kWritten).game == 0);
+
+    CHECK(coop::SaveTagFileName("Autosave - 5.fos") == "Autosave - 5.nvcoopid");
+    CHECK(coop::SaveTagFileName("Save.1.FOS") == "Save.1.nvcoopid");
+    CHECK(coop::SaveTagFileName("..\\elsewhere/Save.fos") == "Save.nvcoopid");
+}
+
 TEST(save_links_are_kept_with_their_game)
 {
     coop::SaveLink link{"Autosave - 4", {0x0123456789abcdefull, 0xfedcba9876543210ull}};
