@@ -251,6 +251,7 @@ namespace coop
         std::vector<ItemTakeFrom> m_itemTakes;
         std::vector<ItemDropFrom> m_itemDrops;
         std::vector<ItemMoveFrom> m_itemMoves;
+        std::vector<net::BodyMove> m_bodyMoves;
         std::map<uint32_t, uint32_t> m_lastMoveSent;
         DesyncTracker m_desyncs;
         std::vector<net::CompanionState> m_myCompanions;
@@ -443,6 +444,13 @@ namespace coop
         std::vector<ItemTakeFrom> TakeItemTakes() { return std::move(m_itemTakes); }
         std::vector<ItemDropFrom> TakeItemDrops() { return std::move(m_itemDrops); }
         std::vector<ItemMoveFrom> TakeItemMoves() { return std::move(m_itemMoves); }
+        void ReportBodyMove(const net::BodyMove& m);
+        std::vector<net::BodyMove> TakeBodyMoves()
+        {
+            std::vector<net::BodyMove> out;
+            out.swap(m_bodyMoves);
+            return out;
+        }
         void RefundItems(uint8_t playerId, const net::ItemCount& refund);
         ItemActions LookAtItems(const std::vector<LocalItem>& local, bool sameArea);
         void ItemMade(uint32_t hostRef, uint32_t ourRef) { m_friendItems.Made(hostRef, ourRef); }

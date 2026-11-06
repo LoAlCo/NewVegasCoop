@@ -98,6 +98,7 @@ namespace net
         HealAlly = 77,
         HealRefused = 78,
         QuestCommand = 79,
+        BodyMove = 83,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -466,6 +467,15 @@ namespace net
         float rx = 0, ry = 0, rz = 0;
         bool held = false;
     };
+    // Where a visitor's copy of a body is while they move it, for the host to steer theirs there.
+    struct BodyMove
+    {
+        uint32_t ref = 0;
+        float x = 0, y = 0, z = 0;
+    };
+    Bytes Encode(const BodyMove& m);
+    bool Decode(Reader& r, BodyMove& m);
+
     struct ItemMoves
     {
         std::vector<ItemMove> moves;
