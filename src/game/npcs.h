@@ -33,6 +33,15 @@ namespace game
         static void LabCopySteps(uint32_t steps) { s_labSteps = steps; }
         static void SetSmoothBodies(bool on) { s_smoothBodies = on; }
         uint32_t HostRefOf(uint32_t ourRef) const;
+        // On the host: steer bodies friends are moving. Every frame.
+        void FollowFriendsBodies(coop::Coop& coop, uint32_t now);
+        // On a visitor: where the bodies we moved went, to tell the host.
+        std::vector<net::BodyMove> TakeBodyReports()
+        {
+            std::vector<net::BodyMove> out;
+            out.swap(m_bodyReports);
+            return out;
+        }
         TESObjectREFR* OurRefOf(uint32_t hostRef) const { return Find(hostRef); }
 
     private:
@@ -88,6 +97,9 @@ namespace game
             coop::BodyPlacer placer;
             coop::BodyFollower follower;
             coop::BodyEaser easer;
+            coop::BodyReporter reporter;
+            bool reporting = false;
+            uint32_t nextReport = 0;
             bool easing = false;
             bool following = false, saidPull = false, saidNoPull = false;
             uint32_t nextPullTry = 0;
@@ -102,6 +114,8 @@ namespace game
         std::map<uint32_t, Body> m_bodies;
         uint32_t m_bodiesMoved = 0;
         uint32_t m_bodiesPulled = 0;
+        std::vector<net::BodyMove> m_bodyReports;
+        std::map<uint32_t, coop::BodyChase> m_friendsBodies;
         static inline bool s_smoothBodies = true;
         struct Made
         {

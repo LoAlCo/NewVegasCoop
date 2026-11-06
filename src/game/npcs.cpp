@@ -662,6 +662,26 @@ namespace game
         }
         if (following)
             b.easer.Finish();
+        if (coop::IsDue(now, b.nextReport))
+        {
+            b.nextReport = now + coop::kBodyShareEveryMs;
+            coop::BodySpot mine;
+            coop::Pose where;
+            if (!InMenu() && GetPose(actor, where) && where.space == blended.space &&
+                BodyPosition(actor, mine.x, mine.y, mine.z))
+            {
+                bool held = GrabbedItem() == RefId(actor);
+                bool reporting = b.reporter.Look(now, mine, held, following || b.easing || b.judgeAt != 0);
+                if (reporting != b.reporting)
+                {
+                    b.reporting = reporting;
+                    LOG_INFO("NPCs: %s the host about the body of %s (%08X), which %s", reporting ? "telling" : "done telling",
+                        Name(actor), ref, reporting ? (held ? "our player carries" : "moved here") : "stopped");
+                }
+                if (reporting)
+                    m_bodyReports.push_back({ref, mine.x, mine.y, mine.z});
+            }
+        }
         if ((!following && b.easer.Done() && !b.easing) || !coop::IsDue(now, b.nextPullTry) ||
             m_bodiesPulled >= coop::kMaxBodiesFollowed || InMenu() || !GetPose(actor, at) ||
             at.space != blended.space || !BodyPosition(actor, ours.x, ours.y, ours.z) ||
@@ -704,6 +724,43 @@ namespace game
             }
         }
         b.followMs += MsSince(start);
+    }
+
+    void Npcs::FollowFriendsBodies(coop::Coop& coop, uint32_t now)
+    {
+        std::vector<net::BodyMove> moves = coop.TakeBodyMoves();
+        if (!s_smoothBodies)
+            return;
+        for (const net::BodyMove& m : moves)
+        {
+            if (!m_friendsBodies.count(m.ref))
+                if (TESObjectREFR* actor = LookupRef(m.ref))
+                    LOG_INFO("NPCs: a friend moves the body of %s (%08X); following it", Name(actor), m.ref);
+            m_friendsBodies[m.ref].Heard(now, {m.x, m.y, m.z});
+        }
+        uint32_t pulled = 0;
+        for (auto it = m_friendsBodies.begin(); it != m_friendsBodies.end();)
+        {
+            uint32_t ref = it->first;
+            TESObjectREFR* actor = LookupRef(ref);
+            if (it->second.Done(now) || !actor || !IsActor(actor) || !IsDead(actor))
+            {
+                if (actor)
+                    LOG_INFO("NPCs: a friend stopped moving the body of %s (%08X)", Name(actor), ref);
+                it = m_friendsBodies.erase(it);
+                continue;
+            }
+            coop::BodySpot target = it->second.Target(now), ours, speed;
+            ++it;
+            // If our own player has hold of it, ours wins, and the friend's copy comes back to it.
+            if (pulled >= coop::kMaxBodiesFollowed || InMenu() || !Is3DLoaded(actor) || GrabbedItem() == ref ||
+                !BodyPosition(actor, ours.x, ours.y, ours.z) || !coop::BodyPull(target, ours, speed))
+                continue;
+            ++pulled;
+            std::string detail;
+            if (!PullBody(actor, speed.x, speed.y, speed.z, detail))
+                LOG_DEBUG("NPCs: can't steer the body of %s (%08X) for a friend: %s", Name(actor), ref, detail.c_str());
+        }
     }
 
     void Npcs::PlaceBody(uint32_t ref, TESObjectREFR* actor, const coop::RemoteNpc& npc, const coop::Pose& host,

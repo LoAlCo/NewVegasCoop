@@ -5157,6 +5157,83 @@ TEST(a_body_that_never_stops_moving_is_left_alone)
     CHECK(e.Done());
 }
 
+TEST(the_host_hears_about_a_body_while_a_visitor_carries_it_and_as_it_lands)
+{
+    coop::BodyReporter r;
+    coop::BodySpot spot{0, 0, 0};
+    CHECK(!r.Look(1000, spot, false, false));
+    // Carried right after the kill, before it ever came to rest.
+    CHECK(r.Look(1200, {100, 0, 0}, true, false));
+    CHECK(r.Look(1400, {200, 0, 0}, true, false));
+    // Let go: it falls the last bit, and then it's quiet.
+    CHECK(r.Look(1600, {200, 0, 0}, false, false));
+    CHECK(r.Look(1800, {200, 0, -50}, false, false));
+    CHECK(!r.Look(1800 + coop::kBodyFollowEndMs, {200, 0, -50}, false, false));
+}
+
+TEST(a_rested_body_of_ours_that_moves_is_told_to_the_host)
+{
+    coop::BodyReporter r;
+    coop::BodySpot spot{0, 0, 0};
+    uint32_t t = 1000;
+    for (; t <= 1000 + coop::kBodySettleMs; t += 200)
+        CHECK(!r.Look(t, spot, false, false));
+    CHECK(r.Look(t, {100, 0, 0}, false, false));
+}
+
+TEST(a_body_falling_from_its_death_is_not_told_to_the_host)
+{
+    coop::BodyReporter r;
+    uint32_t t = 1000;
+    for (float z = 2000; z > 0; z -= 50, t += 200)
+        CHECK(!r.Look(t, {0, 0, z}, false, false));
+}
+
+TEST(a_body_we_steer_to_match_the_host_is_not_told_back)
+{
+    coop::BodyReporter r;
+    coop::BodySpot spot{0, 0, 0};
+    uint32_t t = 1000;
+    for (; t <= 1000 + coop::kBodySettleMs; t += 200)
+        CHECK(!r.Look(t, spot, false, false));
+    for (float x = 0; x < 500; x += 100, t += 200)
+        CHECK(!r.Look(t, {x, 0, 0}, false, true));
+    // It has to rest again before moving counts.
+    CHECK(!r.Look(t, {700, 0, 0}, false, false));
+}
+
+TEST(the_host_glides_between_a_visitors_updates)
+{
+    coop::BodyChase c;
+    CHECK(c.Done(1000));
+    c.Heard(1000, {0, 0, 0});
+    CHECK(!c.Done(1000));
+    CHECK(c.Target(1000).x == 0);
+    c.Heard(1200, {100, 0, 0});
+    CHECK(c.Target(1200).x == 0);
+    CHECK(c.Target(1300).x == 50);
+    CHECK(c.Target(1400).x == 100);
+    CHECK(c.Target(1700).x == 100);
+    CHECK(!c.Done(1200 + coop::kBodyFollowEndMs - 1));
+    CHECK(c.Done(1200 + coop::kBodyFollowEndMs));
+    // Heard again after it ended: it starts from there, with no sweep across the old gap.
+    c.Heard(5000, {900, 0, 0});
+    CHECK(c.Target(5000).x == 900);
+}
+
+TEST(body_move_messages_read_back)
+{
+    Bytes b = Encode(net::BodyMove{0x00146338, 1.5f, -2, 3});
+    Reader r(b);
+    MsgType t;
+    net::BodyMove m;
+    CHECK(r.Type(t) && t == MsgType::BodyMove && Decode(r, m));
+    CHECK(m.ref == 0x00146338 && m.x == 1.5f && m.y == -2 && m.z == 3);
+    Bytes bad = Encode(net::BodyMove{0x00146338, std::nanf(""), 0, 0});
+    Reader rb(bad);
+    CHECK(rb.Type(t) && !Decode(rb, m));
+}
+
 TEST(a_rested_body_that_moves_is_followed_until_it_stops)
 {
     coop::BodyFollower f;

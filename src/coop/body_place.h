@@ -154,6 +154,73 @@ namespace coop
         uint32_t m_firstSeen = 0, m_stillSince = 0, m_easingSince = 0;
     };
 
+    // On a visitor: should the host hear where our copy of a body is? While our player carries it, and when it moves
+    // on its own after coming to rest (a blast of ours, a bump). Not when we're the ones moving it to match the host,
+    // or the two games would chase each other.
+    class BodyReporter
+    {
+    public:
+        bool Look(uint32_t now, const BodySpot& ours, bool held, bool steered)
+        {
+            if (!m_started || held || steered)
+            {
+                m_started = true;
+                m_rest = ours;
+                m_restSince = now;
+                m_rested = held;
+                m_reporting = held;
+                return held;
+            }
+            if (ours.DistanceTo(m_rest) > kBodyStillRange)
+            {
+                m_rest = ours;
+                m_restSince = now;
+                m_reporting = m_rested;
+            }
+            else if (now - m_restSince >= kBodySettleMs)
+                m_rested = true;
+            if (m_reporting && now - m_restSince >= kBodyFollowEndMs)
+                m_reporting = false;
+            return m_reporting;
+        }
+
+    private:
+        bool m_started = false, m_rested = false, m_reporting = false;
+        BodySpot m_rest;
+        uint32_t m_restSince = 0;
+    };
+
+    // On the host: where to steer a body a visitor is moving. Their updates come a few times a second, so the target
+    // glides between them instead of jumping.
+    class BodyChase
+    {
+    public:
+        void Heard(uint32_t now, const BodySpot& spot)
+        {
+            m_from = m_heard && !Done(now) ? Target(now) : spot;
+            m_to = spot;
+            m_at = now;
+            m_heard = true;
+        }
+
+        BodySpot Target(uint32_t now) const
+        {
+            uint32_t since = now - m_at;
+            if (since >= kBodyShareEveryMs)
+                return m_to;
+            float t = static_cast<float>(since) / kBodyShareEveryMs;
+            return {m_from.x + (m_to.x - m_from.x) * t, m_from.y + (m_to.y - m_from.y) * t,
+                m_from.z + (m_to.z - m_from.z) * t};
+        }
+
+        bool Done(uint32_t now) const { return !m_heard || now - m_at >= kBodyFollowEndMs; }
+
+    private:
+        bool m_heard = false;
+        BodySpot m_from, m_to;
+        uint32_t m_at = 0;
+    };
+
     class BodyPlacer
     {
     public:

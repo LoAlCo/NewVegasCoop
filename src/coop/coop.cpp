@@ -102,6 +102,7 @@ namespace coop
         m_sentNpcs.clear();
         m_npcShots.clear();
         m_npcGear.clear();
+        m_bodyMoves.clear();
         m_npcAttacks.clear();
         m_npcs.clear();
         m_myDoors.clear();
@@ -786,6 +787,27 @@ namespace coop
                 m_desyncNotices.push_back("Co-op: " + player.name + "'s game disagrees with ours on " +
                     std::to_string(n) + (n == 1 ? " thing" : " things") + " (see the logs)");
             }
+            return;
+        }
+
+        if (type == MsgType::BodyMove)
+        {
+            BodyMove m;
+            if (!Decode(r, m) || !WithinLimit(player.itemMovesSince, player.itemMoves, kMaxItemMovesPerSecond))
+                return;
+            auto body = std::find_if(m_myNpcs.begin(), m_myNpcs.end(),
+                [&](const NpcState& n) { return n.ref == m.ref; });
+            if (body == m_myNpcs.end() || !(body->flags & kNpcDead))
+                return;
+            float dx = m.x - body->x, dy = m.y - body->y, dz = m.z - body->z;
+            if (dx * dx + dy * dy + dz * dz > kMaxItemMoveReach * kMaxItemMoveReach)
+                return;
+            auto same = std::find_if(m_bodyMoves.begin(), m_bodyMoves.end(),
+                [&](const BodyMove& b) { return b.ref == m.ref; });
+            if (same != m_bodyMoves.end())
+                *same = m;
+            else if (m_bodyMoves.size() < kMaxQueuedItemMoves)
+                m_bodyMoves.push_back(m);
             return;
         }
 
@@ -2353,6 +2375,12 @@ namespace coop
             m_net->Send(1, Encode(state), false);
         m_sentPose = m_myPose;
         m_lastPoseSent = now;
+    }
+
+    void Coop::ReportBodyMove(const BodyMove& m)
+    {
+        if (m_role == Role::Friend && InGame())
+            m_net->Send(1, Encode(m), false);
     }
 
     void Coop::SetNpcs(uint32_t space, std::vector<NpcState> npcs)

@@ -729,6 +729,21 @@ namespace net
         return r.AtEnd();
     }
 
+    Bytes Encode(const BodyMove& m)
+    {
+        Writer w(MsgType::BodyMove);
+        w.U32(m.ref);
+        w.F32(m.x);
+        w.F32(m.y);
+        w.F32(m.z);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, BodyMove& m)
+    {
+        return r.U32(m.ref) && IsSharedRef(m.ref) && r.F32(m.x) && r.F32(m.y) && r.F32(m.z) && r.AtEnd();
+    }
+
     Bytes Encode(const ItemMoves& m)
     {
         Writer w(MsgType::ItemMoves);
