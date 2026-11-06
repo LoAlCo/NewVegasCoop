@@ -154,7 +154,7 @@ namespace game
             {
                 if (coop::IsDue(now, w.nextBodyLook))
                 {
-                    w.nextBodyLook = now + coop::kBodyLookEveryMs;
+                    w.nextBodyLook = now + coop::kBodyShareEveryMs;
                     w.bodyX = at.x, w.bodyY = at.y, w.bodyZ = at.z;
                     BodyPosition(actor, w.bodyX, w.bodyY, w.bodyZ);
                 }
@@ -316,6 +316,7 @@ namespace game
     void Npcs::UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
     {
         const auto& shared = coop.Npcs();
+        m_bodiesPulled = 0;
 
         for (auto it = m_made.begin(); it != m_made.end();)
         {
@@ -632,6 +633,52 @@ namespace game
         }
     }
 
+    void Npcs::FollowBody(uint32_t ref, TESObjectREFR* actor, const coop::RemoteNpc& npc, Body& b, uint32_t now)
+    {
+        if (!s_smoothBodies || b.cantPull)
+            return;
+        LARGE_INTEGER start;
+        QueryPerformanceCounter(&start);
+        coop::Pose blended, at;
+        if (!npc.motion.Sample(now - coop::kBodyBlendMs, blended))
+            return;
+        coop::BodySpot target{blended.x, blended.y, blended.z}, ours;
+        bool following = b.follower.Look(now, target);
+        if (following != b.following)
+        {
+            b.following = following;
+            if (following)
+            {
+                b.followFrames = 0;
+                b.followOffSum = b.followOffMost = 0;
+                b.followMs = 0;
+                LOG_INFO("NPCs: the host moves the body of %s (%08X); following it", Name(actor), ref);
+            }
+            else
+                LOG_INFO("NPCs: stopped following the body of %s (%08X): %u frames, off by %.0f on average (most %.0f) "
+                    "units, %.3f ms a frame", Name(actor), ref, b.followFrames,
+                    b.followFrames ? b.followOffSum / b.followFrames : 0, b.followOffMost,
+                    b.followFrames ? b.followMs / b.followFrames : 0.0);
+        }
+        if (!following || m_bodiesPulled >= coop::kMaxBodiesFollowed || InMenu() || !GetPose(actor, at) ||
+            at.space != blended.space || !BodyPosition(actor, ours.x, ours.y, ours.z) ||
+            GrabbedItem() == RefId(actor))
+            return;
+        ++m_bodiesPulled;
+        float off = ours.DistanceTo(target);
+        ++b.followFrames;
+        b.followOffSum += off;
+        b.followOffMost = (std::max)(b.followOffMost, off);
+        coop::BodySpot speed;
+        if (coop::BodyPull(target, ours, speed) && !PullBody(actor, speed.x, speed.y, speed.z))
+        {
+            b.cantPull = true;
+            LOG_INFO("NPCs: can't steer the body of %s (%08X): no physics body on its pelvis; it moves when it stops "
+                "instead", Name(actor), ref);
+        }
+        b.followMs += MsSince(start);
+    }
+
     void Npcs::PlaceBody(uint32_t ref, TESObjectREFR* actor, const coop::RemoteNpc& npc, const coop::Pose& host,
         uint32_t now)
     {
@@ -639,6 +686,7 @@ namespace game
         if (!IsDead(actor) || npc.pile || m_piled.count(ref) || now - npc.heardAt > 2000)
             return;
         Body& b = m_bodies[ref];
+        FollowBody(ref, actor, npc, b, now);
         if (!coop::IsDue(now, b.nextLook))
             return;
         b.nextLook = now + coop::kBodyLookEveryMs;

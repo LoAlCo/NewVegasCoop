@@ -17,6 +17,17 @@ namespace coop
     constexpr float kBodyFarOff = 150;
     constexpr uint32_t kMaxBodyMoves = 3;
 
+    // A body someone moves after it came to rest (dragged, shoved, blown up) is followed: the host shares it a few
+    // times a second, and a visitor steers its copy's pelvis at a point a little in the past, always between two
+    // updates. Its own physics keeps running, so the limbs trail and it stays out of walls.
+    constexpr uint32_t kBodyShareEveryMs = 200;
+    constexpr uint32_t kBodyBlendMs = 250;
+    constexpr uint32_t kBodyFollowEndMs = 1000;
+    constexpr float kBodyChaseSeconds = 0.2f;
+    constexpr float kBodyMaxSpeed = 600;
+    constexpr float kBodyCloseEnough = 8;
+    constexpr uint32_t kMaxBodiesFollowed = 4;
+
     struct BodySpot
     {
         float x = 0, y = 0, z = 0;
@@ -25,6 +36,52 @@ namespace coop
             float dx = x - o.x, dy = y - o.y, dz = z - o.z;
             return std::sqrt(dx * dx + dy * dy + dz * dz);
         }
+    };
+
+    // The speed that takes a body from where it is toward the target; false when it's close enough to leave be.
+    inline bool BodyPull(const BodySpot& target, const BodySpot& ours, BodySpot& speed)
+    {
+        float off = target.DistanceTo(ours);
+        if (off <= kBodyCloseEnough)
+            return false;
+        float scale = 1 / kBodyChaseSeconds;
+        if (off * scale > kBodyMaxSpeed)
+            scale = kBodyMaxSpeed / off;
+        speed = {(target.x - ours.x) * scale, (target.y - ours.y) * scale, (target.z - ours.z) * scale};
+        return true;
+    }
+
+    class BodyFollower
+    {
+    public:
+        // Is the host's body being moved after having come to rest? Bodies still falling from their death aren't
+        // followed: each game runs that fall, and BodyPlacer sorts out where they ended up.
+        bool Look(uint32_t now, const BodySpot& host)
+        {
+            if (!m_started)
+            {
+                m_started = true;
+                m_rest = host;
+                m_restSince = now;
+                return false;
+            }
+            if (host.DistanceTo(m_rest) > kBodyStillRange)
+            {
+                m_rest = host;
+                m_restSince = now;
+                m_following = m_rested;
+            }
+            else if (now - m_restSince >= kBodySettleMs)
+                m_rested = true;
+            if (m_following && now - m_restSince >= kBodyFollowEndMs)
+                m_following = false;
+            return m_following;
+        }
+
+    private:
+        bool m_started = false, m_rested = false, m_following = false;
+        BodySpot m_rest;
+        uint32_t m_restSince = 0;
     };
 
     class BodyPlacer

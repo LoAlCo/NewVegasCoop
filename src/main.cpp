@@ -3181,6 +3181,7 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
             g_config.askMode ? 1 : 0, g_config.askHardcore ? 1 : 0);
     if (g_config.allowSecondCopy)
         AllowSecondCopy(g_config.secondCopyWaits);
+    game::Npcs::SetSmoothBodies(g_config.smoothBodies);
     if (g_config.borderless)
         display::Install();
     if (g_config.blockDiscordOverlay)

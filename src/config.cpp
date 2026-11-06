@@ -198,6 +198,7 @@ Config Config::Load(const std::string& iniPath)
         at = comma + 1;
     }
     c.allowSecondCopy = Read(iniPath, "AllowSecondCopy", "0") == "1";
+    c.smoothBodies = Read(iniPath, "SmoothBodies", "1") == "1";
     c.autoApproveJoins = Read(iniPath, "AutoApproveJoins", "0") == "1";
     c.lanCoop = Read(iniPath, "LanCoop", "0") == "1";
     c.ipHosting = Read(iniPath, "IpHosting", "0") == "1";

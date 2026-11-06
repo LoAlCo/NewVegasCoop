@@ -5068,3 +5068,70 @@ TEST(body_timers_work_past_the_tick_count_wrap)
     CHECK(!p.Look(t + 1500, host, ours));
     CHECK(p.Look(t + coop::kBodySettleMs, host, ours));
 }
+
+TEST(a_body_falling_from_its_death_is_not_followed)
+{
+    coop::BodyFollower f;
+    coop::BodySpot host{0, 0, 1000};
+    for (uint32_t t = 1000; t < 3000; t += 100)
+    {
+        host.z -= 40;
+        CHECK(!f.Look(t, host));
+    }
+    for (uint32_t t = 3000; t < 60000; t += 100)
+        CHECK(!f.Look(t, host));
+}
+
+TEST(a_still_body_is_never_followed_and_small_twitches_are_ignored)
+{
+    coop::BodyFollower f;
+    for (uint32_t t = 1000; t < 60000; t += 100)
+        CHECK(!f.Look(t, {t % 200 ? coop::kBodyStillRange / 2 : 0.f, 0, 0}));
+}
+
+TEST(a_rested_body_that_moves_is_followed_until_it_stops)
+{
+    coop::BodyFollower f;
+    coop::BodySpot host{0, 0, 0};
+    uint32_t t = 1000;
+    for (; t < 1000 + coop::kBodySettleMs + 100; t += 100)
+        CHECK(!f.Look(t, host));
+    host.x += 2 * coop::kBodyStillRange;
+    CHECK(f.Look(t, host));
+    for (int i = 0; i < 50; ++i)
+    {
+        t += 100;
+        host.x += 20;
+        CHECK(f.Look(t, host));
+    }
+    uint32_t stopped = t;
+    for (t += 100; t - stopped < coop::kBodyFollowEndMs; t += 100)
+        CHECK(f.Look(t, host));
+    CHECK(!f.Look(stopped + coop::kBodyFollowEndMs + 500, host));
+    // Dragged again later, with no new wait to rest.
+    t = stopped + coop::kBodyFollowEndMs + 600;
+    host.x += 2 * coop::kBodyStillRange;
+    CHECK(f.Look(t, host));
+}
+
+TEST(body_pull_heads_for_the_target_and_is_limited)
+{
+    coop::BodySpot speed;
+    CHECK(!coop::BodyPull({0, 0, 0}, {coop::kBodyCloseEnough / 2, 0, 0}, speed));
+    CHECK(coop::BodyPull({100, 0, 0}, {0, 0, 0}, speed));
+    CHECK(speed.x > 0 && std::fabs(speed.x - 100 / coop::kBodyChaseSeconds) < 0.01f && speed.y == 0 && speed.z == 0);
+    CHECK(coop::BodyPull({-3000, 0, 4000}, {0, 0, 0}, speed));
+    CHECK(std::fabs(speed.DistanceTo({}) - coop::kBodyMaxSpeed) < 0.01f);
+    CHECK(speed.x < 0 && speed.z > 0);
+}
+
+TEST(a_pulled_body_closes_in_without_overshooting)
+{
+    coop::BodySpot target{500, 0, 0}, ours{0, 0, 0}, speed;
+    for (int frame = 0; frame < 600 && coop::BodyPull(target, ours, speed); ++frame)
+    {
+        ours.x += speed.x / 30;
+        CHECK(ours.x <= target.x);
+    }
+    CHECK(target.DistanceTo(ours) <= coop::kBodyCloseEnough);
+}

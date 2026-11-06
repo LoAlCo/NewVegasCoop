@@ -382,6 +382,7 @@ namespace game
     bool Get3DPosition(TESObjectREFR* ref, float& x, float& y, float& z);
     bool BodyPosition(TESObjectREFR* actor, float& x, float& y, float& z);
     void MoveBody(TESObjectREFR* actor, float dx, float dy, float dz, bool reload3D);
+    bool PullBody(TESObjectREFR* actor, float vx, float vy, float vz);
     struct WorldItem
     {
         uint32_t base = 0;

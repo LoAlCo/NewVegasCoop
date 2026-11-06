@@ -3529,15 +3529,55 @@ namespace game
         }
     }
 
+    namespace
+    {
+        const char* BodyBone(TESObjectREFR* actor)
+        {
+            const char* root = actor ? reinterpret_cast<const char*>(actor->GetNiNode()) : nullptr;
+            if (!root)
+                return nullptr;
+            const char* bone = FindNode(root, "Bip01 Pelvis", 6);
+            if (!bone)
+                bone = FindNode(root, "Bip01", 6);
+            return bone ? bone : root;
+        }
+
+        bool IsRigidBody(const char* worldObject)
+        {
+            using GetRtti = const char*(__thiscall*)(const void*);
+            auto vtable = *reinterpret_cast<GetRtti* const*>(worldObject);
+            int guard = 0;
+            for (const char* rtti = vtable[2](worldObject); rtti && guard < 16;
+                 rtti = At<const char*>(rtti, layout::kRttiParent), ++guard)
+                if (const char* name = At<const char*>(rtti, 0); name && std::strcmp(name, "bhkRigidBody") == 0)
+                    return true;
+            return false;
+        }
+    }
+
+    bool PullBody(TESObjectREFR* actor, float vx, float vy, float vz)
+    {
+        constexpr float kGameUnitsPerHavok = 7;
+        const char* bone = BodyBone(actor);
+        const char* collision = bone ? At<const char*>(bone, layout::kNiCollisionObject) : nullptr;
+        const char* worldObject = collision ? At<const char*>(collision, layout::kCollisionWorldObject) : nullptr;
+        if (!worldObject || !IsRigidBody(worldObject))
+            return false;
+        void* body = At<void*>(worldObject, layout::kWorldObjectHavok);
+        if (!body)
+            return false;
+        alignas(16) float speed[4] = {vx / kGameUnitsPerHavok, vy / kGameUnitsPerHavok, vz / kGameUnitsPerHavok, 0};
+        using SetVelocity = void(__thiscall*)(void*, const float*);
+        reinterpret_cast<SetVelocity>(addr::kRigidBodySetLinearVelocity)(body, speed);
+        return true;
+    }
+
     bool BodyPosition(TESObjectREFR* actor, float& x, float& y, float& z)
     {
-        const char* root = actor ? reinterpret_cast<const char*>(actor->GetNiNode()) : nullptr;
-        if (!root)
-            return false;
-        const char* bone = FindNode(root, "Bip01 Pelvis", 6);
+        const char* bone = BodyBone(actor);
         if (!bone)
-            bone = FindNode(root, "Bip01", 6);
-        const auto* p = reinterpret_cast<const float*>((bone ? bone : root) + layout::kNodeWorldTranslate);
+            return false;
+        const auto* p = reinterpret_cast<const float*>(bone + layout::kNodeWorldTranslate);
         x = p[0];
         y = p[1];
         z = p[2];
