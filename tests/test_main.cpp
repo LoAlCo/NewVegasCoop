@@ -4260,6 +4260,32 @@ TEST(the_world_waits_until_everyone_has_loaded)
     host.Stop();
 }
 
+TEST(a_short_trip_to_the_group_still_counts_as_arriving)
+{
+    coop::Coop host, a;
+    host.SetMyPose({5, 0, 0, 0, 0});
+    a.SetMyPose({5, 100, 0, 0, 0});
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    std::vector<coop::Coop*> all{&host, &a};
+    CHECK(RunUntil(all, [&] { return a.GetFriendState() == coop::FriendState::Joined && a.Remotes().size() == 1; }));
+    // Too far to count as already there (kSamePlaceDistance), too near to look like a teleport (kTeleportDistance).
+    a.SetMyPose({5, 2000, 0, 0, 0});
+    RunUntil(all, [] { return false; }, 100);
+    host.ForgetMyPlace();
+    RunUntil(all, [] { return false; }, 100);
+    host.SetMyPose({5, 0, 0, 0, 0});
+    coop::Pose p;
+    uint8_t leader = 99;
+    CHECK(RunUntil(all, [&] { return host.Frozen() && a.TakeTravel(p, leader); }));
+    CHECK(p.space == 5 && p.x == 0 && leader == coop::kHostPlayerId);
+    CHECK(host.Frozen() && host.FrozenFor() == a.MyPlayerId());
+    a.SetMyPose({5, 100, 0, 0, 0});
+    CHECK(RunUntil(all, [&] { return !host.Frozen(); }));
+    a.Stop();
+    host.Stop();
+}
+
 TEST(frame_parts_name_the_costly_parts)
 {
     coop::FrameParts parts;
