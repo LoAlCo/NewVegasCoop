@@ -8,15 +8,17 @@
 
 namespace coop
 {
-    // Temporary copies of forms (harmless weapons, the teleporter...) last only until the game loads a save or goes back
-    // to the main menu, so nothing may keep pointing at them past that. This remembers what we made, without ever
-    // reading through those pointers again, to tell after a load how many really went: the log's proof of it.
+    // A load doesn't free temporary copies of forms (harmless weapons, the teleporter...): the game gives a new ID to any
+    // with changes on record that the loaded save doesn't have, and leaves the rest alone. A copy can then share its ID
+    // with what the save brings back, so we make new ones after every load instead of trusting the old. This remembers
+    // what we made, so the log can tell how many moved. stillAlive is the only thing that reads through the old pointers.
     class MadeCopies
     {
     public:
-        struct Gone
+        struct Moved
         {
-            size_t gone = 0;
+            size_t moved = 0;
+            size_t alive = 0;
             size_t forgotten = 0;
         };
 
@@ -28,13 +30,17 @@ namespace coop
             m_live.clear();
         }
 
-        template <typename Lookup>
-        Gone TakeGone(Lookup&& lookup)
+        template <typename Lookup, typename StillAlive>
+        Moved TakeMoved(Lookup&& lookup, StillAlive&& stillAlive)
         {
-            Gone out;
+            Moved out;
             out.forgotten = m_forgotten.size();
             for (const Copy& copy : m_forgotten)
-                out.gone += static_cast<const void*>(lookup(copy.id)) != copy.at;
+                if (static_cast<const void*>(lookup(copy.id)) != copy.at)
+                {
+                    ++out.moved;
+                    out.alive += stillAlive(copy.at) ? 1 : 0;
+                }
             m_forgotten.clear();
             return out;
         }

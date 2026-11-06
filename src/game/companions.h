@@ -20,6 +20,8 @@ namespace game
         void Update(coop::Coop& coop, const StandIns& standIns, uint32_t now);
         void FriendLineRan(uint8_t playerId, uint32_t now);
         void ReleaseAll();
+        // Our follow packages are temporary copies, and a load can delete those.
+        void ForgetPackages() { m_packages.clear(); }
 
     private:
         void Follow(uint32_t ref, uint8_t playerId, coop::Coop& coop, const StandIns& standIns);
