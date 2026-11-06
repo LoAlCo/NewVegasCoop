@@ -2503,8 +2503,9 @@ namespace
                 std::string file = MessageText(msg);
                 LOG_INFO("Loading a save: %s", file.c_str());
                 g_coop.SetCurrentSave(coop::SaveNameOf(file));
-                if (g_coop.GetRole() == coop::Role::Host && g_coop.InGame())
-                    g_coop.ShareSave(file, true);
+                g_thisGame = {};
+                g_coop.SetCurrentSaveTag(g_thisGame);
+                g_hostLoadToShare = file;
                 g_expectedLoad.clear();
                 if (g_menuCheck != MenuCheck::Done && !g_coop.DownloadingMods())
                 {
@@ -2541,6 +2542,11 @@ namespace
             std::string file = MessageText(msg);
             LOG_INFO("Saved: %s", file.c_str());
             g_coop.SetCurrentSave(coop::SaveNameOf(file));
+            ForgetLinksOf(coop::SaveNameOf(file));
+            if (g_thisGame.game == 0)
+                g_thisGame.game = NewSaveTagId();
+            g_thisGame.save = NewSaveTagId();
+            g_coop.SetCurrentSaveTag(g_thisGame);
             if (g_coop.GetRole() == coop::Role::Host && g_coop.InGame())
                 g_coop.ShareSave(file, false);
             if (g_coop.GetRole() == coop::Role::Friend && g_coop.InGame())
@@ -2561,11 +2567,16 @@ namespace
                 LOG_INFO("Save loaded");
             else
                 LOG_WARN("The save didn't load (the game says it failed)");
+            ShareHostLoad();
             OnWorldLoaded();
             break;
         case NVSEMessagingInterface::kMessage_NewGame:
             g_loadingSave = false;
             LOG_INFO("New game started");
+            // xNVSE also comes here for a save with no co-save at all, partway through loading it.
+            StartNewGameTag();
+            LOG_INFO("Saves: this game's ID is now %016llx", static_cast<unsigned long long>(g_thisGame.game));
+            ShareHostLoad();
             OnWorldLoaded();
             break;
         case NVSEMessagingInterface::kMessage_ExitGame:
@@ -2637,6 +2648,7 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
     }
 
     dev::RegisterCommands(nvse, &g_inspector, &g_mirror);
+    ListenForSaveTags(nvse);
     if (g_config.labChannel && g_lab.Start(L"\\\\.\\pipe\\NVCoopLab"))
         LOG_INFO("Lab channel open (\\\\.\\pipe\\NVCoopLab): tools on this PC, for this Windows user only, can run "
             "console lines in the game");
