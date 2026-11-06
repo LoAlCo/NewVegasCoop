@@ -153,6 +153,11 @@ namespace game
                 LOG_INFO("%s: couldn't jump (no physics controller)", m_who.c_str());
         }
         m_jumping = jumping;
+        if (uint32_t overdue = m_shotPaths.TakeOverdue(now))
+        {
+            FireShots(actor, m_worn, overdue);
+            LOG_DEBUG("%s: no path came for %u shots, so fired them from its own aim", m_who.c_str(), overdue);
+        }
         UpdateWeaponOut(actor, (doing.flags & coop::Pose::kWeaponOut) != 0, now);
         if (std::fabs(AngleDiff(at.heading, want.heading)) > kTurnAtLeast)
             Turn(actor, want.heading);
@@ -249,11 +254,25 @@ namespace game
         }
         if (shots)
         {
-            PlayAttack(actor, m_worn, shots);
+            bool waitForPaths = FiresAlongPaths(m_worn);
+            PlayAttack(actor, m_worn, shots, !waitForPaths);
+            if (waitForPaths)
+                m_shotPaths.Attacked(shots, GetTickCount());
             LOG_DEBUG("%s attacks (%u shots)", m_who.c_str(), shots);
         }
         if (reload)
             LOG_DEBUG("%s reloads%s", m_who.c_str(), Reload(actor, 1) ? "" : " (couldn't: no gun, or another plugin replaced the game's reload)");
+    }
+
+    void Puppet::FireAlong(TESObjectREFR* actor, const net::ShotPath& path)
+    {
+        if (!actor)
+            return;
+        m_shotPaths.PathCame(GetTickCount());
+        bool weaponOut = (StanceFlags(actor) & coop::Pose::kWeaponOut) != 0;
+        if (!game::FireAlong(actor, m_worn, path, weaponOut))
+            LOG_DEBUG("%s: couldn't fire along its path (%08X from %.0f, %.0f, %.0f)", m_who.c_str(), path.projectile,
+                path.x, path.y, path.z);
     }
 
     void Puppet::LogStats(uint32_t now)
