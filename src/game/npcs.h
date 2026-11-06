@@ -35,6 +35,8 @@ namespace game
         static void LabCopySteps(uint32_t steps) { s_labSteps = steps; }
         static void SetSmoothBodies(bool on) { s_smoothBodies = on; }
         uint32_t HostRefOf(uint32_t ourRef) const;
+        // Bodies near us when hosting, in order of ref, and whether each is still settling from its death.
+        std::vector<std::pair<uint32_t, bool>> DeadBodies(uint32_t now) const;
         TESObjectREFR* OurRefOf(uint32_t hostRef) const { return Find(hostRef); }
         bool KeepsOff(uint32_t ref) const { return m_absent.KeepsOff(ref); }
 

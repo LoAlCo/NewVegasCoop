@@ -4,6 +4,8 @@
 
 #include "log.h"
 
+#include <algorithm>
+#include <iterator>
 #include <map>
 #include <tuple>
 
@@ -96,6 +98,28 @@ namespace coop
                 take(i);
         plan.missing = left;
         return plan;
+    }
+
+    bool BodyLootWatch::Look(uint32_t ref, const std::vector<net::ItemCount>& items, bool settling)
+    {
+        auto seen = m_seen.find(ref);
+        if (seen == m_seen.end())
+        {
+            m_seen[ref] = items;
+            return false;
+        }
+        std::vector<net::ItemCount> diff = ItemDiff(seen->second, items);
+        seen->second = items;
+        for (const net::ItemCount& d : diff)
+            if (!settling || d.count < 0)
+                return true;
+        return false;
+    }
+
+    void BodyLootWatch::KeepOnly(const std::vector<uint32_t>& refs)
+    {
+        for (auto it = m_seen.begin(); it != m_seen.end();)
+            it = std::find(refs.begin(), refs.end(), it->first) != refs.end() ? std::next(it) : m_seen.erase(it);
     }
 
     bool FriendContainer::View(uint32_t ref, bool open)

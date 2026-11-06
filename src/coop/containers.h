@@ -32,6 +32,20 @@ namespace coop
     // kind they asked for first and then others of the same item. Only what truly isn't there is given back.
     ContainerTake PlanContainerTake(const std::vector<net::ItemCount>& have, const net::ItemCount& want);
 
+    // Notices a body's contents changing, so a friend's copy can match without looking at it. What it drops as it
+    // dies goes into its inventory for a while afterwards (settling), which isn't anyone looting it: only something
+    // leaving counts until then.
+    class BodyLootWatch
+    {
+    public:
+        bool Look(uint32_t ref, const std::vector<net::ItemCount>& items, bool settling);
+        void KeepOnly(const std::vector<uint32_t>& refs);
+        size_t Size() const { return m_seen.size(); }
+
+    private:
+        std::map<uint32_t, std::vector<net::ItemCount>> m_seen;
+    };
+
     class FriendContainer
     {
     public:

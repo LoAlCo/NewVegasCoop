@@ -248,6 +248,14 @@ namespace coop
         struct ItemChangeFrom { uint8_t playerId; net::ContainerChange change; };
         std::vector<ItemChangeFrom> TakeContainerChanges() { return std::move(m_itemChanges); }
         void ContainerChangeDone(uint8_t playerId, uint32_t seq, const net::ItemCount& refund);
+        void ShareBodyLoot(uint32_t ref, const std::vector<net::ItemCount>& items);
+        std::map<uint32_t, std::vector<net::ItemCount>> TakeBodyLoots()
+        {
+            std::map<uint32_t, std::vector<net::ItemCount>> out;
+            out.swap(m_bodyLoots);
+            return out;
+        }
+        uint32_t ViewingContainer() const { return m_friendContainer.Viewing(); }
         void ViewContainer(uint32_t hostRef, bool open = true);
         std::vector<net::ItemCount> LookAtContainer(const std::vector<net::ItemCount>& local,
             const std::vector<net::ItemCount>& playerChange = {});
@@ -431,6 +439,7 @@ namespace coop
         std::map<uint32_t, net::NpcAttack> m_npcShots;
         struct NpcGearSent { std::vector<net::WornItem> items; uint32_t sentAt = 0; bool changed = true; };
         std::map<uint32_t, NpcGearSent> m_npcGear;
+        std::map<uint32_t, std::vector<net::ItemCount>> m_bodyLoots;
         std::vector<net::NpcAttack> m_npcAttacks;
         std::map<uint32_t, RemoteNpc> m_npcs;
         uint32_t m_npcListAt = 0, m_npcListSpace = 0, m_lastNpcListSent = 0;
