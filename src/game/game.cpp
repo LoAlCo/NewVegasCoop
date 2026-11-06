@@ -2575,7 +2575,7 @@ namespace game
     {
         constexpr float kMaxOriginGap = 4096;
         TESObjectWEAP* weapon = WornWeapon(worn);
-        if (!g_compiled || !IsActor(ref) || !weapon || !CanFire(weapon))
+        if (!g_compiled || !IsActor(ref) || !weapon || !IsGun(weapon) || !CanFire(weapon))
             return false;
         float dx = ref->posX - path.x, dy = ref->posY - path.y;
         if (dx * dx + dy * dy > kMaxOriginGap * kMaxOriginGap)
@@ -3187,6 +3187,13 @@ namespace game
         std::vector<net::ShotPath> g_myShotPaths;
         std::mutex g_myShotPathsLock;
 
+        // This part of a projectile's start can run again later (when its 3D comes back, say), and that isn't a new shot.
+        // It makes the projectile's process, as an explosion's start does.
+        bool IsFreshShot(const TESObjectREFR* shot)
+        {
+            return shot && !ProjectileField<const void*>(shot, addr::kExplosionProcess);
+        }
+
         void SeeShot(const TESObjectREFR* shot)
         {
             if (!shot || ProjectileField<const TESObjectREFR*>(shot, addr::kProjectileSource) != Player() || !shot->baseForm ||
@@ -3212,24 +3219,32 @@ namespace game
 
         void __fastcall MissileSpawnedHook(TESObjectREFR* shot)
         {
+            bool fresh = IsFreshShot(shot);
             reinterpret_cast<void(__fastcall*)(TESObjectREFR*)>(g_missileSpawned)(shot);
-            SeeShot(shot);
+            if (fresh)
+                SeeShot(shot);
         }
 
         void __fastcall BeamSpawnedHook(TESObjectREFR* shot)
         {
+            bool fresh = IsFreshShot(shot);
             reinterpret_cast<void(__fastcall*)(TESObjectREFR*)>(g_beamSpawned)(shot);
-            SeeShot(shot);
+            if (fresh)
+                SeeShot(shot);
         }
 
         void __fastcall GrenadeSpawnedHook(TESObjectREFR* shot)
         {
+            bool fresh = IsFreshShot(shot);
             reinterpret_cast<void(__fastcall*)(TESObjectREFR*)>(g_grenadeSpawned)(shot);
-            SeeShot(shot);
+            if (fresh)
+                SeeShot(shot);
         }
 
         bool HookSlot(uintptr_t slotAddress, uintptr_t expected, uintptr_t hook, uintptr_t& original)
         {
+            if (original)
+                return true;
             auto* slot = reinterpret_cast<uintptr_t*>(slotAddress);
             DWORD old;
             if (!VirtualProtect(slot, 4, PAGE_READWRITE, &old))

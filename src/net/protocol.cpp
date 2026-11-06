@@ -1564,7 +1564,7 @@ namespace net
 
     namespace
     {
-        constexpr float kShotAngleUnits = 10000; // a hundredth of a milliradian: 1 unit off at 10000 units away
+        constexpr float kShotAngleUnits = 10000; // a tenth of a milliradian: 1 unit off at 10000 units away
         constexpr float kShotSpreadUnits = 500;
         constexpr uint8_t kPathHasForm = 1, kPathHasSpeed = 2, kPathHasPellets = 4, kPathMustArrive = 8;
 
