@@ -1483,6 +1483,16 @@ TEST(door_messages_round_trip_and_checks)
     CHECK(extra.Type(t) && !DecodeDoorUse(extra, use));
 }
 
+TEST(a_door_that_leads_away_shares_its_lock_but_not_its_open_flag)
+{
+    CHECK(coop::SharedDoorFlags(true, false, false) == net::kDoorOpen);
+    CHECK(coop::SharedDoorFlags(false, false, true) == net::kDoorLocked);
+    CHECK(coop::SharedDoorFlags(true, false, true) == (net::kDoorOpen | net::kDoorLocked));
+    CHECK(coop::SharedDoorFlags(true, true, false) == 0);
+    CHECK(coop::SharedDoorFlags(true, true, true) == net::kDoorLocked);
+    CHECK(coop::SharedDoorFlags(false, true, false) == 0);
+}
+
 TEST(friend_doors_follow_the_host_and_send_own_uses)
 {
     using coop::LocalDoor;

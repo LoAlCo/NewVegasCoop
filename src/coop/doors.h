@@ -13,6 +13,14 @@ namespace coop
     constexpr uint32_t kDoorUseWaitMs = 2000;
     constexpr size_t kMaxKnownDoors = 512;
 
+    // What a door shares. A door that leads away isn't open or closed for anyone else: nobody sees through it, and
+    // its saved open flag can differ between two players' saves and doesn't change when the game is told to close it.
+    // Its lock still counts.
+    inline uint8_t SharedDoorFlags(bool open, bool leadsAway, bool locked)
+    {
+        return static_cast<uint8_t>((open && !leadsAway ? net::kDoorOpen : 0) | (locked ? net::kDoorLocked : 0));
+    }
+
     struct LocalDoor
     {
         net::DoorState state;
