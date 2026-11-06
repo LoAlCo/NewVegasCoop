@@ -119,6 +119,8 @@ namespace game
     {
         if (!ref)
             return 0;
+        if (m_coop->GetRole() != coop::Role::Host && m_npcs->KeptApart(RefId(ref)))
+            return 0;
         return m_coop->GetRole() == coop::Role::Host ? RefId(ref) : m_npcs->HostRefOf(RefId(ref));
     }
 
@@ -290,7 +292,14 @@ namespace game
             }
             uint8_t leader = 0;
             uint32_t ref = partner ? HostRef(partner) : 0;
-            if (!host && !m_closed && m_ours && ref && m_coop->CompanionLeader(ref, leader) &&
+            if (uint8_t owner = 0; !m_closed && partner && m_ours && m_coop->CopyOwner(RefId(partner), owner))
+            {
+                // Its real self is in that player's game; talking to this copy could hire it here.
+                m_closed = true;
+                CloseMenu();
+                Notify((std::string(Name(partner)) + " is with " + m_coop->NameOf(owner) + ".").c_str());
+            }
+            else if (!host && !m_closed && m_ours && ref && m_coop->CompanionLeader(ref, leader) &&
                 !(ref == m_talkAllowed && now < m_talkAllowedUntil))
             {
                 m_closed = true;

@@ -3606,6 +3606,20 @@ namespace game
         g_scripts->CallFunctionAlt(g_makeCompanion, ref, 1, faction);
     }
 
+    void WatchHits(std::vector<uint32_t> refs)
+    {
+        g_hitWatch = std::move(refs);
+    }
+
+    void SideWithPlayer(TESObjectREFR* ref)
+    {
+        if (!g_compiled || !ref || !g_sideWithPlayer)
+            return;
+        TESForm* faction = LookupForm(ids::kPlayerFaction);
+        g_scripts->CallFunctionAlt(g_sideWithPlayer, ref, 1,
+            faction && faction->typeID == kFormType_TESFaction ? faction : nullptr);
+    }
+
     std::vector<Hit> TakeHits()
     {
         std::vector<Hit> hits;

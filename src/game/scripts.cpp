@@ -88,6 +88,8 @@ namespace game
         Script* g_maxHealth = nullptr;
         Script* g_changeHealth = nullptr;
         Script* g_makeCompanion = nullptr;
+        Script* g_sideWithPlayer = nullptr;
+        std::vector<uint32_t> g_hitWatch;
         Script* g_stopFighting = nullptr;
         Script* g_kill = nullptr;
         Script* g_unprotect = nullptr;
@@ -287,7 +289,10 @@ namespace game
             {
                 bool onStandIn = victim->baseForm && std::find(g_standInBases.begin(), g_standInBases.end(),
                     victim->baseForm->refID) != g_standInBases.end();
-                if (!onStandIn && (!attacker || attacker != Player()))
+                auto watched = [](const TESForm* form) {
+                    return form && std::find(g_hitWatch.begin(), g_hitWatch.end(), form->refID) != g_hitWatch.end();
+                };
+                if (!onStandIn && (!attacker || attacker != Player()) && !watched(victim) && !watched(attacker))
                     return;
             }
             for (const PendingHit& p : g_myHits)
@@ -604,6 +609,14 @@ namespace game
             "  SetActorValue Assistance 0\n"
             "  SetActorValue Confidence 4\n"
             "  SetCombatDisabled 1\n"
+            "  if rFaction\n"
+            "    AddToFaction rFaction 0\n"
+            "  endif\n"
+            "End\n");
+        g_sideWithPlayer = Compile("side with player",
+            "ref rFaction\n"
+            "Begin Function {rFaction}\n"
+            "  SetIgnoreFriendlyHits 1\n"
             "  if rFaction\n"
             "    AddToFaction rFaction 0\n"
             "  endif\n"

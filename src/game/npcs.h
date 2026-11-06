@@ -32,6 +32,18 @@ namespace game
         bool IsHeld(uint32_t ref) const { return m_holds.IsHeld(ref); }
         void ReleaseAll();
         void Forget();
+        // Share() looks at just these, and says what they're made from (a visitor's own companions).
+        void ShareOnly(std::vector<uint32_t> refs);
+        // Copy from this list instead of what the host shares, as allies of the player (copies of visitors' companions).
+        void UpdateFrom(const std::map<uint32_t, coop::RemoteNpc>& list, const coop::Coop& coop, uint32_t now,
+            const coop::Pose& myPose, const StandIns& standIns);
+        // Companions of our own save: the host's one of the same ref gets a spawned copy, leaving ours alone.
+        void SetKeptApart(const std::set<uint32_t>& refs);
+        bool KeptApart(uint32_t ref) const { return m_keptApart.count(ref) != 0; }
+        // Don't hold our own companions still: the host's game shows copies of them (Visitors' Companions).
+        void SpareOwnCompanions(bool spare) { m_spareOwnCompanions = spare; }
+        // Is this actor of ours a copy of something in the host's game?
+        bool IsCopy(uint32_t ourRef) const;
         std::vector<uint32_t> MadeRefIds() const;
         static void LabCopySteps(uint32_t steps) { s_labSteps = steps; }
         uint32_t HostRefOf(uint32_t ourRef) const;
@@ -43,6 +55,7 @@ namespace game
             Puppet puppet;
             uint32_t nextBringAt = 0;
             float hostHealth = -1;
+            uint32_t nextHealthCheck = 0;
             float ownMaxHealth = 0;
             uint32_t idle = 0;
             uint32_t weapon = 0;
@@ -109,6 +122,11 @@ namespace game
         std::map<uint32_t, Made> m_made;
         std::set<uint32_t> m_rerolled;
         bool OursIsMade(uint32_t ref) const;
+        bool m_shareOnly = false;
+        std::vector<uint32_t> m_shareList;
+        const std::map<uint32_t, coop::RemoteNpc>* m_copyFrom = nullptr;
+        std::set<uint32_t> m_keptApart;
+        bool m_spareOwnCompanions = false;
         static inline uint32_t s_labSteps = 15;
         uint32_t m_nextMakeAt = 0;
         uint32_t m_madeCount = 0, m_unmadeCount = 0, m_dressed = 0;
