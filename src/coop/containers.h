@@ -5,6 +5,7 @@
 #include "net/protocol.h"
 
 #include <cstdint>
+#include <map>
 #include <vector>
 
 namespace coop
@@ -13,6 +14,13 @@ namespace coop
         const std::vector<net::ItemCount>& to);
 
     int32_t TotalOf(const std::vector<net::ItemCount>& items, uint32_t item);
+
+    // How many of each item the player had at the last look. Only what's in the watched container is counted, so
+    // looking at a container costs the same however much the player carries.
+    using FormCounts = std::map<uint32_t, int32_t>;
+    std::vector<uint32_t> FormsToCount(const FormCounts& before, const std::vector<net::ItemCount>& local);
+    std::vector<net::ItemCount> CountChanges(const FormCounts& before, const FormCounts& now);
+    FormCounts CountsToKeep(const FormCounts& now, const std::vector<net::ItemCount>& local);
 
     struct ContainerTake
     {
