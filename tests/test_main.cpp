@@ -5971,9 +5971,6 @@ TEST(the_hosts_switched_on_resend_doesnt_undo_a_hide)
     CHECK(!b.KeepsOff(joe));
 }
 
-TEST(copies_a_load_threw_away_are_seen_gone)
-}
-
 TEST(copies_a_load_moved_are_counted_and_checked_for_life)
 {
     int weapon, teleporter, other;
