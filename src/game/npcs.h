@@ -35,6 +35,7 @@ namespace game
         void Forget();
         std::vector<uint32_t> MadeRefIds() const;
         static void LabCopySteps(uint32_t steps) { s_labSteps = steps; }
+        static void SetSmoothBodies(bool on) { s_smoothBodies = on; }
         uint32_t HostRefOf(uint32_t ourRef) const;
         TESObjectREFR* OurRefOf(uint32_t hostRef) const { return Find(hostRef); }
 
@@ -83,6 +84,8 @@ namespace game
         void TakeBackGifts(TESObjectREFR* actor, TakeBack& gifts);
         void TakeBackWhenClosed();
         std::vector<TakeBack> m_takeBacks;
+        struct Body;
+        void FollowBody(uint32_t ref, TESObjectREFR* actor, const coop::RemoteNpc& npc, Body& b, uint32_t now);
         void PlaceBody(uint32_t ref, TESObjectREFR* actor, const coop::RemoteNpc& npc, const coop::Pose& host, uint32_t now);
         void LogStats(uint32_t now, size_t shared);
         uint32_t m_nextDesyncCheck = 0, m_nextDesyncLog = 0, m_desyncLooks = 0, m_desyncSeen = 0;
@@ -108,6 +111,11 @@ namespace game
         struct Body
         {
             coop::BodyPlacer placer;
+            coop::BodyFollower follower;
+            bool following = false, cantPull = false;
+            uint32_t followFrames = 0;
+            float followOffSum = 0, followOffMost = 0;
+            double followMs = 0;
             uint32_t nextLook = 0;
             uint32_t judgeAt = 0;
             float offBefore = 0;
@@ -115,6 +123,8 @@ namespace game
         };
         std::map<uint32_t, Body> m_bodies;
         uint32_t m_bodiesMoved = 0;
+        uint32_t m_bodiesPulled = 0;
+        static inline bool s_smoothBodies = true;
         struct Made
         {
             uint32_t localId = 0;

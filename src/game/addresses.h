@@ -18,6 +18,7 @@ namespace game::addr
     constexpr uintptr_t kCompassTargetSet = 0x00966F20;
     constexpr uintptr_t kCompassTargetRemove = 0x00967350;
     constexpr uintptr_t kContainerMenu = 0x011D93F8;
+    constexpr uintptr_t kRigidBodySetLinearVelocity = 0x005616D0;
     constexpr uintptr_t kBarterMenu = 0x011D8FA4;
     constexpr uintptr_t kSleepWaitMenu = 0x011DA920;
     constexpr uintptr_t kSleepWaitClickSlot = 0x010763B8;
@@ -388,6 +389,8 @@ namespace game::layout
     constexpr uint32_t kHudPromptTiles[] = {0x9C, 0xA8, 0xAC, 0xB0};
     constexpr uint32_t kTileVisible = 0xFA3;
     constexpr uint32_t kNiName = 0x08;
+    constexpr uint32_t kNiCollisionObject = 0x1C, kCollisionWorldObject = 0x10, kWorldObjectHavok = 0x08;
+    constexpr uint32_t kRttiParent = 0x04;
     constexpr uint32_t kDialogMenuPartner = 0x80;
     constexpr uint32_t kDialogMenuTopicNode = 0x70;
     constexpr uint32_t kMenuTopicResponses = 0x0C;
