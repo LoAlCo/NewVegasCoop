@@ -90,6 +90,7 @@ namespace net
         PlayerModAnims = 69,
         Drag = 70,
         Mode = 71,
+        CompanionHurt = 76,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -642,7 +643,16 @@ namespace net
         bool operator==(const CompanionState& o) const { return ref == o.ref && leader == o.leader; }
         bool operator!=(const CompanionState& o) const { return !(*this == o); }
     };
-    struct CompanionStates { std::vector<CompanionState> companions; };
+    struct CompanionStates
+    {
+        std::vector<CompanionState> companions;
+        // The host's setting: when a visitor's save has the same companion, do both show?
+        bool bothKeep = true;
+    };
+    // The host's copy of a visitor's companion was hurt: the real one takes it.
+    struct CompanionHurt { uint32_t ref = 0; float damage = 0; };
+    Bytes Encode(const CompanionHurt& m);
+    bool Decode(Reader& r, CompanionHurt& m);
     enum class CompanionOrderKind : uint8_t { FollowMe = 1, Wait = 2 };
     struct CompanionOrder { uint32_t ref = 0; CompanionOrderKind order = CompanionOrderKind::FollowMe; };
     Bytes Encode(const CompanionStates& m);

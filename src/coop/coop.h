@@ -10,6 +10,7 @@
 #include "coop/chat.h"
 #include "coop/voice.h"
 #include "coop/desync.h"
+#include "coop/visitor_companions.h"
 #include "coop/game_mode.h"
 #include "coop/doors.h"
 #include "coop/saves.h"
@@ -128,6 +129,27 @@ namespace coop
         uint32_t gearChanges = 0;
     };
 
+    void HearNpc(RemoteNpc& npc, uint32_t timeMs, uint32_t space, const net::NpcState& n, uint32_t now);
+
+    // On the host: what visitors tell us about their companions. See coop/visitor_companions.h.
+    class CompanionCopies
+    {
+    public:
+        void Heard(uint8_t owner, const net::NpcStates& m, uint32_t now);
+        void HeardGear(uint8_t owner, net::NpcGear m);
+        uint32_t KeyOf(uint8_t owner, uint32_t ref) const;
+        uint32_t RealRefOf(uint32_t key) const;
+        void Forget(uint8_t owner);
+        void Expire(uint32_t now);
+        void Clear();
+        const std::map<uint32_t, RemoteNpc>& Npcs() const { return m_npcs; }
+
+    private:
+        uint32_t MakeKey(uint8_t owner, uint32_t ref);
+        std::map<std::pair<uint8_t, uint32_t>, uint32_t> m_keys;
+        std::map<uint32_t, RemoteNpc> m_npcs;
+    };
+
     struct HitReport
     {
         uint8_t playerId = 0;
@@ -189,6 +211,14 @@ namespace coop
         std::vector<CompanionOrderFrom> TakeCompanionOrders() { return std::move(m_companionOrders); }
         bool CompanionLeader(uint32_t hostRef, uint8_t& leader) const;
         void OrderCompanion(uint32_t hostRef, net::CompanionOrderKind order);
+        void SetCompanionsBoth(bool both);
+        bool CompanionsBoth() const { return m_companionsBoth; }
+        const CompanionCopies& Copies() const { return m_copies; }
+        std::vector<net::NpcAttack> TakeCompanionAttacks() { return std::move(m_companionAttacks); }
+        void HurtCompanion(uint8_t owner, uint32_t ref, float damage);
+        std::vector<net::CompanionHurt> TakeCompanionHurts() { return std::move(m_companionHurts); }
+        void SetCopyOwners(std::map<uint32_t, uint8_t> owners) { m_copyOwners = std::move(owners); }
+        bool CopyOwner(uint32_t ourRef, uint8_t& owner) const;
         void SharePlayerCommand(const net::PlayerCommand& c);
         void KilledByScript();
         void ShareRadioLine(net::RadioLine line, uint32_t startedAt);
@@ -454,6 +484,11 @@ namespace coop
         uint32_t m_lastCompanionsSent = 0;
         std::vector<CompanionOrderFrom> m_companionOrders;
         std::map<uint32_t, uint8_t> m_companions;
+        bool m_companionsBoth = true;
+        CompanionCopies m_copies;
+        std::vector<net::NpcAttack> m_companionAttacks;
+        std::vector<net::CompanionHurt> m_companionHurts;
+        std::map<uint32_t, uint8_t> m_copyOwners;
         std::vector<net::PlayerCommand> m_playerCommands;
         std::map<uint32_t, net::RadioLine> m_radioLines;
         uint32_t m_nextRadioResend = 0;

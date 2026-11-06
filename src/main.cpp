@@ -32,6 +32,7 @@
 #include "game/mirror.h"
 #include "game/mover.h"
 #include "game/companions.h"
+#include "game/visitor_companions.h"
 #include "game/containers.h"
 #include "game/doors.h"
 #include "game/mines.h"
@@ -68,6 +69,7 @@ namespace
     VoiceOut g_voiceOut;
     game::Npcs g_npcs;
     game::Companions g_companions;
+    game::VisitorCompanions g_visitorCompanions;
     game::Doors g_doors;
     game::Mines g_mines;
     game::Containers g_containers;
@@ -1209,7 +1211,8 @@ namespace
         coop::Pose at, from;
         bool ok = by && game::IsActor(target) && target != game::Player() && !g_standIns.IsStandIn(target) &&
             game::GetPose(target, at) && game::GetPose(by, from) && at.space == from.space;
-        if (ok && game::IsTeammate(target))
+        uint8_t copyOwner = 0;
+        if (ok && (game::IsTeammate(target) || g_coop.CopyOwner(hit.targetRef, copyOwner)))
         {
             LOG_DEBUG("Player %u hit our companion %08X: no friendly fire in the party", hit.playerId, hit.targetRef);
             return;
@@ -2540,6 +2543,8 @@ namespace
 
         for (const game::Hit& hit : game::TakeHits())
         {
+            if (g_visitorCompanions.TookHit(hit, g_coop, g_standIns, g_npcs))
+                continue;
             TESObjectREFR* target = game::LookupRef(hit.targetRef);
             TESObjectREFR* attacker = game::LookupRef(hit.attackerRef);
             int friendId = g_standIns.PlayerIdOf(target);
@@ -2701,6 +2706,7 @@ namespace
         }
         else
             g_npcs.ReleaseAll();
+        g_visitorCompanions.Update(g_coop, g_standIns, g_npcs, me, now, g_config.companionsBoth);
         g_partClock.Done(kPartNpcs);
         static uint32_t s_nextDesyncNotice = 0;
         for (const std::string& text : g_coop.TakeDesyncNotices())
@@ -2799,6 +2805,8 @@ namespace
             g_nextMadeCheck = now + 1000;
             std::vector<uint32_t> made = g_standIns.RefIds();
             for (uint32_t id : g_npcs.MadeRefIds())
+                made.push_back(id);
+            for (uint32_t id : g_visitorCompanions.MadeRefIds())
                 made.push_back(id);
             for (uint32_t id : g_extras)
                 made.push_back(id);
@@ -3088,6 +3096,7 @@ namespace
             g_gameOver = false;
             g_standIns.Forget();
             g_npcs.Forget();
+            g_visitorCompanions.Forget();
             g_doors.Forget();
             g_mines.Forget();
             g_progress.Forget();

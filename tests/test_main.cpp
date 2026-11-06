@@ -4972,3 +4972,190 @@ TEST(a_stack_merged_away_is_seen_gone)
     broken.next = &broken;
     CHECK(coop::HoldsStack(&broken, &a));
 }
+
+TEST(visitor_companion_rules)
+{
+    using coop::ShareCompanionWithHost;
+    CHECK(ShareCompanionWithHost(true, false, false));
+    CHECK(ShareCompanionWithHost(true, true, true));
+    CHECK(ShareCompanionWithHost(false, false, false));
+    CHECK(!ShareCompanionWithHost(false, true, false));
+    CHECK(!ShareCompanionWithHost(false, false, true));
+
+    CHECK(coop::CopyHealthDrifted(136, 540));
+    CHECK(coop::CopyHealthDrifted(540, 136));
+    CHECK(!coop::CopyHealthDrifted(100.4f, 100));
+
+    uint32_t key = coop::CompanionCopyKey(3, 7);
+    CHECK(net::IsMadeWhilePlaying(key) && coop::IsCompanionCopyKey(key) && coop::CompanionCopyOwner(key) == 3);
+    CHECK(coop::CompanionCopyKey(3, 7) != coop::CompanionCopyKey(4, 7));
+    CHECK(!coop::IsCompanionCopyKey(0xFF000801));
+
+    using coop::CompanionHit;
+    using Facts = coop::CompanionHitFacts;
+    auto route = [](auto set) { Facts f; set(f); return coop::RouteCompanionHit(f); };
+    // On a visitor.
+    CHECK(route([](Facts&) {}) == CompanionHit::NotOurs);
+    CHECK(route([](Facts& f) { f.attackerIsOurCompanion = true; }) == CompanionHit::Report);
+    CHECK(route([](Facts& f) { f.attackerIsOurCompanion = true; f.targetIsStandIn = true; }) == CompanionHit::NotOurs);
+    CHECK(route([](Facts& f) { f.targetIsOurCompanion = true; f.attackerIsCopyOrStandIn = true; }) == CompanionHit::Undo);
+    CHECK(route([](Facts& f) { f.targetIsOurCompanion = true; }) == CompanionHit::Done);
+    // On the host.
+    CHECK(route([](Facts& f) { f.host = true; }) == CompanionHit::NotOurs);
+    CHECK(route([](Facts& f) { f.host = true; f.targetIsCopy = true; }) == CompanionHit::UndoAndTellOwner);
+    CHECK(route([](Facts& f) { f.host = true; f.targetIsCopy = true; f.attackerIsFriendly = true; }) == CompanionHit::Undo);
+    CHECK(route([](Facts& f) { f.host = true; f.attackerIsCopy = true; }) == CompanionHit::Undo);
+
+    net::NpcState a, b;
+    a.ref = 0x5000;
+    b.ref = 0xFF000900;
+    std::map<uint32_t, uint8_t> owners{{0xFF000900, 2}};
+    CHECK(coop::NpcsForPlayer({a, b}, owners, 2).size() == 1);
+    CHECK(coop::NpcsForPlayer({a, b}, owners, 2)[0].ref == 0x5000);
+    CHECK(coop::NpcsForPlayer({a, b}, owners, 1).size() == 2);
+}
+
+namespace
+{
+    net::NpcState FakeCompanion(uint32_t ref, uint32_t base)
+    {
+        net::NpcState n;
+        n.ref = ref;
+        n.x = 10;
+        n.health = 50;
+        n.maxHealth = 100;
+        n.base = base;
+        return n;
+    }
+}
+
+TEST(companion_copies_follow_what_visitors_say)
+{
+    coop::CompanionCopies copies;
+    uint32_t now = 1000;
+    copies.Heard(1, net::NpcStates{1, 0x777, {FakeCompanion(0xE32A9, 0x1000), FakeCompanion(0x92BD2, 0)}}, now);
+    uint32_t veronica = copies.KeyOf(1, 0xE32A9);
+    CHECK(veronica != 0 && coop::IsCompanionCopyKey(veronica) && coop::CompanionCopyOwner(veronica) == 1);
+    CHECK(copies.RealRefOf(veronica) == 0xE32A9);
+    CHECK(copies.Npcs().size() == 1); // no base form to make the second from
+    CHECK(copies.Npcs().at(veronica).base == 0x1000 && copies.Npcs().at(veronica).health == 50);
+
+    // Two visitors with the same companion get a copy each.
+    copies.Heard(2, net::NpcStates{1, 0x777, {FakeCompanion(0xE32A9, 0x1000)}}, now);
+    CHECK(copies.KeyOf(2, 0xE32A9) != veronica && copies.Npcs().size() == 2);
+
+    // A base form that only exists in the visitor's game can't be made here.
+    copies.Heard(1, net::NpcStates{1, 0x777, {FakeCompanion(0x92BD2, 0xFF001000)}}, now);
+    CHECK(copies.KeyOf(1, 0x92BD2) == 0);
+
+    copies.HeardGear(1, net::NpcGear{0xE32A9, {{0x1234, 50}}});
+    CHECK(copies.Npcs().at(veronica).gearChanges == 1);
+    copies.HeardGear(1, net::NpcGear{0x9999, {{0x1234, 50}}});
+    CHECK(copies.Npcs().at(veronica).gearChanges == 1);
+
+    // A visitor can't flood the host.
+    std::vector<net::NpcState> many;
+    for (uint32_t i = 0; i < coop::kMaxCompanionCopiesPerPlayer + 4; ++i)
+        many.push_back(FakeCompanion(0x2000 + i, 0x1000));
+    copies.Heard(3, net::NpcStates{1, 0x777, many}, now);
+    size_t theirs = 0;
+    for (const auto& [key, npc] : copies.Npcs())
+        theirs += coop::CompanionCopyOwner(key) == 3 ? 1 : 0;
+    CHECK(theirs == coop::kMaxCompanionCopiesPerPlayer);
+
+    copies.Forget(3);
+    CHECK(copies.Npcs().size() == 2);
+    // A freed slot is used again.
+    copies.Forget(2);
+    copies.Heard(2, net::NpcStates{2, 0x777, {FakeCompanion(0x92BD2, 0x1000)}}, now);
+    CHECK(copies.KeyOf(2, 0x92BD2) == coop::CompanionCopyKey(2, 0));
+
+    copies.Heard(2, net::NpcStates{3, 0x777, {FakeCompanion(0x92BD2, 0x1000)}}, now + coop::kNpcTimeoutMs);
+    copies.Expire(now + coop::kNpcTimeoutMs + 1);
+    CHECK(copies.KeyOf(1, 0xE32A9) == 0 && copies.KeyOf(2, 0x92BD2) != 0);
+    copies.Clear();
+    CHECK(copies.Npcs().empty());
+}
+
+TEST(visitor_companions_reach_the_host)
+{
+    MsgType t;
+    net::CompanionHurt hurt;
+    Bytes b = Encode(net::CompanionHurt{0xE32A9, 12.5f});
+    Reader r(b);
+    CHECK(r.Type(t) && t == MsgType::CompanionHurt && Decode(r, hurt) && hurt.ref == 0xE32A9 && hurt.damage == 12.5f);
+    auto bad = [&](const net::CompanionHurt& m) {
+        Bytes x = Encode(m);
+        Reader rx(x);
+        return rx.Type(t) && !Decode(rx, hurt);
+    };
+    CHECK(bad(net::CompanionHurt{0x14, 5}));
+    CHECK(bad(net::CompanionHurt{0xE32A9, 0}));
+    CHECK(bad(net::CompanionHurt{0xE32A9, -5}));
+    CHECK(bad(net::CompanionHurt{0xE32A9, net::kMaxHealth * 2}));
+
+    net::CompanionStates cs;
+    Bytes off = Encode(net::CompanionStates{{}, false});
+    Reader roff(off);
+    CHECK(roff.Type(t) && Decode(roff, cs) && !cs.bothKeep);
+
+    coop::Coop host, a, c;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    CHECK(c.Join("127.0.0.1", kTestPort, "C"));
+    CHECK(RunUntil({&host, &a, &c}, [&] { return c.GetFriendState() == coop::FriendState::Joined; }));
+    const uint8_t idA = a.MyPlayerId();
+
+    // The host's setting reaches visitors.
+    CHECK(a.CompanionsBoth());
+    host.SetCompanionsBoth(false);
+    CHECK(RunUntil({&host, &a, &c}, [&] { return !a.CompanionsBoth(); }));
+    host.SetCompanionsBoth(true);
+    CHECK(RunUntil({&host, &a, &c}, [&] { return a.CompanionsBoth(); }));
+
+    // A visitor's companion reaches the host, with its gear and attacks, without touching the host's NPC list.
+    a.SetNpcs(0x777, {FakeCompanion(0x92BD2, 0x1000)});
+    a.SetNpcGear(0x92BD2, {{0x1234, 50}});
+    uint32_t key = 0;
+    CHECK(RunUntil({&host, &a, &c}, [&] { return (key = host.Copies().KeyOf(idA, 0x92BD2)) != 0; }));
+    CHECK(host.Copies().Npcs().at(key).health == 50 && host.Copies().Npcs().at(key).base == 0x1000);
+    CHECK(RunUntil({&host, &a, &c}, [&] { return !host.Copies().Npcs().at(key).gear.empty(); },
+        coop::kNpcGearResendMs + 2000));
+    CHECK(host.Npcs().empty());
+    a.NpcAttacked(0x92BD2, 2);
+    std::vector<net::NpcAttack> attacks;
+    CHECK(RunUntil({&host, &a, &c}, [&] {
+        for (const net::NpcAttack& x : host.TakeCompanionAttacks())
+            attacks.push_back(x);
+        return !attacks.empty();
+    }));
+    CHECK(attacks.size() == 1 && attacks[0].ref == key && attacks[0].shots == 2);
+
+    // Only its owner hears what hurt the copy.
+    host.HurtCompanion(idA, 0x92BD2, 7);
+    std::vector<net::CompanionHurt> hurts;
+    CHECK(RunUntil({&host, &a, &c}, [&] {
+        for (const net::CompanionHurt& x : a.TakeCompanionHurts())
+            hurts.push_back(x);
+        return !hurts.empty();
+    }));
+    CHECK(hurts.size() == 1 && hurts[0].ref == 0x92BD2 && hurts[0].damage == 7);
+    CHECK(c.TakeCompanionHurts().empty());
+
+    // The other visitor sees the host's copy; its owner doesn't get a second one.
+    host.SetCopyOwners({{0xFF000900, idA}});
+    uint8_t owner = 9;
+    CHECK(host.CopyOwner(0xFF000900, owner) && owner == idA && !host.CopyOwner(0xFF000901, owner));
+    host.SetNpcs(0x777, {FakeCompanion(0x5000, 0), FakeCompanion(0xFF000900, 0x1000)});
+    CHECK(RunUntil({&host, &a, &c}, [&] { return c.Npcs().count(0xFF000900) && a.Npcs().count(0x5000); }));
+    CHECK(!a.Npcs().count(0xFF000900));
+
+    // It goes when its visitor stops telling us.
+    a.SetNpcs(0x777, {});
+    CHECK(RunUntil({&host, &a, &c}, [&] { return host.Copies().Npcs().empty(); }, coop::kNpcTimeoutMs + 3000));
+
+    c.Stop();
+    a.Stop();
+    host.Stop();
+}

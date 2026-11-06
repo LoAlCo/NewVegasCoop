@@ -48,6 +48,9 @@ namespace game
     std::vector<uint32_t> Followers();
     bool IsTeammate(TESObjectREFR* ref);
     std::vector<uint32_t> Teammates();
+    // Also report hits to and from these (the player's and stand-ins' always are).
+    void WatchHits(std::vector<uint32_t> refs);
+    void SideWithPlayer(TESObjectREFR* ref);
     bool IsWaiting(TESObjectREFR* ref);
     void SetWaiting(TESObjectREFR* ref, bool waiting);
     TESForm* FollowPackage(TESObjectREFR* target);

@@ -374,6 +374,18 @@
 							"default": 0
 						}
 					]
+				},
+				"31": {
+					"title": "Same Companion, One Each",
+					"type": 5,
+					"enable": 1,
+					"mouse": "If you host and a visitor's save has the same companion as yours, you each keep your own. Off: only one shows (yours), so there are no duplicates",
+					"vars": [
+						{
+							"configINI": "Settings:bCompanionsBoth",
+							"default": 1
+						}
+					]
 				}
 			}
 		},

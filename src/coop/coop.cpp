@@ -124,6 +124,11 @@ namespace coop
         m_companionsChanged = false;
         m_companionOrders.clear();
         m_companions.clear();
+        m_companionsBoth = true;
+        m_copies.Clear();
+        m_companionAttacks.clear();
+        m_companionHurts.clear();
+        m_copyOwners.clear();
         m_playerCommands.clear();
         m_chat.clear();
         m_voice.clear();
@@ -298,6 +303,7 @@ namespace coop
             SendDoors(now);
             SendItems(now);
             SendCompanions(now);
+            m_copies.Expire(now);
             if (!m_radioLines.empty() && IsDue(now, m_nextRadioResend))
             {
                 m_nextRadioResend = now + 10000;
@@ -313,6 +319,8 @@ namespace coop
         {
             ForgetOldNpcs(now);
             SweepDesyncs(now);
+            if (InGame())
+                SendNpcs(now);
         }
 
         if (now - m_lastPingLog > 30000)
@@ -752,6 +760,36 @@ namespace coop
         {
             if (r.AtEnd() && !m_gameOverSent)
                 EndGame(GameOverReason::Killed, player.id);
+            return;
+        }
+
+        if (type == MsgType::NpcStates)
+        {
+            net::NpcStates m;
+            if (player.joined && Decode(r, m))
+                m_copies.Heard(player.id, m, GetTickCount());
+            return;
+        }
+
+        if (type == MsgType::NpcGear)
+        {
+            net::NpcGear m;
+            if (player.joined && Decode(r, m))
+                m_copies.HeardGear(player.id, std::move(m));
+            return;
+        }
+
+        if (type == MsgType::NpcAttacks)
+        {
+            net::NpcAttacks m;
+            if (!player.joined || !Decode(r, m))
+                return;
+            for (net::NpcAttack a : m.attacks)
+                if (uint32_t key = m_copies.KeyOf(player.id, a.ref); key && m_companionAttacks.size() < kMaxNpcs)
+                {
+                    a.ref = key;
+                    m_companionAttacks.push_back(a);
+                }
             return;
         }
 
@@ -1361,10 +1399,17 @@ namespace coop
             net::CompanionStates m;
             if (Decode(r, m))
             {
+                m_companionsBoth = m.bothKeep;
                 m_companions.clear();
                 for (const net::CompanionState& cs : m.companions)
                     m_companions[cs.ref] = cs.leader;
             }
+        }
+        else if (type == MsgType::CompanionHurt)
+        {
+            net::CompanionHurt m;
+            if (Decode(r, m) && m_companionHurts.size() < kMaxQueuedItemChanges)
+                m_companionHurts.push_back(m);
         }
         else if (type == MsgType::ExplosionAt)
         {
@@ -1515,13 +1560,41 @@ namespace coop
         m_companionsChanged = true;
     }
 
+    void Coop::SetCompanionsBoth(bool both)
+    {
+        if (m_role != Role::Host || both == m_companionsBoth)
+            return;
+        m_companionsBoth = both;
+        m_companionsChanged = true;
+        LOG_INFO("Companions: when a visitor has the same one as us, %s", both ? "we each keep ours" : "only ours shows");
+    }
+
+    void Coop::HurtCompanion(uint8_t owner, uint32_t ref, float damage)
+    {
+        if (m_role != Role::Host || !IsSharedRef(ref) || !(damage > 0))
+            return;
+        Bytes data = Encode(net::CompanionHurt{ref, damage < net::kMaxHealth ? damage : net::kMaxHealth});
+        for (auto& [peer, p] : m_players)
+            if (p.joined && p.id == owner)
+                m_net->Send(peer, data, true);
+    }
+
+    bool Coop::CopyOwner(uint32_t ourRef, uint8_t& owner) const
+    {
+        auto it = m_copyOwners.find(ourRef);
+        if (it == m_copyOwners.end())
+            return false;
+        owner = it->second;
+        return true;
+    }
+
     void Coop::SendCompanions(uint32_t now)
     {
         if (m_players.empty() || (!m_companionsChanged && now - m_lastCompanionsSent < 5000))
             return;
         m_companionsChanged = false;
         m_lastCompanionsSent = now;
-        SendToJoined(Encode(net::CompanionStates{m_myCompanions}), true);
+        SendToJoined(Encode(net::CompanionStates{m_myCompanions, m_companionsBoth}), true);
     }
 
     bool Coop::CompanionLeader(uint32_t hostRef, uint8_t& leader) const
@@ -2369,9 +2442,17 @@ namespace coop
     {
         if (now - m_lastNpcsSent < kPoseIntervalMs)
             return;
-        bool anyone = false;
+        // A visitor comes here too, with the companions of its save.
+        const bool hosting = m_role == Role::Host;
+        bool anyone = !hosting;
         for (auto& [_, p] : m_players)
             anyone |= p.joined;
+        auto sendAll = [&](const Bytes& data, bool reliable) {
+            if (hosting)
+                SendToJoined(data, reliable);
+            else
+                m_net->Send(1, data, reliable);
+        };
         if (!anyone || m_npcSpace == 0)
         {
             m_npcShots.clear();
@@ -2407,7 +2488,15 @@ namespace coop
             Bytes data = Encode(msg);
             m_npcUpdatesSent += static_cast<uint32_t>(msg.npcs.size());
             m_npcBytesSent += static_cast<uint32_t>(data.size());
-            SendToJoined(data, false);
+            bool someonesCopy = std::any_of(msg.npcs.begin(), msg.npcs.end(),
+                [&](const NpcState& n) { return m_copyOwners.count(n.ref) != 0; });
+            if (!hosting || !someonesCopy)
+                sendAll(data, false);
+            else
+                for (auto& [peer, p] : m_players)
+                    if (p.joined)
+                        m_net->Send(peer, Encode(NpcStates{msg.timeMs, msg.space,
+                            NpcsForPlayer(msg.npcs, m_copyOwners, p.id)}), false);
         }
         for (auto it = m_npcGear.begin(); it != m_npcGear.end();)
         {
@@ -2423,7 +2512,7 @@ namespace coop
             {
                 Bytes data = Encode(NpcGear{it->first, g.items});
                 m_npcBytesSent += static_cast<uint32_t>(data.size());
-                SendToJoined(data, true);
+                sendAll(data, true);
                 g.changed = false;
                 g.sentAt = now;
             }
@@ -2437,13 +2526,13 @@ namespace coop
             m_npcShots.clear();
             Bytes data = Encode(attacks);
             m_npcBytesSent += static_cast<uint32_t>(data.size());
-            SendToJoined(data, true);
+            sendAll(data, true);
         }
     }
 
     void Coop::SetNpcGear(uint32_t ref, std::vector<WornItem> items)
     {
-        if (m_role != Role::Host || !IsSharedRef(ref))
+        if (m_role == Role::None || !IsSharedRef(ref))
             return;
         std::sort(items.begin(), items.end(), [](const WornItem& a, const WornItem& b) {
             return a.item != b.item ? a.item < b.item : a.health < b.health; });
@@ -2469,7 +2558,7 @@ namespace coop
 
     void Coop::NpcAttacked(uint32_t ref, uint8_t shots, bool reloaded, bool released)
     {
-        if (m_role != Role::Host || !IsSharedRef(ref) || (shots == 0 && !reloaded && !released))
+        if (m_role == Role::None || !IsSharedRef(ref) || (shots == 0 && !reloaded && !released))
             return;
         auto it = m_npcShots.find(ref);
         if (it == m_npcShots.end())
@@ -2501,24 +2590,28 @@ namespace coop
                 }
                 it = m_npcs.emplace(n.ref, RemoteNpc{}).first;
             }
-            RemoteNpc& npc = it->second;
-            uint8_t poseFlags = n.flags & kKnownPlayerStateFlags;
-            npc.motion.Add(m.timeMs, Pose{m.space, n.x, n.y, n.z, n.heading, poseFlags, n.moves}, now);
-            npc.heardAt = now;
-            if (static_cast<int32_t>(m.timeMs - npc.stateTime) >= 0 || npc.maxHealth == 0)
-            {
-                npc.stateTime = m.timeMs;
-                npc.dead = (n.flags & kNpcDead) != 0;
-                npc.limbs = n.limbs;
-                npc.pile = n.pile;
-                npc.down = (n.flags & kNpcDown) != 0;
-                npc.sitting = (n.flags & kNpcSitting) != 0;
-                npc.health = n.health;
-                npc.maxHealth = n.maxHealth;
-                npc.idle = n.idle;
-                npc.weapon = n.weapon;
-                npc.base = n.base;
-            }
+            HearNpc(it->second, m.timeMs, m.space, n, now);
+        }
+    }
+
+    void HearNpc(RemoteNpc& npc, uint32_t timeMs, uint32_t space, const NpcState& n, uint32_t now)
+    {
+        uint8_t poseFlags = n.flags & kKnownPlayerStateFlags;
+        npc.motion.Add(timeMs, Pose{space, n.x, n.y, n.z, n.heading, poseFlags, n.moves}, now);
+        npc.heardAt = now;
+        if (static_cast<int32_t>(timeMs - npc.stateTime) >= 0 || npc.maxHealth == 0)
+        {
+            npc.stateTime = timeMs;
+            npc.dead = (n.flags & kNpcDead) != 0;
+            npc.limbs = n.limbs;
+            npc.pile = n.pile;
+            npc.down = (n.flags & kNpcDown) != 0;
+            npc.sitting = (n.flags & kNpcSitting) != 0;
+            npc.health = n.health;
+            npc.maxHealth = n.maxHealth;
+            npc.idle = n.idle;
+            npc.weapon = n.weapon;
+            npc.base = n.base;
         }
     }
 
