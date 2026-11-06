@@ -29,20 +29,15 @@ namespace game
             ms += 1000.0 * (end.QuadPart - start.QuadPart) / freq.QuadPart;
             return ok;
         }
-
-        int32_t CountOf(const std::vector<net::ItemCount>& items, const net::ItemCount& kind)
-        {
-            for (const net::ItemCount& i : items)
-                if (i.SameKind(kind))
-                    return i.count;
-            return 0;
-        }
     }
 
     void Containers::Update(coop::Coop& coop, uint32_t now, const Npcs& npcs)
     {
         if (!coop.InGame())
+        {
+            m_openRef = 0;
             return;
+        }
         if (QuantityPromptOpen())
         {
             if (!m_waitedForPrompt)
@@ -68,6 +63,8 @@ namespace game
             }
             if (!refunds.empty())
                 RefreshItemList();
+            if (TESObjectREFR* open = OpenContainer())
+                m_openRef = RefId(open);
         }
 
         if (!coop::IsDue(now, m_nextLook))
@@ -117,18 +114,26 @@ namespace game
             refund.count = 0;
             if (want.count < 0)
             {
-                int32_t have = 0;
+                coop::ContainerTake plan;
                 std::vector<net::ItemCount> items;
                 if (ok && Read(ref, items, m_readMs))
-                    have = CountOf(items, want);
-                int32_t take = -want.count < have ? -want.count : have;
-                if (take > 0)
+                    plan = coop::PlanContainerTake(items, want);
+                else
+                    plan.missing = -want.count;
+                for (const net::ItemCount& remove : plan.removes)
+                    ChangeItem(ref, remove);
+                std::vector<net::ItemCount> after;
+                if (plan.taken > 0 && Read(ref, after, m_readMs))
                 {
-                    net::ItemCount taken = want;
-                    taken.count = -take;
-                    ChangeItem(ref, taken);
+                    int32_t stuck = coop::TotalOf(after, want.item) - (coop::TotalOf(items, want.item) - plan.taken);
+                    if (stuck > 0)
+                    {
+                        LOG_WARN("Containers: %d of %08X stayed in %08X when taken by kind; taking them by item",
+                            stuck, want.item, c.change.ref);
+                        ChangeItem(ref, want.item, -stuck);
+                    }
                 }
-                refund.count = -(-want.count - take);
+                refund.count = -plan.missing;
             }
             else if (ok)
                 ChangeItem(ref, want);
@@ -150,13 +155,34 @@ namespace game
     void Containers::FriendLook(coop::Coop& coop, const Npcs& npcs)
     {
         TESObjectREFR* open = OpenContainer();
-        bool isOpen = open != nullptr;
-        if (!open)
-            open = CrosshairRef();
-        uint32_t hostRef = open && IsLootable(open) ? npcs.HostRefOf(RefId(open)) : 0;
-        coop.ViewContainer(hostRef, isOpen);
-        if (!hostRef)
-            return;
+        uint32_t openRef = open ? RefId(open) : 0;
+        if (m_openRef && m_openRef != openRef)
+        {
+            // The menu shut since the last look, and the crosshair may be off it by now: one more look at what was
+            // open, or what was taken in those last moments (all of it, with Take All) never reaches the host. It
+            // may have opened and shut between two looks, so it's told it was open first.
+            TESObjectREFR* closed = LookupRef(m_openRef);
+            uint32_t closedHostRef = closed && IsLootable(closed) ? npcs.HostRefOf(m_openRef) : 0;
+            m_openRef = openRef;
+            if (closedHostRef)
+            {
+                coop.ViewContainer(closedHostRef, true);
+                coop.ViewContainer(closedHostRef, false);
+                FriendRead(coop, closed);
+                if (!open)
+                    return;
+            }
+        }
+        m_openRef = openRef;
+        TESObjectREFR* target = open ? open : CrosshairRef();
+        uint32_t hostRef = target && IsLootable(target) ? npcs.HostRefOf(RefId(target)) : 0;
+        coop.ViewContainer(hostRef, open != nullptr);
+        if (hostRef)
+            FriendRead(coop, target);
+    }
+
+    void Containers::FriendRead(coop::Coop& coop, TESObjectREFR* open)
+    {
         std::vector<net::ItemCount> local;
         if (!Read(open, local, m_readMs))
             return;

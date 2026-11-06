@@ -6,6 +6,8 @@
 
 #include <cstdint>
 
+class TESObjectREFR;
+
 namespace game
 {
     class Npcs;
@@ -18,7 +20,9 @@ namespace game
     private:
         void HostApply(coop::Coop& coop);
         void FriendLook(coop::Coop& coop, const Npcs& npcs);
+        void FriendRead(coop::Coop& coop, TESObjectREFR* ref);
         uint32_t m_nextLook = 0;
+        uint32_t m_openRef = 0;
         bool m_waitedForPrompt = false;
         double m_readMs = 0;
         uint32_t m_reads = 0, m_changes = 0, m_refunds = 0, m_fixes = 0, m_nextLog = 0;

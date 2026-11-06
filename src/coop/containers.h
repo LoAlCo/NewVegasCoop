@@ -12,6 +12,18 @@ namespace coop
     std::vector<net::ItemCount> ItemDiff(const std::vector<net::ItemCount>& from,
         const std::vector<net::ItemCount>& to);
 
+    int32_t TotalOf(const std::vector<net::ItemCount>& items, uint32_t item);
+
+    struct ContainerTake
+    {
+        std::vector<net::ItemCount> removes;
+        int32_t taken = 0;
+        int32_t missing = 0;
+    };
+    // A player's copy of a stack can read differently from the host's (its condition, say), so the host takes the
+    // kind they asked for first and then others of the same item. Only what truly isn't there is given back.
+    ContainerTake PlanContainerTake(const std::vector<net::ItemCount>& have, const net::ItemCount& want);
+
     class FriendContainer
     {
     public:
@@ -26,6 +38,7 @@ namespace coop
     private:
         uint32_t m_ref = 0;
         bool m_open = false;
+        bool m_closedSinceLook = false;
         uint32_t m_seq = 0;
         bool m_hasSnapshot = false;
         std::vector<net::ItemCount> m_snapshot;
