@@ -621,16 +621,18 @@ namespace
         return std::string(documents) + "\\My Games\\FalloutNV\\Saves\\";
     }
 
-    std::string OurMatchOf(const std::string& host, const coop::SaveTag& hostTag)
+    // By game ID alone. The host's name can't narrow it down: at the menu it's their Steam name, and in the game it's
+    // their character's, which changes with the save they load.
+    std::string OurMatchOf(const coop::SaveTag& hostTag)
     {
         std::string folder = SavesFolder();
-        std::string prefix = OwnSaveKey(host, "");
         std::vector<coop::SaveOnDisk> ours;
         for (const auto& [key, link] : g_ownSaves)
         {
-            if (key.compare(0, prefix.size(), prefix) != 0)
+            size_t tab = key.find('\t');
+            if (tab == std::string::npos)
                 continue;
-            std::string own = key.substr(prefix.size());
+            std::string own = key.substr(tab + 1);
             WIN32_FILE_ATTRIBUTE_DATA a;
             if (!GetFileAttributesExA((folder + own + ".fos").c_str(), GetFileExInfoStandard, &a) ||
                 (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
@@ -653,7 +655,7 @@ namespace
     void LoadOurMatch()
     {
         const net::ModsMatch& host = g_coop.MatchedHost();
-        std::string ours = OurMatchOf(host.hostName, host.tag);
+        std::string ours = OurMatchOf(host.tag);
         if (ours.empty())
         {
             LOG_INFO("Main menu: no save of ours belongs to the game %s is playing (\"%s\", game %016llx); the player "
@@ -2867,7 +2869,7 @@ namespace
             g_checkingSave.clear();
             g_savedForHost.clear();
             g_reportLoad = true;
-            std::string ours = OurMatchOf(g_coop.NameOf(0), order.tag);
+            std::string ours = OurMatchOf(order.tag);
             if (ours.empty())
             {
                 LOG_INFO("Saves: no save of ours goes with the one the host is loading (\"%s\", game %016llx); keeping "
@@ -3055,7 +3057,7 @@ namespace
     }
 
     // Not in the co-save: xNVSE skips saving co-save data for a plugin on the default opcode base, which we are.
-    void WriteSaveTag(const std::string& file)
+    void WriteSaveTag(const std::string& file, uint64_t written)
     {
         std::string path = SavesFolder() + coop::SaveTagFileName(file);
         FILE* f = nullptr;
@@ -3064,7 +3066,7 @@ namespace
             LOG_WARN("Saves: couldn't write %s; this save won't be known as part of its game", path.c_str());
             return;
         }
-        std::fputs(coop::FormatSaveTagFile(g_thisGame, FileTimeNow()).c_str(), f);
+        std::fputs(coop::FormatSaveTagFile(g_thisGame, written).c_str(), f);
         std::fclose(f);
     }
 
@@ -3073,20 +3075,23 @@ namespace
         std::string folder = SavesFolder();
         coop::SaveTag found;
         WIN32_FILE_ATTRIBUTE_DATA a;
+        bool exists = GetFileAttributesExA((folder + file).c_str(), GetFileExInfoStandard, &a) != 0;
+        uint64_t saveWritten = exists ? (uint64_t(a.ftLastWriteTime.dwHighDateTime) << 32) | a.ftLastWriteTime.dwLowDateTime : 0;
         FILE* f = nullptr;
-        if (GetFileAttributesExA((folder + file).c_str(), GetFileExInfoStandard, &a) &&
-            fopen_s(&f, (folder + coop::SaveTagFileName(file)).c_str(), "r") == 0 && f)
+        if (exists && fopen_s(&f, (folder + coop::SaveTagFileName(file)).c_str(), "r") == 0 && f)
         {
             char text[64];
             size_t size = std::fread(text, 1, sizeof(text), f);
             std::fclose(f);
-            found = coop::SaveTagFromFile(std::string_view(text, size),
-                (uint64_t(a.ftLastWriteTime.dwHighDateTime) << 32) | a.ftLastWriteTime.dwLowDateTime);
+            found = coop::SaveTagFromFile(std::string_view(text, size), saveWritten);
         }
         if (found.game == 0)
         {
             StartNewGameTag();
             LOG_INFO("Saves: this save has no game ID yet; it's now %016llx", static_cast<unsigned long long>(g_thisGame.game));
+            // Kept beside it, so loading this save again is the same game and friends' saves still go with it.
+            if (exists)
+                WriteSaveTag(file, saveWritten);
             return;
         }
         g_thisGame = found;
@@ -3221,7 +3226,7 @@ namespace
                 g_thisGame.game = NewSaveTagId();
             g_thisGame.save = NewSaveTagId();
             g_coop.SetCurrentSaveTag(g_thisGame);
-            WriteSaveTag(file);
+            WriteSaveTag(file, FileTimeNow());
             if (g_coop.GetRole() == coop::Role::Host && g_coop.InGame())
                 g_coop.ShareSave(file, false);
             if (g_coop.GetRole() == coop::Role::Friend && g_coop.InGame())
