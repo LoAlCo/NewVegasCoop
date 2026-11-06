@@ -38,7 +38,7 @@ namespace game
             if (now.open == 0)
                 return false;
             bool open = (want.flags & net::kDoorOpen) != 0, locked = (want.flags & net::kDoorLocked) != 0;
-            if (IsOpen(now.open) != open)
+            if (!now.leadsAway && IsOpen(now.open) != open)
                 SetDoorOpen(ref, open);
             if (now.locked != locked)
                 SetDoorLocked(ref, locked, want.lockLevel);
@@ -107,7 +107,7 @@ namespace game
                 continue;
             coop::LocalDoor d;
             d.state.ref = id;
-            d.state.flags = (IsOpen(info.open) ? net::kDoorOpen : 0) | (info.locked ? net::kDoorLocked : 0);
+            d.state.flags = coop::SharedDoorFlags(IsOpen(info.open), info.leadsAway, info.locked);
             d.state.lockLevel = static_cast<uint8_t>(info.lockLevel);
             float dx = ref->posX - player->posX, dy = ref->posY - player->posY, dz = ref->posZ - player->posZ;
             d.nearMe = dx * dx + dy * dy + dz * dz < kMyReach * kMyReach;
