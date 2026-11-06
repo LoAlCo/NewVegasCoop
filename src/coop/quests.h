@@ -15,6 +15,28 @@ namespace coop
     constexpr uint8_t kQuestShown = 0x20;
     constexpr uint8_t kQuestFailed = 0x40;
 
+    struct DetachedSlot
+    {
+        void** slot;
+        void* script;
+    };
+
+    // Runs f with every detached script back in its slot, and takes back out only the ones this put there.
+    template <typename F> auto WithDetachedPutBack(const std::vector<DetachedSlot>& detached, F f)
+    {
+        std::vector<void**> putBack;
+        for (const DetachedSlot& d : detached)
+            if (!*d.slot)
+            {
+                *d.slot = d.script;
+                putBack.push_back(d.slot);
+            }
+        auto result = f();
+        for (void** slot : putBack)
+            *slot = nullptr;
+        return result;
+    }
+
     struct QuestNews
     {
         bool added = false;

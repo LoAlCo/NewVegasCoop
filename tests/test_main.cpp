@@ -3985,6 +3985,19 @@ TEST(the_conversations_preview_shows_as_many_lines_as_the_log_would)
         CHECK(!slotUsed[line.id % coop::TalkLog::kMostLines]);
         slotUsed[line.id % coop::TalkLog::kMostLines] = true;
     }
+
+TEST(detached_quest_scripts_are_back_only_for_the_call)
+{
+    int a, b, other;
+    void* first = nullptr;
+    void* second = nullptr;
+    void* taken = &other;
+    const std::vector<coop::DetachedSlot> detached{{&first, &a}, {&second, &b}, {&taken, &a}};
+    bool seen = coop::WithDetachedPutBack(detached, [&] { return first == &a && second == &b && taken == &other; });
+    CHECK(seen);
+    CHECK(first == nullptr && second == nullptr);
+    CHECK(taken == &other);
+    CHECK(coop::WithDetachedPutBack(std::vector<coop::DetachedSlot>{}, [] { return 7; }) == 7);
 }
 
 TEST(only_the_games_own_quests_are_the_hosts_to_run)
