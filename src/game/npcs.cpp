@@ -621,7 +621,7 @@ namespace game
             {
                 if (m_revive.Drop(ref) && isActor)
                 {
-                    SetEnabled(actor, true);
+                    SwitchBody(actor, true);
                     LOG_INFO("NPCs: %s (%08X) was on its way back, but the host no longer has it alive; switched it "
                         "back on as it was", Name(actor), ref);
                 }
@@ -654,8 +654,9 @@ namespace game
             LOG_INFO("NPCs: %s (%08X) is alive again; switching it back on (try %u)", Name(actor), ref, step.tries);
             break;
         case Steps::News::BodyStayed:
-            LOG_WARN("NPCs: %s (%08X): its body wouldn't unload, so it wasn't brought back; left as it was, trying "
-                "again later (try %u of %u)", Name(actor), ref, step.tries, coop::kMaxReviveTries);
+            LOG_WARN("NPCs: %s (%08X): its body wouldn't unload (%s), so it wasn't brought back; left as it was, trying "
+                "again later (try %u of %u)", Name(actor), ref, IsEnabled(actor) ? "it never switched off" :
+                "switched off, 3D still there", step.tries, coop::kMaxReviveTries);
             break;
         case Steps::News::StillDead:
             LOG_WARN("NPCs: %s (%08X) stayed dead after being brought back; trying again later (try %u of %u)",
@@ -671,7 +672,7 @@ namespace game
         case Steps::Do::Nothing:
             break;
         case Steps::Do::SwitchOff:
-            SetEnabled(actor, false);
+            SwitchBody(actor, false);
             break;
         case Steps::Do::Resurrect:
             if (Resurrect(actor))
@@ -679,7 +680,7 @@ namespace game
                     entry->second.hostHealth = -1;
             break;
         case Steps::Do::SwitchOn:
-            SetEnabled(actor, true);
+            SwitchBody(actor, true);
             break;
         }
     }
@@ -823,7 +824,7 @@ namespace game
         for (uint32_t ref : m_revive.TakeSwitchedOff())
             if (TESObjectREFR* actor = Find(ref); actor && IsActor(actor))
             {
-                SetEnabled(actor, true);
+                SwitchBody(actor, true);
                 LOG_DEBUG("NPCs: co-op's over with %08X on its way back; switched it back on as it was", ref);
             }
         while (!m_made.empty())

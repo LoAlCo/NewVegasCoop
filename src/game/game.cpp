@@ -2905,6 +2905,18 @@ namespace game
             g_scripts->CallFunctionAlt(g_forceStopIdle, ref, 0);
     }
 
+    // The Enable and Disable commands refuse a ref with an enable parent, as many scripted NPCs have. This fills the
+    // same queues they do, which the game empties once a frame, without that check. Only for a short switch off and on.
+    void SwitchBody(TESObjectREFR* ref, bool on)
+    {
+        if (!ref)
+            return;
+        if (on)
+            reinterpret_cast<void(__cdecl*)(TESObjectREFR*)>(addr::kQueueEnable)(ref);
+        else
+            reinterpret_cast<void(__cdecl*)(TESObjectREFR*, bool)>(addr::kQueueDisable)(ref, false);
+    }
+
     bool Resurrect(TESObjectREFR* ref)
     {
         if (!g_compiled || !g_resurrect || !ref)

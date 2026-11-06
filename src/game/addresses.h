@@ -96,6 +96,8 @@ namespace game::addr
     constexpr uintptr_t kLoadFaceGenEgt = 0x011D5AE0;
     constexpr uintptr_t kSetTimeMultiplier = 0x00AA4DB0;
     constexpr uintptr_t kInMenuMode = 0x00702360;
+    constexpr uintptr_t kQueueDisable = 0x005AA500;
+    constexpr uintptr_t kQueueEnable = 0x005AA580;
     constexpr uintptr_t kPauseMenuUp = 0x004A4040;
     constexpr uintptr_t kMenuModeCalls[] = {0x0086E79E, 0x0086EEAF, 0x008898BD, 0x0086A4A1, 0x0086A4DE, 0x0063E0F8,
         0x00837D05, 0x008387C5, 0x0089C6CA, 0x0089C74A, 0x0089CEBA, 0x0089CF56, 0x008A7EA9, 0x008D1AA1};

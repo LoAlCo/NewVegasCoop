@@ -175,6 +175,7 @@ namespace game
     int CountShots(TESObjectREFR* ref, GunState& state);
     void StopIdle(TESObjectREFR* ref);
     bool Resurrect(TESObjectREFR* ref);
+    void SwitchBody(TESObjectREFR* ref, bool on);
     void NoteMadeCharacters(const std::vector<uint32_t>& refIds);
     bool RunConsoleLine(const char* line, TESObjectREFR* on = nullptr);
     std::string Evaluate(const char* expression);
