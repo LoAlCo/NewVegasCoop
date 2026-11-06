@@ -380,6 +380,8 @@ namespace game
     void ItemsNear(std::vector<TESObjectREFR*>& out, float range);
     void MovablesNear(std::vector<TESObjectREFR*>& out, float range);
     bool Get3DPosition(TESObjectREFR* ref, float& x, float& y, float& z);
+    bool BodyPosition(TESObjectREFR* actor, float& x, float& y, float& z);
+    void MoveBody(TESObjectREFR* actor, float dx, float dy, float dz, bool reload3D);
     struct WorldItem
     {
         uint32_t base = 0;

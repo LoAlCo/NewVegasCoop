@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "coop/body_place.h"
 #include "coop/coop.h"
 #include "coop/shot_counter.h"
 #include "game/game.h"
@@ -56,6 +57,7 @@ namespace game
         TESObjectREFR* Make(uint32_t ref, const coop::RemoteNpc& npc, const coop::Pose& pose, uint32_t now);
         void Unmake(uint32_t ref);
         void Release(uint32_t ref);
+        void PlaceBody(uint32_t ref, TESObjectREFR* actor, const coop::RemoteNpc& npc, const coop::Pose& host, uint32_t now);
         void LogStats(uint32_t now, size_t shared);
         uint32_t m_nextDesyncCheck = 0, m_nextDesyncLog = 0, m_desyncLooks = 0, m_desyncSeen = 0;
 
@@ -74,7 +76,19 @@ namespace game
             uint32_t nextLimbCheck = 0;
             uint32_t diedAt = 0;
             uint8_t pile = 0;
+            uint32_t nextBodyLook = 0;
+            float bodyX = 0, bodyY = 0, bodyZ = 0;
         };
+        struct Body
+        {
+            coop::BodyPlacer placer;
+            uint32_t nextLook = 0;
+            uint32_t judgeAt = 0;
+            float offBefore = 0;
+            bool saidGaveUp = false;
+        };
+        std::map<uint32_t, Body> m_bodies;
+        uint32_t m_bodiesMoved = 0;
         struct Made
         {
             uint32_t localId = 0;

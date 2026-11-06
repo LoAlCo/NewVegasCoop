@@ -96,6 +96,7 @@ namespace game
         Script* g_combatTarget = nullptr;
         Script* g_forceTarget = nullptr;
         Script* g_update3D = nullptr;
+        Script* g_moveBody = nullptr;
         Script* g_isLocked = nullptr;
         Script* g_pileKind = nullptr;
         Script* g_makePile = nullptr;
@@ -1136,6 +1137,14 @@ namespace game
             "Begin Function {iWhich}\n"
             "  set fFov to GetPlayerCamFOV iWhich\n"
             "  SetFunctionValue fFov\n"
+            "End\n");
+        g_moveBody = Compile("move body",
+            "ref rSelf\n"
+            "float fX\n"
+            "float fY\n"
+            "float fZ\n"
+            "Begin Function {rSelf, fX, fY, fZ}\n"
+            "  MoveTo rSelf fX fY fZ\n"
             "End\n");
         g_update3D = Compile("update 3D",
             "Begin Function {}\n"
@@ -3492,6 +3501,56 @@ namespace game
         y = p[1];
         z = p[2];
         return true;
+    }
+
+    namespace
+    {
+        const char* FindNode(const char* node, const char* name, int depth)
+        {
+            using AsNode = void*(__thiscall*)(const void*);
+            auto vtable = *reinterpret_cast<AsNode* const*>(node);
+            if (!vtable[3](node))
+                return nullptr;
+            char* const* children = At<char* const*>(node, layout::kNiNodeChildren);
+            uint16_t slots = At<uint16_t>(node, layout::kNiNodeChildSlots);
+            for (uint16_t i = 0; children && i < slots && i < 128; ++i)
+            {
+                const char* child = children[i];
+                if (!child)
+                    continue;
+                const char* childName = At<const char*>(child, layout::kNiName);
+                if (childName && _stricmp(childName, name) == 0)
+                    return child;
+                if (depth > 0)
+                    if (const char* found = FindNode(child, name, depth - 1))
+                        return found;
+            }
+            return nullptr;
+        }
+    }
+
+    bool BodyPosition(TESObjectREFR* actor, float& x, float& y, float& z)
+    {
+        const char* root = actor ? reinterpret_cast<const char*>(actor->GetNiNode()) : nullptr;
+        if (!root)
+            return false;
+        const char* bone = FindNode(root, "Bip01 Pelvis", 6);
+        if (!bone)
+            bone = FindNode(root, "Bip01", 6);
+        const auto* p = reinterpret_cast<const float*>((bone ? bone : root) + layout::kNodeWorldTranslate);
+        x = p[0];
+        y = p[1];
+        z = p[2];
+        return true;
+    }
+
+    void MoveBody(TESObjectREFR* actor, float dx, float dy, float dz, bool reload3D)
+    {
+        if (!g_moveBody || !actor)
+            return;
+        g_scripts->CallFunctionAlt(g_moveBody, actor, 4, actor, FloatArg(dx), FloatArg(dy), FloatArg(dz));
+        if (reload3D && g_update3D)
+            g_scripts->CallFunctionAlt(g_update3D, actor, 0);
     }
 
     void DoorsNear(std::vector<TESObjectREFR*>& out, float range)
