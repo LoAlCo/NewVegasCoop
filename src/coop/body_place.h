@@ -18,7 +18,7 @@ namespace coop
     constexpr uint32_t kMaxBodyMoves = 3;
 
     // A body someone moves after it came to rest (dragged, shoved, blown up) is followed: the host shares it a few
-    // times a second, and a visitor steers its copy's pelvis at a point a little in the past, always between two
+    // times a second, and a visitor steers its copy's torso at a point a little in the past, always between two
     // updates. Its own physics keeps running, so the limbs trail and it stays out of walls.
     constexpr uint32_t kBodyShareEveryMs = 200;
     constexpr uint32_t kBodyBlendMs = 250;

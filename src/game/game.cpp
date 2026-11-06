@@ -3531,17 +3531,6 @@ namespace game
 
     namespace
     {
-        const char* BodyBone(TESObjectREFR* actor)
-        {
-            const char* root = actor ? reinterpret_cast<const char*>(actor->GetNiNode()) : nullptr;
-            if (!root)
-                return nullptr;
-            const char* bone = FindNode(root, "Bip01 Pelvis", 6);
-            if (!bone)
-                bone = FindNode(root, "Bip01", 6);
-            return bone ? bone : root;
-        }
-
         bool IsRigidBody(const char* worldObject)
         {
             using GetRtti = const char*(__thiscall*)(const void*);
@@ -3587,10 +3576,13 @@ namespace game
             return nullptr;
         }
 
-        // The physics body that moves the pelvis sits one bone up from it in the game's skeletons, on Bip01 NonAccum.
+        // A body is shared, compared and steered at one bone, so both games talk about the same point: the middle of
+        // the torso, with a physics body on it and on both sides of it. Not every skeleton has it (radscorpions,
+        // robots), so go on to whatever else is near the middle, and at last to the first bone with a physics body.
         const char* BoneWithBody(const char* root)
         {
-            for (const char* name : {"Bip01 NonAccum", "Bip01 Pelvis", "Bip01"})
+            for (const char* name : {"Bip01 Spine1", "Bip01 Spine2", "Bip01 Spine", "Bip01 NonAccum", "Bip01 Pelvis",
+                     "Bip01"})
                 if (const char* bone = FindNode(root, name, 6); bone && At<const char*>(bone, layout::kNiCollisionObject))
                     return bone;
             return FirstWithCollision(root, 8);
@@ -3639,9 +3631,12 @@ namespace game
 
     bool BodyPosition(TESObjectREFR* actor, float& x, float& y, float& z)
     {
-        const char* bone = BodyBone(actor);
-        if (!bone)
+        const char* root = actor ? reinterpret_cast<const char*>(actor->GetNiNode()) : nullptr;
+        if (!root)
             return false;
+        const char* bone = BoneWithBody(root);
+        if (!bone)
+            bone = root;
         const auto* p = reinterpret_cast<const float*>(bone + layout::kNodeWorldTranslate);
         x = p[0];
         y = p[1];
