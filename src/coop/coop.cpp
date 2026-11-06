@@ -762,6 +762,24 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::BodyLimbs)
+        {
+            BodyLimbs m;
+            if (!Decode(r, m) || !WithinLimit(player.itemMovesSince, player.itemMoves, kMaxItemMovesPerSecond))
+                return;
+            auto body = std::find_if(m_myNpcs.begin(), m_myNpcs.end(),
+                [&](const NpcState& n) { return n.ref == m.ref; });
+            if (body == m_myNpcs.end() || !(body->flags & kNpcDead))
+                return;
+            auto same = std::find_if(m_bodyLimbs.begin(), m_bodyLimbs.end(),
+                [&](const BodyLimbs& b) { return b.ref == m.ref; });
+            if (same != m_bodyLimbs.end())
+                same->limbs |= m.limbs;
+            else if (m_bodyLimbs.size() < kMaxQueuedItemMoves)
+                m_bodyLimbs.push_back(m);
+            return;
+        }
+
         if (type == MsgType::BodyMove)
         {
             BodyMove m;
@@ -2582,6 +2600,12 @@ namespace coop
     {
         if (m_role == Role::Friend && InGame())
             m_net->Send(1, Encode(m), false);
+    }
+
+    void Coop::ReportBodyLimbs(const BodyLimbs& m)
+    {
+        if (m_role == Role::Friend && InGame())
+            m_net->Send(1, Encode(m), true);
     }
 
     void Coop::SetNpcs(uint32_t space, std::vector<NpcState> npcs)

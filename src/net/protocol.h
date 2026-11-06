@@ -99,6 +99,7 @@ namespace net
         HealRefused = 78,
         QuestCommand = 79,
         BodyMove = 83,
+        BodyLimbs = 84,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -474,6 +475,14 @@ namespace net
         float x = 0, y = 0, z = 0;
     };
     Bytes Encode(const BodyMove& m);
+    // Limbs a body lost in a visitor's game, for the host to take off theirs too.
+    struct BodyLimbs
+    {
+        uint32_t ref = 0;
+        uint16_t limbs = 0;
+    };
+    Bytes Encode(const BodyLimbs& m);
+    bool Decode(Reader& r, BodyLimbs& m);
     bool Decode(Reader& r, BodyMove& m);
 
     struct ItemMoves
