@@ -4204,6 +4204,7 @@ TEST(the_conversations_preview_shows_as_many_lines_as_the_log_would)
         CHECK(!slotUsed[line.id % coop::TalkLog::kMostLines]);
         slotUsed[line.id % coop::TalkLog::kMostLines] = true;
     }
+}
 
 TEST(detached_quest_scripts_are_back_only_for_the_call)
 {
