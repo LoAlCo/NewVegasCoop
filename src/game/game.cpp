@@ -3555,17 +3555,82 @@ namespace game
         }
     }
 
-    bool PullBody(TESObjectREFR* actor, float vx, float vy, float vz)
+    namespace
+    {
+        const char* NodeName(const char* node)
+        {
+            const char* name = At<const char*>(node, layout::kNiName);
+            return name ? name : "(no name)";
+        }
+
+        const char* TypeName(const char* object)
+        {
+            using GetRtti = const char*(__thiscall*)(const void*);
+            const char* rtti = (*reinterpret_cast<GetRtti* const*>(object))[2](object);
+            const char* name = rtti ? At<const char*>(rtti, 0) : nullptr;
+            return name ? name : "(no type)";
+        }
+
+        const char* FirstWithCollision(const char* node, int depth)
+        {
+            using AsNode = void*(__thiscall*)(const void*);
+            if (At<const char*>(node, layout::kNiCollisionObject))
+                return node;
+            if (depth <= 0 || !(*reinterpret_cast<AsNode* const*>(node))[3](node))
+                return nullptr;
+            char* const* children = At<char* const*>(node, layout::kNiNodeChildren);
+            uint16_t slots = At<uint16_t>(node, layout::kNiNodeChildSlots);
+            for (uint16_t i = 0; children && i < slots && i < 128; ++i)
+                if (children[i])
+                    if (const char* found = FirstWithCollision(children[i], depth - 1))
+                        return found;
+            return nullptr;
+        }
+
+        // The physics body that moves the pelvis sits one bone up from it in the game's skeletons, on Bip01 NonAccum.
+        const char* BoneWithBody(const char* root)
+        {
+            for (const char* name : {"Bip01 NonAccum", "Bip01 Pelvis", "Bip01"})
+                if (const char* bone = FindNode(root, name, 6); bone && At<const char*>(bone, layout::kNiCollisionObject))
+                    return bone;
+            return FirstWithCollision(root, 8);
+        }
+    }
+
+    bool PullBody(TESObjectREFR* actor, float vx, float vy, float vz, std::string& detail)
     {
         constexpr float kGameUnitsPerHavok = 7;
-        const char* bone = BodyBone(actor);
-        const char* collision = bone ? At<const char*>(bone, layout::kNiCollisionObject) : nullptr;
-        const char* worldObject = collision ? At<const char*>(collision, layout::kCollisionWorldObject) : nullptr;
-        if (!worldObject || !IsRigidBody(worldObject))
+        const char* root = actor ? reinterpret_cast<const char*>(actor->GetNiNode()) : nullptr;
+        if (!root)
+        {
+            detail = "it has no 3D";
             return false;
+        }
+        const char* bone = BoneWithBody(root);
+        if (!bone)
+        {
+            detail = std::string("no bone under ") + NodeName(root) + " (a " + TypeName(root) + ") has a collision object";
+            return false;
+        }
+        detail = NodeName(bone);
+        const char* collision = At<const char*>(bone, layout::kNiCollisionObject);
+        const char* worldObject = At<const char*>(collision, layout::kCollisionWorldObject);
+        if (!worldObject)
+        {
+            detail += std::string(": its ") + TypeName(collision) + " has no world object";
+            return false;
+        }
+        if (!IsRigidBody(worldObject))
+        {
+            detail += std::string(": its ") + TypeName(collision) + " holds a " + TypeName(worldObject) + ", not a rigid body";
+            return false;
+        }
         void* body = At<void*>(worldObject, layout::kWorldObjectHavok);
         if (!body)
+        {
+            detail += std::string(": its ") + TypeName(worldObject) + " has no Havok body";
             return false;
+        }
         alignas(16) float speed[4] = {vx / kGameUnitsPerHavok, vy / kGameUnitsPerHavok, vz / kGameUnitsPerHavok, 0};
         using SetVelocity = void(__thiscall*)(void*, const float*);
         reinterpret_cast<SetVelocity>(addr::kRigidBodySetLinearVelocity)(body, speed);

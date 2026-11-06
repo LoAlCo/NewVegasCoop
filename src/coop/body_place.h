@@ -23,6 +23,7 @@ namespace coop
     constexpr uint32_t kBodyShareEveryMs = 200;
     constexpr uint32_t kBodyBlendMs = 250;
     constexpr uint32_t kBodyFollowEndMs = 1000;
+    constexpr uint32_t kBodyLookGapMs = 1000;
     constexpr float kBodyChaseSeconds = 0.2f;
     constexpr float kBodyMaxSpeed = 600;
     constexpr float kBodyCloseEnough = 8;
@@ -61,10 +62,20 @@ namespace coop
             if (!m_started)
             {
                 m_started = true;
+                m_lastLook = now;
                 m_rest = host;
                 m_restSince = now;
                 return false;
             }
+            if (now - m_lastLook >= kBodyLookGapMs)
+            {
+                // We weren't looking (a menu, it was out of reach): whatever it did meanwhile isn't a drag we can
+                // show, so it has to come to rest again first.
+                m_rested = m_following = false;
+                m_rest = host;
+                m_restSince = now;
+            }
+            m_lastLook = now;
             if (host.DistanceTo(m_rest) > kBodyStillRange)
             {
                 m_rest = host;
@@ -81,7 +92,7 @@ namespace coop
     private:
         bool m_started = false, m_rested = false, m_following = false;
         BodySpot m_rest;
-        uint32_t m_restSince = 0;
+        uint32_t m_restSince = 0, m_lastLook = 0;
     };
 
     class BodyPlacer

@@ -5135,3 +5135,25 @@ TEST(a_pulled_body_closes_in_without_overshooting)
     }
     CHECK(target.DistanceTo(ours) <= coop::kBodyCloseEnough);
 }
+
+TEST(a_body_that_moved_while_we_werent_looking_is_not_followed)
+{
+    coop::BodyFollower f;
+    coop::BodySpot host{0, 0, 0};
+    uint32_t t = 1000;
+    for (; t < 1000 + coop::kBodySettleMs + 100; t += 100)
+        CHECK(!f.Look(t, host));
+    // A save loaded, or a menu was up: it's somewhere else when we look again.
+    t += coop::kBodyLookGapMs;
+    host.x = 5000;
+    CHECK(!f.Look(t, host));
+    for (int i = 0; i < 5; ++i)
+        CHECK(!f.Look(t += 100, host));
+    // It has to rest again before a move counts as a drag.
+    host.x += 100;
+    CHECK(!f.Look(t += 100, host));
+    for (uint32_t end = t + coop::kBodySettleMs + 100; t < end; t += 100)
+        CHECK(!f.Look(t, host));
+    host.x += 100;
+    CHECK(f.Look(t, host));
+}

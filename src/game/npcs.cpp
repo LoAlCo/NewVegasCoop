@@ -635,7 +635,7 @@ namespace game
 
     void Npcs::FollowBody(uint32_t ref, TESObjectREFR* actor, const coop::RemoteNpc& npc, Body& b, uint32_t now)
     {
-        if (!s_smoothBodies || b.cantPull)
+        if (!s_smoothBodies)
             return;
         LARGE_INTEGER start;
         QueryPerformanceCounter(&start);
@@ -660,7 +660,8 @@ namespace game
                     b.followFrames ? b.followOffSum / b.followFrames : 0, b.followOffMost,
                     b.followFrames ? b.followMs / b.followFrames : 0.0);
         }
-        if (!following || m_bodiesPulled >= coop::kMaxBodiesFollowed || InMenu() || !GetPose(actor, at) ||
+        if (!following || !coop::IsDue(now, b.nextPullTry) || m_bodiesPulled >= coop::kMaxBodiesFollowed || InMenu() ||
+            !GetPose(actor, at) ||
             at.space != blended.space || !BodyPosition(actor, ours.x, ours.y, ours.z) ||
             GrabbedItem() == RefId(actor))
             return;
@@ -670,11 +671,24 @@ namespace game
         b.followOffSum += off;
         b.followOffMost = (std::max)(b.followOffMost, off);
         coop::BodySpot speed;
-        if (coop::BodyPull(target, ours, speed) && !PullBody(actor, speed.x, speed.y, speed.z))
+        if (coop::BodyPull(target, ours, speed))
         {
-            b.cantPull = true;
-            LOG_INFO("NPCs: can't steer the body of %s (%08X): no physics body on its pelvis; it moves when it stops "
-                "instead", Name(actor), ref);
+            std::string detail;
+            if (PullBody(actor, speed.x, speed.y, speed.z, detail))
+            {
+                if (!b.saidPull)
+                    LOG_INFO("NPCs: steering the body of %s (%08X) by its %s", Name(actor), ref, detail.c_str());
+                b.saidPull = true;
+                b.nextPullTry = 0;
+            }
+            else
+            {
+                if (!b.saidNoPull)
+                    LOG_INFO("NPCs: can't steer the body of %s (%08X): %s; it moves when it stops instead", Name(actor),
+                        ref, detail.c_str());
+                b.saidNoPull = true;
+                b.nextPullTry = now + 5000;
+            }
         }
         b.followMs += MsSince(start);
     }
