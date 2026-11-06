@@ -3256,6 +3256,7 @@ namespace
             }
             g_loadingSave = false;
             game::ReportForgottenCopies();
+            g_companions.ForgetPackages();
             OnWorldLoaded();
             break;
         case NVSEMessagingInterface::kMessage_NewGame:
