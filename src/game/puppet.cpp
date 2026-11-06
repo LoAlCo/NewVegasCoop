@@ -155,8 +155,10 @@ namespace game
         m_jumping = jumping;
         if (uint32_t overdue = m_shotPaths.TakeOverdue(now))
         {
-            FireShots(actor, m_worn, overdue);
-            LOG_DEBUG("%s: no path came for %u shots, so fired them from its own aim", m_who.c_str(), overdue);
+            if (StanceFlags(actor) & coop::Pose::kWeaponOut)
+                FireShots(actor, m_worn, overdue);
+            LOG_DEBUG("%s: no path came for %u shots, so fired them from its own aim if its weapon was out", m_who.c_str(),
+                overdue);
         }
         UpdateWeaponOut(actor, (doing.flags & coop::Pose::kWeaponOut) != 0, now);
         if (std::fabs(AngleDiff(at.heading, want.heading)) > kTurnAtLeast)
