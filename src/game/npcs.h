@@ -81,7 +81,7 @@ namespace game
             uint32_t diedAt = 0;
             uint8_t pile = 0;
             uint32_t nextBodyLook = 0;
-            float bodyX = 0, bodyY = 0, bodyZ = 0;
+            float bodyX = 0, bodyY = 0, bodyZ = 0, bodyHeading = 0;
         };
         struct Body
         {

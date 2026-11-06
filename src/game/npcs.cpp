@@ -155,10 +155,10 @@ namespace game
                 if (coop::IsDue(now, w.nextBodyLook))
                 {
                     w.nextBodyLook = now + coop::kBodyShareEveryMs;
-                    w.bodyX = at.x, w.bodyY = at.y, w.bodyZ = at.z;
+                    w.bodyX = at.x, w.bodyY = at.y, w.bodyZ = at.z, w.bodyHeading = at.heading;
                     BodyPosition(actor, w.bodyX, w.bodyY, w.bodyZ);
                 }
-                at.x = w.bodyX, at.y = w.bodyY, at.z = w.bodyZ;
+                at.x = w.bodyX, at.y = w.bodyY, at.z = w.bodyZ, at.heading = w.bodyHeading;
             }
             else
                 w.nextBodyLook = 0;
