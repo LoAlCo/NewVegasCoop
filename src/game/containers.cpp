@@ -29,14 +29,6 @@ namespace game
             ms += 1000.0 * (end.QuadPart - start.QuadPart) / freq.QuadPart;
             return ok;
         }
-
-        int32_t CountOf(const std::vector<net::ItemCount>& items, const net::ItemCount& kind)
-        {
-            for (const net::ItemCount& i : items)
-                if (i.SameKind(kind))
-                    return i.count;
-            return 0;
-        }
     }
 
     void Containers::Update(coop::Coop& coop, uint32_t now, const Npcs& npcs)
@@ -154,18 +146,26 @@ namespace game
                 refund.count = want.count;
             else if (want.count < 0)
             {
-                int32_t have = 0;
+                coop::ContainerTake plan;
                 std::vector<net::ItemCount> items;
                 if (ok && Read(ref, items, m_readMs))
-                    have = CountOf(items, want);
-                int32_t take = -want.count < have ? -want.count : have;
-                if (take > 0)
+                    plan = coop::PlanContainerTake(items, want);
+                else
+                    plan.missing = -want.count;
+                for (const net::ItemCount& remove : plan.removes)
+                    ChangeItem(ref, remove);
+                std::vector<net::ItemCount> after;
+                if (plan.taken > 0 && Read(ref, after, m_readMs))
                 {
-                    net::ItemCount taken = want;
-                    taken.count = -take;
-                    ChangeItem(ref, taken);
+                    int32_t stuck = coop::TotalOf(after, want.item) - (coop::TotalOf(items, want.item) - plan.taken);
+                    if (stuck > 0)
+                    {
+                        LOG_WARN("Containers: %d of %08X stayed in %08X when taken by kind; taking them by item",
+                            stuck, want.item, c.change.ref);
+                        ChangeItem(ref, want.item, -stuck);
+                    }
                 }
-                refund.count = -(-want.count - take);
+                refund.count = -plan.missing;
             }
             else if (ok)
                 ChangeItem(ref, want);

@@ -22,6 +22,39 @@ namespace coop
         return out;
     }
 
+    int32_t TotalOf(const std::vector<net::ItemCount>& items, uint32_t item)
+    {
+        int64_t total = 0;
+        for (const net::ItemCount& i : items)
+            if (i.item == item)
+                total += i.count;
+        return static_cast<int32_t>(total);
+    }
+
+    ContainerTake PlanContainerTake(const std::vector<net::ItemCount>& have, const net::ItemCount& want)
+    {
+        ContainerTake plan;
+        int32_t left = want.count < 0 ? -want.count : 0;
+        auto take = [&](const net::ItemCount& stack) {
+            int32_t n = stack.count < left ? stack.count : left;
+            if (n <= 0)
+                return;
+            net::ItemCount remove = stack;
+            remove.count = -n;
+            plan.removes.push_back(remove);
+            plan.taken += n;
+            left -= n;
+        };
+        for (const net::ItemCount& i : have)
+            if (i.SameKind(want))
+                take(i);
+        for (const net::ItemCount& i : have)
+            if (i.item == want.item && !i.SameKind(want))
+                take(i);
+        plan.missing = left;
+        return plan;
+    }
+
     bool FriendContainer::View(uint32_t ref, bool open)
     {
         m_open = ref && open;

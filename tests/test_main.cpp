@@ -2193,6 +2193,89 @@ TEST(rounds_given_with_harmless_guns_are_taken_back_but_not_its_own)
     CHECK(many.size() == coop::GivenRounds::kMaxKinds && many[0].second == INT32_MAX);
 }
 
+TEST(host_plans_a_take_from_what_the_container_really_has)
+{
+    const uint32_t gun = 0x15169, ammo = 0x103B1B;
+    const std::vector<ItemCount> body{{ammo, 10}, {gun, 1, 40, 0}, {gun, 2, 80, 0}};
+
+    auto exact = coop::PlanContainerTake(body, {gun, -1, 80, 0});
+    CHECK((exact.taken == 1 && exact.missing == 0 && exact.removes == (std::vector<ItemCount>{{gun, -1, 80, 0}})));
+
+    auto partial = coop::PlanContainerTake(body, {ammo, -25});
+    CHECK((partial.taken == 10 && partial.missing == 15 && partial.removes == (std::vector<ItemCount>{{ammo, -10}})));
+
+    // Their copy read a different condition: the body still loses one, and nobody is told it was gone.
+    auto otherKind = coop::PlanContainerTake(body, {gun, -1, 41, 0});
+    CHECK((otherKind.taken == 1 && otherKind.missing == 0 &&
+        otherKind.removes == (std::vector<ItemCount>{{gun, -1, 40, 0}})));
+
+    auto spills = coop::PlanContainerTake(body, {gun, -3, 80, 0});
+    CHECK((spills.taken == 3 && spills.missing == 0 &&
+        spills.removes == (std::vector<ItemCount>{{gun, -2, 80, 0}, {gun, -1, 40, 0}})));
+
+    auto none = coop::PlanContainerTake(body, {0x999, -2});
+    CHECK(none.taken == 0 && none.missing == 2 && none.removes.empty());
+
+    // Two players taking the same thing: the second finds it gone and gets the refund.
+    std::vector<ItemCount> left{{gun, 1, 80, 0}};
+    auto first = coop::PlanContainerTake(left, {gun, -1, 80, 0});
+    CHECK(first.taken == 1 && first.missing == 0);
+    left.clear();
+    auto second = coop::PlanContainerTake(left, {gun, -1, 80, 0});
+    CHECK(second.taken == 0 && second.missing == 1);
+
+    CHECK(coop::TotalOf(body, gun) == 3 && coop::TotalOf(body, ammo) == 10 && coop::TotalOf(body, 0x999) == 0);
+}
+
+TEST(take_all_reaches_the_host_and_the_body_stays_empty)
+{
+    coop::Coop host, buddy;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(buddy.Join("127.0.0.1", kTestPort, "Buddy"));
+    CHECK((RunUntil({&host, &buddy}, [&] { return buddy.GetFriendState() == coop::FriendState::Joined; })));
+
+    const uint32_t body = 0x1062A9;
+    const std::vector<ItemCount> hostHas{{0x15169, 3}};
+    auto nothingPutBack = [&] {
+        RunUntil({&host, &buddy}, [&] { CHECK(buddy.LookAtContainer({}).empty()); return false; }, 150);
+    };
+    buddy.ViewContainer(body, false);
+    CHECK((RunUntil({&host, &buddy}, [&] { return host.ViewedContainers() == std::vector<uint32_t>{body}; })));
+    host.SetContainerContents(body, hostHas);
+    RunUntil({&host, &buddy}, [&] { CHECK(buddy.LookAtContainer(hostHas).empty()); return false; }, 100);
+    buddy.ViewContainer(body, true);
+    buddy.LookAtContainer(hostHas);
+
+    // Take All shuts the menu in the same click: the last look is the one made as it shuts.
+    buddy.ClosedContainer({});
+    std::vector<coop::Coop::ItemChangeFrom> asked;
+    CHECK((RunUntil({&host, &buddy}, [&] {
+        for (auto& c : host.TakeContainerChanges())
+            asked.push_back(c);
+        return !asked.empty();
+    })));
+    CHECK((asked.size() == 1 && asked[0].change.ref == body && asked[0].change.change == ItemCount{0x15169, -3}));
+    if (asked.empty())
+    {
+        buddy.Stop();
+        host.Stop();
+        return;
+    }
+    host.ContainerChangeDone(asked[0].playerId, asked[0].change.seq, {0x15169, 0});
+    host.SetContainerContents(body, {});
+    nothingPutBack();
+
+    buddy.ViewContainer(0);
+    CHECK((RunUntil({&host, &buddy}, [&] { return host.ViewedContainers().empty(); })));
+    buddy.ViewContainer(body, false);
+    CHECK((RunUntil({&host, &buddy}, [&] { return host.ViewedContainers() == std::vector<uint32_t>{body}; })));
+    host.SetContainerContents(body, {});
+    nothingPutBack();
+    CHECK(buddy.TakeItemRefunds().empty());
+    buddy.Stop();
+    host.Stop();
+}
+
 TEST(container_changes_reach_the_host_and_contents_reach_the_friend)
 {
     coop::Coop host, buddy;
