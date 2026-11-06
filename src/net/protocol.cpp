@@ -1252,12 +1252,14 @@ namespace net
         Writer w(MsgType::SaveOrder);
         w.U8(m.load ? 1 : 0);
         w.String(m.name, kMaxSaveOrderName);
+        w.Block(&m.tag, sizeof(m.tag));
         return w.Take();
     }
 
     bool Decode(Reader& r, SaveOrder& m)
     {
-        return Flag(r, m.load) && r.String(m.name, kMaxSaveOrderName) && !m.name.empty() && r.AtEnd();
+        return Flag(r, m.load) && r.String(m.name, kMaxSaveOrderName) && !m.name.empty() && r.Block(&m.tag, sizeof(m.tag)) &&
+            r.AtEnd();
     }
 
     Bytes Encode(const CompanionStates& m)
@@ -1566,13 +1568,14 @@ namespace net
         Writer w(MsgType::ModsMatch);
         w.String(m.hostName, kMaxNameLength);
         w.String(m.save, kMaxSaveOrderName);
+        w.Block(&m.tag, sizeof(m.tag));
         return w.Take();
     }
 
     bool Decode(Reader& r, ModsMatch& m)
     {
         return r.String(m.hostName, kMaxNameLength) && !m.hostName.empty() && r.String(m.save, kMaxSaveOrderName) &&
-            r.AtEnd();
+            r.Block(&m.tag, sizeof(m.tag)) && r.AtEnd();
     }
 
     Bytes Encode(const Freeze& m)

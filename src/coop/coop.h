@@ -155,6 +155,7 @@ namespace coop
         bool ModsMatched() const { return m_modsMatched; }
         const net::ModsMatch& MatchedHost() const { return m_matchedHost; }
         void SetCurrentSave(const std::string& save) { m_currentSave = save; }
+        void SetCurrentSaveTag(const SaveTag& tag) { m_currentSaveTag = tag; }
         void SetQuestMods(const std::vector<std::string>& mods);
         void SetAutoApprove(bool on) { m_autoApprove = on; }
         std::vector<JoinAsk> TakeJoinAsks() { return std::move(m_joinAsks); }
@@ -494,6 +495,7 @@ namespace coop
         bool m_modsMatched = false;
         net::ModsMatch m_matchedHost;
         std::string m_currentSave;
+        SaveTag m_currentSaveTag;
         std::vector<std::string> m_questMods;
         bool m_autoApprove = true;
         std::vector<JoinAsk> m_joinAsks;

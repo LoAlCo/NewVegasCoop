@@ -4,6 +4,7 @@
 
 #include "coop/chat.h"
 #include "coop/game_mode.h"
+#include "coop/saves.h"
 
 #include <array>
 #include <cstddef>
@@ -14,7 +15,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 70;
+    constexpr uint32_t kProtocolVersion = 71;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -629,8 +630,8 @@ namespace net
     Bytes Encode(const GameTime& m);
     bool Decode(Reader& r, GameTime& m);
     constexpr size_t kMaxSaveOrderName = 100;
-    struct SaveOrder { bool load = false; std::string name; };
-    struct ModsMatch { std::string hostName; std::string save; };
+    struct SaveOrder { bool load = false; std::string name; coop::SaveTag tag; };
+    struct ModsMatch { std::string hostName; std::string save; coop::SaveTag tag; };
     struct DesyncReport { uint16_t npcs = 0, items = 0, doors = 0; };
     constexpr size_t kMaxCompanions = 16;
     constexpr uint8_t kCompanionWaiting = 0xFF;

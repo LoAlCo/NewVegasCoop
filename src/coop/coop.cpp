@@ -453,7 +453,7 @@ namespace coop
                 else if (hello.checkOnly)
                 {
                     LOG_INFO("%s's mods are ours (compared from their main menu)", hello.name.c_str());
-                    m_net->Send(peer, Encode(ModsMatch{m_myName, m_currentSave}));
+                    m_net->Send(peer, Encode(ModsMatch{m_myName, m_currentSave, m_currentSaveTag}));
                     m_net->Disconnect(peer);
                     RemovePlayer(peer);
                     return;
@@ -2932,7 +2932,7 @@ namespace coop
             LOG_WARN("Saves: \"%s\" can't be linked (only letters, digits, spaces and - _ . , ( ) ' are)", file.c_str());
             return;
         }
-        SendToJoined(Encode(SaveOrder{load, name}), true);
+        SendToJoined(Encode(SaveOrder{load, name, m_currentSaveTag}), true);
         if (load)
             ExpectLoads(kHostPlayerId, GetTickCount());
     }

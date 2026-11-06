@@ -2,13 +2,63 @@
 
 #pragma once
 
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace coop
 {
     constexpr size_t kMaxSaveName = 100;
     constexpr size_t kMaxSaveHostName = 32;
+
+    // Which game a save belongs to. Names can't say: autosaves take turns reusing the same few names, so one name can
+    // hold a different character later. `game` stays the same for a whole playthrough and `save` is new each save.
+    // Both are random and kept in the save's co-save. 0 means not known.
+    struct SaveTag
+    {
+        uint64_t game = 0;
+        uint64_t save = 0;
+    };
+    inline bool operator==(const SaveTag& a, const SaveTag& b) { return a.game == b.game && a.save == b.save; }
+
+    // One of our saves, and the host's save and game it was made alongside.
+    struct SaveLink
+    {
+        std::string theirs;
+        SaveTag tag;
+    };
+
+    struct SaveOnDisk
+    {
+        std::string name;
+        SaveTag tag;
+        uint64_t written = 0;
+    };
+
+    // The save to load into the host's game: the one made alongside the very save they're playing, otherwise our
+    // newest from the same game (they saved without us). Nothing from another game, or when we can't tell.
+    inline std::string PickLinkedSave(const std::vector<SaveOnDisk>& ours, const SaveTag& host)
+    {
+        if (host.game == 0)
+            return "";
+        const SaveOnDisk* best = nullptr;
+        bool bestExact = false;
+        for (const SaveOnDisk& s : ours)
+        {
+            if (s.tag.game != host.game)
+                continue;
+            bool exact = host.save != 0 && s.tag.save == host.save;
+            if (!best || (exact && !bestExact) || (exact == bestExact && s.written > best->written))
+            {
+                best = &s;
+                bestExact = exact;
+            }
+        }
+        return best ? best->name : "";
+    }
 
     inline std::string SaveNameOf(std::string_view file)
     {
@@ -40,6 +90,49 @@ namespace coop
         while (!who.empty() && who.front() == ' ')
             who.erase(who.begin());
         return who.empty() ? otherwise : who;
+    }
+
+    // A line of NVCoopLinkedSaves.txt: host, our save, their save, then the tag. Lines from before tags have only the
+    // first three: they still say which host's save goes with ours, but not which game, so they never auto-load.
+    inline std::string FormatSaveLink(std::string_view host, std::string_view own, const SaveLink& link)
+    {
+        char tag[40];
+        std::snprintf(tag, sizeof(tag), "%016llx\t%016llx", static_cast<unsigned long long>(link.tag.game),
+            static_cast<unsigned long long>(link.tag.save));
+        return std::string(host) + "\t" + std::string(own) + "\t" + link.theirs + "\t" + tag;
+    }
+
+    inline bool ParseSaveLink(std::string_view line, std::string& host, std::string& own, SaveLink& link)
+    {
+        std::vector<std::string> parts;
+        for (size_t start = 0;;)
+        {
+            size_t tab = line.find('\t', start);
+            parts.emplace_back(line.substr(start, tab == std::string_view::npos ? tab : tab - start));
+            if (tab == std::string_view::npos)
+                break;
+            start = tab + 1;
+        }
+        if (parts.size() != 3 && parts.size() != 5)
+            return false;
+        if (parts[0].empty() || PlainName(parts[0], "") != parts[0] || parts[1].empty() || SaveNameOf(parts[1]) != parts[1] ||
+            parts[2].empty() || SaveNameOf(parts[2]) != parts[2])
+            return false;
+        host = parts[0];
+        own = parts[1];
+        link = SaveLink{parts[2], {}};
+        if (parts.size() == 5)
+        {
+            auto hex = [](const std::string& text)
+            {
+                char* end = nullptr;
+                uint64_t value = std::strtoull(text.c_str(), &end, 16);
+                return text.size() == 16 && end == text.c_str() + text.size() ? value : 0ull;
+            };
+            link.tag.game = hex(parts[3]);
+            link.tag.save = hex(parts[4]);
+        }
+        return true;
     }
 
     inline std::string LinkedSavePrefix(std::string_view host) { return "Co-op - " + PlainName(host, "Host") + " - "; }
