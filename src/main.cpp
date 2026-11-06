@@ -2824,15 +2824,32 @@ namespace
     coop::SaveLink g_pendingLink;
     coop::SaveLink g_checkingLink;
 
+    // The host is loading a save and we aren't following: they can carry on without us.
+    void KeepOurCharacter(const std::string& note)
+    {
+        game::Notify(note.c_str());
+        g_expectedLoad.clear();
+        if (g_reportLoad)
+        {
+            g_reportLoad = false;
+            g_coop.LoadedHostSave();
+        }
+        if (g_waitForHostLoad)
+        {
+            g_waitForHostLoad = false;
+            game::SetPlayerControls(true);
+        }
+    }
+
     void FollowHostSaves(uint32_t now)
     {
         for (const net::SaveOrder& order : g_coop.TakeSaveOrders())
         {
-            std::string name = coop::LinkedSaveName(g_coop.NameOf(0), order.name);
-            if (name.empty())
-                continue;
             if (!order.load)
             {
+                std::string name = coop::LinkedSaveName(g_coop.NameOf(0), order.name);
+                if (name.empty())
+                    continue;
                 g_pendingLinkedSave = name;
                 g_linkHost = g_coop.NameOf(0);
                 g_pendingLink = {order.name, order.tag};
@@ -2844,14 +2861,18 @@ namespace
                 g_savedForHost.clear();
                 continue;
             }
+            // Saves we still meant to make or link belong to the game being left. Done after this load, they could
+            // tie this character's save to that game, or another character's to the host's next save.
             g_pendingLinkedSave.clear();
+            g_checkingSave.clear();
+            g_savedForHost.clear();
             g_reportLoad = true;
             std::string ours = OurMatchOf(g_coop.NameOf(0), order.tag);
             if (ours.empty())
             {
-                // Handled just below, the same as a save that turns out to be missing.
-                g_expectedLoad = name;
-                g_expectLoadUntil = now;
+                LOG_INFO("Saves: no save of ours goes with the one the host is loading (\"%s\", game %016llx); keeping "
+                    "our character", order.name.c_str(), static_cast<unsigned long long>(order.tag.game));
+                KeepOurCharacter("No save of yours goes with the host's (" + order.name + "): keeping your character");
                 continue;
             }
             LOG_INFO("Saves: the host is loading \"%s\" (game %016llx); loading ours, \"%s\"", order.name.c_str(),
@@ -2863,18 +2884,7 @@ namespace
         if (!g_expectedLoad.empty() && coop::IsDue(now, g_expectLoadUntil))
         {
             LOG_INFO("Saves: no \"%s\" here; keeping our character", g_expectedLoad.c_str());
-            game::Notify(("No save matching the host's here (" + g_expectedLoad + "): keeping your character").c_str());
-            g_expectedLoad.clear();
-            if (g_reportLoad)
-            {
-                g_reportLoad = false;
-                g_coop.LoadedHostSave();
-            }
-            if (g_waitForHostLoad)
-            {
-                g_waitForHostLoad = false;
-                game::SetPlayerControls(true);
-            }
+            KeepOurCharacter("No save matching the host's here (" + g_expectedLoad + "): keeping your character");
         }
         if (g_coop.TakeLoadRefused())
         {
