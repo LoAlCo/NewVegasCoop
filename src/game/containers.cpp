@@ -30,6 +30,20 @@ namespace game
             ms += 1000.0 * (end.QuadPart - start.QuadPart) / freq.QuadPart;
             return ok;
         }
+
+        coop::FormCounts CountOnPlayer(const std::vector<uint32_t>& forms, double& ms)
+        {
+            LARGE_INTEGER start, end, freq;
+            QueryPerformanceCounter(&start);
+            coop::FormCounts counts;
+            for (uint32_t form : forms)
+                if (TESForm* item = LookupForm(form))
+                    counts[form] = ItemCount(Player(), item);
+            QueryPerformanceCounter(&end);
+            QueryPerformanceFrequency(&freq);
+            ms += 1000.0 * (end.QuadPart - start.QuadPart) / freq.QuadPart;
+            return counts;
+        }
     }
 
     void Containers::Update(coop::Coop& coop, uint32_t now, const Npcs& npcs)
@@ -216,12 +230,12 @@ namespace game
         if (!Read(open, local, m_readMs))
             return;
         ++m_reads;
-        std::vector<net::ItemCount> mine, playerChange;
-        bool mineKnown = Read(Player(), mine, m_readMs);
-        if (mineKnown && m_playerKnown)
-            playerChange = coop::ItemDiff(m_playerBefore, mine);
-        m_playerKnown = mineKnown;
-        m_playerBefore = std::move(mine);
+        coop::FormCounts mine = CountOnPlayer(coop::FormsToCount(m_playerBefore, local), m_readMs);
+        std::vector<net::ItemCount> playerChange;
+        if (m_playerKnown)
+            playerChange = coop::CountChanges(m_playerBefore, mine);
+        m_playerKnown = true;
+        m_playerBefore = coop::CountsToKeep(mine, local);
         std::vector<net::ItemCount> fixes = coop.LookAtContainer(local, playerChange);
         if (fixes.empty())
             return;
@@ -232,7 +246,10 @@ namespace game
         RefreshLootWindows();
         ++m_fixes;
         if (Read(open, local, m_readMs))
+        {
             coop.ContainerSettled(local);
+            m_playerBefore = coop::CountsToKeep(CountOnPlayer(coop::FormsToCount({}, local), m_readMs), local);
+        }
         LOG_DEBUG("Containers: %08X matched to the host's (%zu kinds of items changed)", RefId(open), fixes.size());
     }
 }
