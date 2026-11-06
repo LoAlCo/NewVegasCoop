@@ -3,6 +3,7 @@
 #pragma once
 
 #include "coop/coop.h"
+#include "coop/revive.h"
 #include "coop/shot_counter.h"
 #include "game/game.h"
 #include "game/puppet.h"
@@ -56,6 +57,9 @@ namespace game
         TESObjectREFR* Make(uint32_t ref, const coop::RemoteNpc& npc, const coop::Pose& pose, uint32_t now);
         void Unmake(uint32_t ref);
         void Release(uint32_t ref);
+        void StepRevives(const coop::Coop& coop, uint32_t now);
+        void ApplyRevive(uint32_t ref, TESObjectREFR* actor, const coop::ReviveSteps::Step& step,
+            const coop::RemoteNpc& npc);
         void LogStats(uint32_t now, size_t shared);
         uint32_t m_nextDesyncCheck = 0, m_nextDesyncLog = 0, m_desyncLooks = 0, m_desyncSeen = 0;
 
@@ -88,6 +92,7 @@ namespace game
         struct Killed { uint32_t at = 0; uint16_t limbs = 0; uint8_t pile = 0; };
         std::map<uint32_t, Killed> m_killed;
         std::map<uint32_t, uint32_t> m_nextRevive;
+        coop::ReviveSteps m_revive;
         struct SwitchedOff { uint32_t since = 0; uint32_t nextTry = 0; uint32_t tries = 0; };
         std::map<uint32_t, SwitchedOff> m_switchedOff;
         std::map<uint32_t, uint32_t> m_localDeaths;

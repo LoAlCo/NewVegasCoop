@@ -1228,7 +1228,7 @@ namespace game
             "End\n");
         g_resurrect = Compile("resurrect",
             "Begin Function {}\n"
-            "  ResurrectActor 1\n"
+            "  ResurrectActor 0\n"
             "End\n");
 
         g_print = Compile("console print",
@@ -2905,10 +2905,18 @@ namespace game
             g_scripts->CallFunctionAlt(g_forceStopIdle, ref, 0);
     }
 
-    void Resurrect(TESObjectREFR* ref)
+    bool Resurrect(TESObjectREFR* ref)
     {
-        if (g_compiled && g_resurrect && ref)
-            g_scripts->CallFunctionAlt(g_resurrect, ref, 0);
+        if (!g_compiled || !g_resurrect || !ref)
+            return false;
+        // Reviving with 3D loaded rebuilds the actor's animations on the spot, and that can crash the game.
+        if (Is3DLoaded(ref))
+        {
+            LOG_WARN("Not reviving %08X while its 3D is loaded", ref->refID);
+            return false;
+        }
+        g_scripts->CallFunctionAlt(g_resurrect, ref, 0);
+        return true;
     }
 
     uintptr_t ReloadFunction(TESObjectREFR* ref)

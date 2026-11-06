@@ -7,6 +7,7 @@
 #include "coop/frame_parts.h"
 #include "coop/threat.h"
 #include "coop/reinforcements.h"
+#include "coop/revive.h"
 #include "coop/voice.h"
 #include "coop/progress.h"
 #include "coop/quests.h"
@@ -1432,6 +1433,204 @@ TEST(puppet_jump_flag_is_not_copied_to_its_legs)
 {
     coop::Steer steer;
     CHECK(!(steer.Flags({0, 0, 0, 0, 0, 0, 0, 0x1000}) & 0x1000));
+}
+
+namespace
+{
+    using Do = coop::ReviveSteps::Do;
+    using News = coop::ReviveSteps::News;
+    constexpr uint32_t kBody = 0x14694B, kOther = 0x14633B;
+
+    // Past the wait after first seeing it dead: the step that starts it.
+    coop::ReviveSteps::Step SeenDeadThenDue(coop::ReviveSteps& r, uint32_t ref, uint32_t& now)
+    {
+        CHECK(r.Look(ref, now, true, true, true, true).action == Do::Nothing);
+        now += coop::kReviveAfterMs;
+        return r.Look(ref, now, true, true, true, true);
+    }
+}
+
+TEST(a_body_waits_after_being_seen_dead_then_goes_off_first)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(r.Look(kBody, now, true, true, true, true).action == Do::Nothing);
+    CHECK(r.Look(kBody, now + coop::kReviveAfterMs - 1, true, true, true, true).action == Do::Nothing);
+    CHECK(!r.Busy(kBody));
+    auto s = r.Look(kBody, now + coop::kReviveAfterMs, true, true, true, true);
+    CHECK(s.action == Do::SwitchOff);
+    CHECK(s.news == News::Started);
+    CHECK(s.tries == 1);
+    CHECK(r.Busy(kBody));
+}
+
+TEST(a_body_is_never_revived_while_it_still_has_3d)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(SeenDeadThenDue(r, kBody, now).action == Do::SwitchOff);
+    for (uint32_t t = 0; t < coop::kReviveTimeoutMs; t += 100)
+        CHECK(r.Look(kBody, now + t, true, false, true, true).action != Do::Resurrect);
+    auto s = r.Look(kBody, now + coop::kReviveTimeoutMs, true, false, true, true);
+    CHECK(s.action == Do::SwitchOn);
+    CHECK(s.news == News::BodyStayed);
+    CHECK(!r.Busy(kBody));
+}
+
+TEST(a_body_comes_back_once_its_3d_is_gone_and_is_switched_on_again)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(SeenDeadThenDue(r, kBody, now).action == Do::SwitchOff);
+    CHECK(r.Look(kBody, now + 10, true, false, false, true).action == Do::Nothing);
+    now += coop::kReviveMinOffMs;
+    CHECK(r.Look(kBody, now, true, false, false, true).action == Do::Resurrect);
+    CHECK(r.Look(kBody, now + 1, true, false, false, true).action == Do::Nothing);
+    auto s = r.Look(kBody, now + 20, false, false, false, true);
+    CHECK(s.action == Do::SwitchOn);
+    CHECK(s.news == News::Revived);
+    CHECK(!r.Busy(kBody));
+}
+
+TEST(a_revive_that_doesnt_take_tries_again_later_then_gives_up)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(r.Look(kBody, now, true, true, true, true).action == Do::Nothing);
+    now += coop::kReviveAfterMs;
+    for (uint32_t tries = 1; tries <= coop::kMaxReviveTries; ++tries)
+    {
+        auto start = r.Look(kBody, now, true, true, true, true);
+        CHECK(start.action == Do::SwitchOff);
+        CHECK(start.tries == tries);
+        now += coop::kReviveMinOffMs;
+        CHECK(r.Look(kBody, now, true, false, false, true).action == Do::Resurrect);
+        now += coop::kReviveTimeoutMs;
+        auto failed = r.Look(kBody, now, true, false, false, true);
+        CHECK(failed.action == Do::SwitchOn);
+        CHECK(failed.news == News::StillDead);
+        CHECK(r.Look(kBody, now + coop::kReviveRetryMs - 1, true, true, true, true).action == Do::Nothing);
+        now += coop::kReviveRetryMs;
+    }
+    auto last = r.Look(kBody, now, true, true, true, true);
+    CHECK(last.action == Do::Nothing);
+    CHECK(last.news == News::GaveUp);
+    auto after = r.Look(kBody, now + 60000, true, true, true, true);
+    CHECK(after.action == Do::Nothing);
+    CHECK(after.news == News::None);
+}
+
+TEST(menus_and_loading_screens_hold_a_revive_back_and_say_so_once)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(r.Look(kBody, now, true, true, true, false).action == Do::Nothing);
+    now += coop::kReviveAfterMs;
+    auto waiting = r.Look(kBody, now, true, true, true, false);
+    CHECK(waiting.action == Do::Nothing);
+    CHECK(waiting.news == News::Waiting);
+    CHECK(r.Look(kBody, now + 100, true, true, true, false).news == News::None);
+    CHECK(!r.Busy(kBody));
+    CHECK(r.Look(kBody, now + 200, true, true, true, true).action == Do::SwitchOff);
+
+    now += 200 + coop::kReviveMinOffMs;
+    CHECK(r.Look(kBody, now, true, false, false, false).action == Do::Nothing);
+    CHECK(r.Look(kBody, now + 1, true, false, false, true).action == Do::Resurrect);
+}
+
+TEST(bodies_come_back_one_at_a_time)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(r.Look(kBody, now, true, true, true, true).action == Do::Nothing);
+    CHECK(r.Look(kOther, now, true, true, true, true).action == Do::Nothing);
+    now += coop::kReviveAfterMs;
+    CHECK(r.Look(kBody, now, true, true, true, true).action == Do::SwitchOff);
+    CHECK(r.Look(kOther, now, true, true, true, true).action == Do::Nothing);
+    CHECK(r.Look(kOther, now + coop::kReviveGapMs, true, true, true, true).action == Do::Nothing);
+    now += coop::kReviveGapMs;
+    CHECK(r.Look(kBody, now, true, false, false, true).action == Do::Resurrect);
+    CHECK(r.Look(kBody, now + 1, false, false, false, true).action == Do::SwitchOn);
+    CHECK(r.Look(kOther, now + 1, true, true, true, true).action == Do::SwitchOff);
+}
+
+TEST(a_body_switched_off_by_something_else_isnt_started)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(r.Look(kBody, now, true, false, false, true).action == Do::Nothing);
+    CHECK(r.Look(kBody, now + coop::kReviveAfterMs, true, false, false, true).action == Do::Nothing);
+    CHECK(!r.Busy(kBody));
+}
+
+TEST(a_body_that_came_back_some_other_way_is_switched_on)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(SeenDeadThenDue(r, kBody, now).action == Do::SwitchOff);
+    auto s = r.Look(kBody, now + 10, false, false, false, true);
+    CHECK(s.action == Do::SwitchOn);
+    CHECK(s.news == News::Revived);
+}
+
+TEST(dropping_or_ending_co_op_says_which_bodies_need_switching_on)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(SeenDeadThenDue(r, kBody, now).action == Do::SwitchOff);
+    CHECK(r.Drop(kBody));
+    CHECK(!r.Busy(kBody));
+    CHECK(r.Bodies().empty());
+    CHECK(!r.Drop(kOther));
+
+    uint32_t later = now + coop::kReviveGapMs;
+    CHECK(SeenDeadThenDue(r, kOther, later).action == Do::SwitchOff);
+    std::vector<uint32_t> off = r.TakeSwitchedOff();
+    CHECK(off.size() == 1 && off[0] == kOther);
+    CHECK(r.Bodies().empty());
+    CHECK(r.TakeSwitchedOff().empty());
+}
+
+TEST(a_body_alive_for_a_while_gets_its_tries_back)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 1000;
+    CHECK(SeenDeadThenDue(r, kBody, now).tries == 1);
+    now += coop::kReviveMinOffMs;
+    CHECK(r.Look(kBody, now, true, false, false, true).action == Do::Resurrect);
+    CHECK(r.Look(kBody, now + 1, false, false, false, true).news == News::Revived);
+    CHECK(r.Look(kBody, now + 2, false, true, true, true).action == Do::Nothing);
+
+    uint32_t soon = now + coop::kReviveGapMs + 100;
+    CHECK(r.Look(kBody, soon, true, true, true, true).action == Do::Nothing);
+    soon += coop::kReviveAfterMs;
+    CHECK(r.Look(kBody, soon, true, true, true, true).tries == 2);
+    soon += coop::kReviveMinOffMs;
+    CHECK(r.Look(kBody, soon, true, false, false, true).action == Do::Resurrect);
+    CHECK(r.Look(kBody, soon + 1, false, false, false, true).news == News::Revived);
+
+    uint32_t later = soon + 2;
+    CHECK(r.Look(kBody, later, false, true, true, true).action == Do::Nothing);
+    later += coop::kReviveForgetMs;
+    CHECK(r.Look(kBody, later, false, true, true, true).action == Do::Nothing);
+    CHECK(r.Bodies().empty());
+    CHECK(SeenDeadThenDue(r, kBody, later).tries == 1);
+}
+
+TEST(the_living_arent_kept_track_of)
+{
+    coop::ReviveSteps r;
+    CHECK(r.Look(kBody, 1000, false, true, true, true).action == Do::Nothing);
+    CHECK(r.Bodies().empty());
+}
+
+TEST(timers_for_revives_survive_the_clock_wrapping)
+{
+    coop::ReviveSteps r;
+    uint32_t now = 0xFFFFFFFFu - 500;
+    CHECK(r.Look(kBody, now, true, true, true, true).action == Do::Nothing);
+    now += coop::kReviveAfterMs;
+    CHECK(r.Look(kBody, now, true, true, true, true).action == Do::SwitchOff);
 }
 
 int main()
