@@ -2367,6 +2367,34 @@ namespace game
                     ref->refID, left);
         }
 
+        // A shooter's ammo can name its own projectile, and the game fires that one over the weapon's: Red Glare's
+        // rockets, or an NPC's high explosive missiles. It's the real projectile, whose real blast would go off wherever
+        // this game's copy of the shot ends up, so the ammo names our harmless copy for the length of the shot.
+        void FireHarmlessly(TESObjectREFR* ref, TESObjectWEAP* weapon)
+        {
+            using EquippedAmmo = TESForm*(__thiscall*)(TESObjectWEAP*, TESObjectREFR*);
+            TESForm* form = IsActor(ref) ? reinterpret_cast<EquippedAmmo>(addr::kWeaponEquippedAmmo)(weapon, ref) : nullptr;
+            auto* ammo = form && form->typeID == kFormType_TESAmmo ? static_cast<TESAmmo*>(form) : nullptr;
+            BGSProjectile* named = ammo ? ammo->projectile : nullptr;
+            if (!named || IsHarmlessProjectile(named))
+            {
+                g_scripts->CallFunctionAlt(g_fire, ref, 1, weapon);
+                return;
+            }
+            BGSProjectile* harmless = HarmlessProjectile(named);
+            if (!harmless)
+            {
+                LOG_WARN("No harmless copy of ammo %08X's projectile %08X: %08X's shot won't be shown", ammo->refID,
+                    named->refID, ref->refID);
+                return;
+            }
+            ammo->projectile = harmless;
+            g_scripts->CallFunctionAlt(g_fire, ref, 1, weapon);
+            ammo->projectile = named;
+            LOG_DEBUG("%08X fired harmless %08X in place of ammo %08X's projectile %08X", ref->refID, harmless->refID,
+                ammo->refID, named->refID);
+        }
+
         void PlayAttackWith(TESObjectREFR* ref, TESObjectWEAP* weapon, uint8_t shots)
         {
             if (weapon && IsThrown(weapon))
@@ -2379,13 +2407,13 @@ namespace game
             if (!weapon || !IsGun(weapon) || !CanFire(weapon))
                 return;
             for (uint8_t i = 0; i < shots; ++i)
-                g_scripts->CallFunctionAlt(g_fire, ref, 1, weapon);
+                FireHarmlessly(ref, weapon);
         }
 
         void ReleaseWith(TESObjectREFR* ref, TESObjectWEAP* weapon)
         {
             if (weapon && IsThrown(weapon) && CanFire(weapon))
-                g_scripts->CallFunctionAlt(g_fire, ref, 1, weapon);
+                FireHarmlessly(ref, weapon);
         }
     }
 
@@ -2972,6 +3000,14 @@ namespace game
             return false;
         }
 
+        bool IsQuietExplosion(const TESForm* form)
+        {
+            for (auto& [original, copy] : g_quietExplosions)
+                if (copy == form)
+                    return true;
+            return false;
+        }
+
         void __fastcall ExplosionInitHook(TESObjectREFR* explosion)
         {
             bool fresh = explosion && !*reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(explosion) +
@@ -2979,14 +3015,22 @@ namespace game
             reinterpret_cast<void(__fastcall*)(TESObjectREFR*)>(g_explosionInit)(explosion);
             static std::atomic<int> s_saidThread{0};
             NoteThread("The explosion hook", s_saidThread);
-            if (!fresh || !explosion->baseForm || explosion->baseForm->typeID != kFormType_BGSExplosion ||
-                IsOurHarmless(explosion->baseForm))
+            if (!fresh || !explosion->baseForm || explosion->baseForm->typeID != kFormType_BGSExplosion)
+                return;
+            bool harmless = IsOurHarmless(explosion->baseForm);
+            if (harmless && !IsQuietExplosion(explosion->baseForm))
                 return;
             coop::Pose at;
             if (!GetPose(explosion, at))
                 return;
             auto* source = *reinterpret_cast<TESObjectREFR* const*>(reinterpret_cast<const uint8_t*>(explosion) +
                 addr::kExplosionSource);
+            if (harmless)
+            {
+                LOG_DEBUG("Harmless shot ended (unseen) at %.0f, %.0f, %.0f by %08X", at.x, at.y, at.z,
+                    source ? source->refID : 0);
+                return;
+            }
             std::lock_guard<std::mutex> lock(g_explosionsLock);
             if (g_explosions.size() >= 32)
                 return;

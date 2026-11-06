@@ -106,6 +106,7 @@ namespace game::addr
     constexpr uintptr_t kMineReactsToTarget = 0x009C3930;
     constexpr uintptr_t kMineReactsCall = 0x009C3BD1;
     constexpr uintptr_t kProjectileTurnOff = 0x009C43E0;
+    constexpr uintptr_t kWeaponEquippedAmmo = 0x00525980;
     constexpr uintptr_t kPlayerCombatCount = 0x00953C20;
     constexpr uintptr_t kLevelUpCombatCalls[] = {0x0077C58C, 0x0077D6BE};
     constexpr uintptr_t kTakeOffItem = 0x004C0CF0;
