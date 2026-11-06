@@ -4974,45 +4974,53 @@ TEST(a_stack_merged_away_is_seen_gone)
     CHECK(coop::HoldsStack(&broken, &a));
 }
 
-TEST(copies_a_load_threw_away_are_seen_gone)
+TEST(copies_a_load_moved_are_counted_and_checked_for_life)
 {
     int weapon, teleporter, other;
     coop::MadeCopies copies;
     copies.Note(0xFF000001, &weapon);
     copies.Note(0xFF000002, &teleporter);
     copies.Forget();
-    auto gone = copies.TakeGone([&](uint32_t id) -> void* { return id == 0xFF000001 ? nullptr : &other; });
-    CHECK(gone.gone == 2);
-    CHECK(gone.forgotten == 2);
-    gone = copies.TakeGone([](uint32_t) -> void* { return nullptr; });
-    CHECK(gone.gone == 0);
-    CHECK(gone.forgotten == 0);
+    auto moved = copies.TakeMoved([&](uint32_t id) -> void* { return id == 0xFF000001 ? nullptr : &other; },
+        [&](const void* at) { return at == &weapon; });
+    CHECK(moved.moved == 2);
+    CHECK(moved.alive == 1);
+    CHECK(moved.forgotten == 2);
+    moved = copies.TakeMoved([](uint32_t) -> void* { return nullptr; }, [](const void*) { return true; });
+    CHECK(moved.moved == 0);
+    CHECK(moved.forgotten == 0);
 }
 
-TEST(copies_a_failed_load_left_alone_are_not_called_gone)
+TEST(copies_a_load_left_at_their_ids_arent_moved_or_read)
 {
     int weapon;
     coop::MadeCopies copies;
     copies.Note(0xFF000001, &weapon);
     copies.Forget();
-    auto gone = copies.TakeGone([&](uint32_t) -> void* { return &weapon; });
-    CHECK(gone.gone == 0);
-    CHECK(gone.forgotten == 1);
+    bool read = false;
+    auto moved = copies.TakeMoved([&](uint32_t) -> void* { return &weapon; },
+        [&](const void*) { read = true; return true; });
+    CHECK(moved.moved == 0);
+    CHECK(moved.alive == 0);
+    CHECK(moved.forgotten == 1);
+    CHECK(!read);
 }
 
 TEST(copies_are_only_counted_once_forgotten_and_only_once)
 {
     int first, second;
+    auto nowhere = [](uint32_t) -> void* { return nullptr; };
+    auto dead = [](const void*) { return false; };
     coop::MadeCopies copies;
     copies.Note(0xFF000001, &first);
-    auto gone = copies.TakeGone([](uint32_t) -> void* { return nullptr; });
-    CHECK(gone.forgotten == 0);
+    auto moved = copies.TakeMoved(nowhere, dead);
+    CHECK(moved.forgotten == 0);
     copies.Forget();
     copies.Forget();
     copies.Note(0xFF000002, &second);
-    gone = copies.TakeGone([](uint32_t) -> void* { return nullptr; });
-    CHECK(gone.forgotten == 1);
+    moved = copies.TakeMoved(nowhere, dead);
+    CHECK(moved.forgotten == 1);
     copies.Forget();
-    gone = copies.TakeGone([](uint32_t) -> void* { return nullptr; });
-    CHECK(gone.forgotten == 1);
+    moved = copies.TakeMoved(nowhere, dead);
+    CHECK(moved.forgotten == 1);
 }

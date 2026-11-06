@@ -6849,12 +6849,30 @@ namespace game
         g_madeCopies.Forget();
     }
 
+    namespace
+    {
+        // Only a live form is found in the game's table under the ID it holds.
+        bool IsLiveForm(const void* at)
+        {
+            uint32_t id = 0;
+            __try
+            {
+                id = static_cast<const TESForm*>(at)->refID;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+            return id && LookupForm(id) == at;
+        }
+    }
+
     void ReportForgottenCopies()
     {
-        coop::MadeCopies::Gone copies = g_madeCopies.TakeGone([](uint32_t id) { return LookupForm(id); });
+        coop::MadeCopies::Moved copies = g_madeCopies.TakeMoved([](uint32_t id) { return LookupForm(id); }, IsLiveForm);
         if (copies.forgotten)
-            LOG_INFO("Copies: this load threw away %zu of the %zu temporary copies we had made (made again when needed)",
-                copies.gone, copies.forgotten);
+            LOG_INFO("Copies: %zu of the %zu temporary copies we had made left their ID in this load; %zu of those still "
+                "exist under a new one (new copies are made when needed)", copies.moved, copies.forgotten, copies.alive);
     }
 
     TESForm* TeleporterItem()

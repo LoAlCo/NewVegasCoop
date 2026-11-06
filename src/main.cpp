@@ -3124,6 +3124,7 @@ namespace
             else
                 LOG_WARN("The save didn't load (the game says it failed)");
             game::ReportForgottenCopies();
+            g_companions.ForgetPackages();
             OnWorldLoaded();
             break;
         case NVSEMessagingInterface::kMessage_NewGame:
