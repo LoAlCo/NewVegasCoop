@@ -14,6 +14,7 @@ struct Config
     std::string name = "Player";
     std::vector<std::string> hostQuestMods;
     bool allowSecondCopy = false;
+    bool smoothBodies = true;
     bool secondCopyWaits = false;
     bool blockDiscordOverlay = true;
     bool borderless = true;
