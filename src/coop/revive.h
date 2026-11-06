@@ -29,7 +29,7 @@ namespace coop
         enum class News
         {
             None,
-            Waiting,     // due, but not safe right now (a menu or a loading screen)
+            Waiting,     // due or under way, but not safe right now (a menu or a loading screen)
             Started,
             Revived,
             BodyStayed,  // its 3D didn't go in time: not revived, try again later
@@ -65,8 +65,13 @@ namespace coop
                     return out;
                 }
                 b.aliveSince = 0;
-                if (!b.deadSince)
+                // Out of sight for a while (we moved away, or sat through a loading screen): it has just come into
+                // view, so it gets the whole wait again.
+                if (!b.deadSince || now - b.lastSeen > kReviveAfterMs)
                     b.deadSince = NonZero(now);
+                b.lastSeen = now;
+                if (!safe)
+                    b.unsafeAt = NonZero(now);
                 if (b.gaveUp || !enabled || now - b.deadSince < kReviveAfterMs || !IsDue(now, b.nextTry))
                     return out;
                 if (b.tries >= kMaxReviveTries)
@@ -82,6 +87,8 @@ namespace coop
                     b.toldWaiting = true;
                     return out;
                 }
+                if (b.unsafeAt && now - b.unsafeAt < kReviveAfterMs)
+                    return out;
                 if (Busy() || !IsDue(now, m_nextStart))
                     return out;
                 b.toldWaiting = false;
@@ -95,10 +102,20 @@ namespace coop
 
             case Phase::Unloading:
                 if (!dead)
-                    return Finish(b, out, News::Revived, now, enabled);
+                    return Finish(b, out, News::Revived, now);
+                // A menu or loading screen came up with the body off. Back on at once, so a save made from that menu
+                // doesn't keep it switched off. This try doesn't count.
+                if (!safe)
+                {
+                    --b.tries;
+                    out.tries = b.tries;
+                    b.unsafeAt = NonZero(now);
+                    b.toldWaiting = true;
+                    return Finish(b, out, News::Waiting, now);
+                }
                 if (now - b.phaseAt >= kReviveTimeoutMs)
-                    return Finish(b, out, News::BodyStayed, now, enabled);
-                if (has3D || !safe || now - b.phaseAt < kReviveMinOffMs)
+                    return Finish(b, out, News::BodyStayed, now);
+                if (has3D || now - b.phaseAt < kReviveMinOffMs)
                     return out;
                 b.phase = Phase::Reviving;
                 b.phaseAt = now;
@@ -107,9 +124,9 @@ namespace coop
 
             case Phase::Reviving:
                 if (!dead)
-                    return Finish(b, out, News::Revived, now, enabled);
+                    return Finish(b, out, News::Revived, now);
                 if (now - b.phaseAt >= kReviveTimeoutMs)
-                    return Finish(b, out, News::StillDead, now, enabled);
+                    return Finish(b, out, News::StillDead, now);
                 return out;
             }
             return out;
@@ -169,6 +186,8 @@ namespace coop
             Phase phase = Phase::Idle;
             uint32_t deadSince = 0;
             uint32_t aliveSince = 0;
+            uint32_t lastSeen = 0;
+            uint32_t unsafeAt = 0;
             uint32_t phaseAt = 0;
             uint32_t nextTry = 0;
             uint32_t tries = 0;
@@ -178,15 +197,18 @@ namespace coop
 
         static uint32_t NonZero(uint32_t time) { return time ? time : 1; }
 
-        Step Finish(Body& b, Step out, News news, uint32_t now, bool enabled)
+        // Always asks to switch it on, even if it reads as on: that also cancels a switch-off still in the game's queue,
+        // and does nothing to a body that's on.
+        Step Finish(Body& b, Step out, News news, uint32_t now)
         {
             b.phase = Phase::Idle;
+            b.lastSeen = now;
             if (news == News::Revived)
                 b.deadSince = 0;
             else
                 b.nextTry = NonZero(now + kReviveRetryMs);
             out.news = news;
-            out.action = enabled ? Do::Nothing : Do::SwitchOn;
+            out.action = Do::SwitchOn;
             return out;
         }
 
