@@ -104,9 +104,9 @@ void ForgetLinksOf(const std::string& own);
 bool MayLoad(const std::string& save);
 uint64_t NewSaveTagId();
 void StartNewGameTag();
-void ShareHostLoad();
-void ListenForSaveTags(NVSEInterface* nvse);
-extern std::string g_expectedLoad, g_savedForHost, g_pendingLinkedSave, g_checkingSave, g_hostLoadToShare;
+void WriteSaveTag(const std::string& file);
+void ReadSaveTag(const std::string& file);
+extern std::string g_expectedLoad, g_savedForHost, g_pendingLinkedSave, g_checkingSave;
 extern coop::SaveTag g_thisGame;
 
 void SetDowned(bool down, uint32_t now);

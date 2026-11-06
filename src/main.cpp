@@ -2503,9 +2503,9 @@ namespace
                 std::string file = MessageText(msg);
                 LOG_INFO("Loading a save: %s", file.c_str());
                 g_coop.SetCurrentSave(coop::SaveNameOf(file));
-                g_thisGame = {};
-                g_coop.SetCurrentSaveTag(g_thisGame);
-                g_hostLoadToShare = file;
+                ReadSaveTag(file);
+                if (g_coop.GetRole() == coop::Role::Host && g_coop.InGame())
+                    g_coop.ShareSave(file, true);
                 g_expectedLoad.clear();
                 if (g_menuCheck != MenuCheck::Done && !g_coop.DownloadingMods())
                 {
@@ -2517,6 +2517,8 @@ namespace
             else
             {
                 LOG_INFO("Back to the main menu");
+                g_thisGame = {};
+                g_coop.SetCurrentSaveTag(g_thisGame);
                 if (g_coop.GetRole() != coop::Role::None)
                     g_coop.Stop();
             }
@@ -2547,6 +2549,7 @@ namespace
                 g_thisGame.game = NewSaveTagId();
             g_thisGame.save = NewSaveTagId();
             g_coop.SetCurrentSaveTag(g_thisGame);
+            WriteSaveTag(file);
             if (g_coop.GetRole() == coop::Role::Host && g_coop.InGame())
                 g_coop.ShareSave(file, false);
             if (g_coop.GetRole() == coop::Role::Friend && g_coop.InGame())
@@ -2562,23 +2565,40 @@ namespace
             break;
         }
         case NVSEMessagingInterface::kMessage_PostLoadGame:
-            g_loadingSave = false;
             if (msg->data)
                 LOG_INFO("Save loaded");
             else
+            {
                 LOG_WARN("The save didn't load (the game says it failed)");
-            ShareHostLoad();
+                // Without a load under way, it was refused before it began and we're still in our game.
+                if (g_loadingSave)
+                {
+                    g_thisGame = {};
+                    g_coop.SetCurrentSaveTag(g_thisGame);
+                }
+            }
+            g_loadingSave = false;
             OnWorldLoaded();
             break;
         case NVSEMessagingInterface::kMessage_NewGame:
+            // xNVSE also comes here for a save with no co-save at all, partway through loading it; that save's ID has
+            // been read already.
+            if (!g_loadingSave)
+            {
+                StartNewGameTag();
+                LOG_INFO("Saves: this new game's ID is %016llx", static_cast<unsigned long long>(g_thisGame.game));
+            }
             g_loadingSave = false;
             LOG_INFO("New game started");
-            // xNVSE also comes here for a save with no co-save at all, partway through loading it.
-            StartNewGameTag();
-            LOG_INFO("Saves: this game's ID is now %016llx", static_cast<unsigned long long>(g_thisGame.game));
-            ShareHostLoad();
             OnWorldLoaded();
             break;
+        case NVSEMessagingInterface::kMessage_DeleteGameName:
+        {
+            std::string file = MessageText(msg);
+            DeleteFileA((SavesFolder() + coop::SaveTagFileName(file)).c_str());
+            ForgetLinksOf(coop::SaveNameOf(file));
+            break;
+        }
         case NVSEMessagingInterface::kMessage_ExitGame:
         case NVSEMessagingInterface::kMessage_ExitGame_Console:
             g_coop.Stop();
@@ -2648,7 +2668,6 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
     }
 
     dev::RegisterCommands(nvse, &g_inspector, &g_mirror);
-    ListenForSaveTags(nvse);
     if (g_config.labChannel && g_lab.Start(L"\\\\.\\pipe\\NVCoopLab"))
         LOG_INFO("Lab channel open (\\\\.\\pipe\\NVCoopLab): tools on this PC, for this Windows user only, can run "
             "console lines in the game");
