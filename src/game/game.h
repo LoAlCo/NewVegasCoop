@@ -153,6 +153,8 @@ namespace game
     bool CanTravelTo(const TESObjectREFR* marker);
     std::string MarkerName(const TESObjectREFR* marker);
     void UnlockTravel(TESObjectREFR* marker);
+    void ForgetMadeCopies();
+    void ReportForgottenCopies();
     TESForm* TeleporterItem();
     int ItemCount(TESObjectREFR* ref, TESForm* item);
     void SetRefMapMarker(TESObjectREFR* ref, bool on);

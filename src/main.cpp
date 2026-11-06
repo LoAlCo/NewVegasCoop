@@ -3093,6 +3093,7 @@ namespace
             g_loadingSave = msg->type == NVSEMessagingInterface::kMessage_PreLoadGame;
             g_worldLoaded = false;
             game::ForgetHolds();
+            game::ForgetMadeCopies();
             g_gameOver = false;
             g_standIns.Forget();
             g_npcs.Forget();
@@ -3130,6 +3131,7 @@ namespace
                 LOG_INFO("Save loaded");
             else
                 LOG_WARN("The save didn't load (the game says it failed)");
+            game::ReportForgottenCopies();
             OnWorldLoaded();
             break;
         case NVSEMessagingInterface::kMessage_NewGame:
