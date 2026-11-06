@@ -192,6 +192,9 @@ namespace game
                 coop.ViewContainer(closedHostRef, true);
                 coop.ViewContainer(closedHostRef, false);
                 FriendRead(coop, closed);
+                // It's the one being watched now: an older held one read after this would be compared with its list.
+                m_heldRef = RefId(closed);
+                m_heldUntil = now + kHoldViewMs;
                 if (!open)
                     return;
             }
