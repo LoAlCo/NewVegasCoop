@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "coop/containers.h"
 #include "coop/coop.h"
 
 #include <cstdint>
@@ -21,6 +22,10 @@ namespace game
         void HostApply(coop::Coop& coop);
         void FriendLook(coop::Coop& coop, const Npcs& npcs, uint32_t now);
         void FriendRead(coop::Coop& coop, TESObjectREFR* ref);
+        void HostWatchBodies(coop::Coop& coop, const Npcs& npcs, uint32_t now);
+        void FriendMatchBodies(coop::Coop& coop, const Npcs& npcs);
+        coop::BodyLootWatch m_bodyLoot;
+        uint32_t m_lastBodyLook = 0;
         uint32_t m_nextLook = 0;
         uint32_t m_openRef = 0;
         uint32_t m_heldRef = 0;

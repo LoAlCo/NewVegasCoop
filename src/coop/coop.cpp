@@ -102,6 +102,7 @@ namespace coop
         m_sentNpcs.clear();
         m_npcShots.clear();
         m_npcGear.clear();
+        m_bodyLoots.clear();
         m_npcAttacks.clear();
         m_npcs.clear();
         m_myDoors.clear();
@@ -1216,6 +1217,12 @@ namespace coop
             ContainerContents m;
             if (Decode(r, m))
                 m_friendContainer.Heard(m);
+        }
+        else if (type == MsgType::BodyLoot)
+        {
+            ContainerContents m;
+            if (Decode(r, m) && (m_bodyLoots.size() < kMaxQueuedItemChanges || m_bodyLoots.count(m.ref)))
+                m_bodyLoots[m.ref] = std::move(m.items);
         }
         else if (type == MsgType::ItemRefund)
         {
@@ -2623,6 +2630,12 @@ namespace coop
             view.sentSeen = view.seen;
             view.sentItems = items;
         }
+    }
+
+    void Coop::ShareBodyLoot(uint32_t ref, const std::vector<ItemCount>& items)
+    {
+        if (m_role == Role::Host)
+            SendToJoined(EncodeBodyLoot(ref, items), true);
     }
 
     void Coop::ContainerChangeDone(uint8_t playerId, uint32_t seq, const ItemCount& refund)

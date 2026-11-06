@@ -739,6 +739,15 @@ namespace game
         LOG_DEBUG("NPCs: deleted our copy of %08X", ref);
     }
 
+    std::vector<std::pair<uint32_t, bool>> Npcs::DeadBodies(uint32_t now) const
+    {
+        std::vector<std::pair<uint32_t, bool>> bodies;
+        for (const auto& [ref, w] : m_watched)
+            if (w.diedAt)
+                bodies.emplace_back(ref, now - w.diedAt < kDropsSettleMs);
+        return bodies;
+    }
+
     uint32_t Npcs::HostRefOf(uint32_t ourRef) const
     {
         if (!net::IsMadeWhilePlaying(ourRef))

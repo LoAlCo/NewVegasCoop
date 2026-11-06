@@ -7,6 +7,9 @@
 #include "game/npcs.h"
 #include "log.h"
 
+#include <algorithm>
+#include <utility>
+#include <vector>
 #include <windows.h>
 
 namespace game
@@ -103,9 +106,13 @@ namespace game
                     coop.SetContainerContents(refId, items);
                 }
             }
+            HostWatchBodies(coop, npcs, now);
         }
         else
+        {
             FriendLook(coop, npcs, now);
+            FriendMatchBodies(coop, npcs);
+        }
 
         if (coop::IsDue(now, m_nextLog))
         {
@@ -172,6 +179,73 @@ namespace game
         if (changedMine)
             RefreshItemList();
         RefreshLootWindows();
+    }
+
+    void Containers::HostWatchBodies(coop::Coop& coop, const Npcs& npcs, uint32_t now)
+    {
+        std::vector<std::pair<uint32_t, bool>> bodies = npcs.DeadBodies(now);
+        std::vector<uint32_t> refs;
+        refs.reserve(bodies.size());
+        for (const auto& [ref, settling] : bodies)
+            refs.push_back(ref);
+        m_bodyLoot.KeepOnly(refs);
+        if (bodies.empty())
+            return;
+        auto look = [&](uint32_t ref, bool settling) {
+            TESObjectREFR* body = LookupRef(ref);
+            std::vector<net::ItemCount> items;
+            if (!IsLootable(body) || !Read(body, items, m_readMs))
+                return;
+            ++m_reads;
+            if (m_bodyLoot.Look(ref, items, settling))
+            {
+                LOG_DEBUG("Containers: body %08X changed; telling friends (%zu kinds of items in it)", ref, items.size());
+                coop.ShareBodyLoot(ref, items);
+            }
+        };
+        // The one our player has open or is looking at right away, and the others (a friend or a script may have
+        // changed them) one at a time, so this costs the same however many bodies lie around.
+        TESObjectREFR* mine = OpenContainer();
+        if (!mine)
+            mine = CrosshairRef();
+        uint32_t mineRef = mine ? RefId(mine) : 0;
+        for (const auto& [ref, settling] : bodies)
+            if (ref == mineRef)
+                look(ref, settling);
+        auto next = std::find_if(bodies.begin(), bodies.end(),
+            [&](const auto& b) { return b.first > m_lastBodyLook; });
+        if (next == bodies.end())
+            next = bodies.begin();
+        m_lastBodyLook = next->first;
+        if (next->first != mineRef)
+            look(next->first, next->second);
+    }
+
+    void Containers::FriendMatchBodies(coop::Coop& coop, const Npcs& npcs)
+    {
+        for (const auto& [hostRef, items] : coop.TakeBodyLoots())
+        {
+            // The one being watched is matched by FriendRead, which knows what our player just took from it.
+            if (hostRef == coop.ViewingContainer())
+                continue;
+            TESObjectREFR* body = npcs.OurRefOf(hostRef);
+            std::vector<net::ItemCount> local;
+            if (!body || !IsLootable(body) || !Read(body, local, m_readMs))
+                continue;
+            size_t changed = 0;
+            for (const net::ItemCount& f : coop::ItemDiff(local, items))
+                if (IsItem(f.item))
+                {
+                    ChangeItem(body, f);
+                    ++changed;
+                }
+            if (!changed)
+                continue;
+            RefreshLootWindows();
+            ++m_fixes;
+            LOG_DEBUG("Containers: body %08X matched to the host's without looking at it (%zu kinds of items changed)",
+                RefId(body), changed);
+        }
     }
 
     void Containers::FriendLook(coop::Coop& coop, const Npcs& npcs, uint32_t now)

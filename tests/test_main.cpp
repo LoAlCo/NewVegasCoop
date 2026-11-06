@@ -5113,6 +5113,50 @@ TEST(a_players_speed_and_mod_animations_reach_the_others)
     CHECK(RunUntil({&host, &a, &b2}, [&] { return !host.ModAnims().count(ann) && !b2.ModAnims().count(ann); }));
 }
 
+TEST(a_body_looted_with_nobody_looking_is_noticed)
+{
+    coop::BodyLootWatch w;
+    std::vector<net::ItemCount> full{{100, 2, 50, 0}, {200, 1, 50, 0}}, less{{100, 2, 50, 0}};
+    CHECK(!w.Look(7, full, false));
+    CHECK(!w.Look(7, full, false));
+    CHECK(w.Look(7, less, false));
+    CHECK(!w.Look(7, less, false));
+    CHECK(w.Look(7, full, false));
+    CHECK(w.Look(7, {}, false));
+}
+
+TEST(what_a_body_drops_as_it_dies_is_not_loot_but_taking_from_it_is)
+{
+    coop::BodyLootWatch w;
+    std::vector<net::ItemCount> before{{100, 1, 50, 0}}, dropped{{100, 1, 50, 0}, {300, 1, 80, 0}};
+    CHECK(!w.Look(7, before, true));
+    CHECK(!w.Look(7, dropped, true));
+    CHECK(w.Look(7, before, true));
+}
+
+TEST(bodies_gone_from_the_list_are_forgotten)
+{
+    coop::BodyLootWatch w;
+    std::vector<net::ItemCount> full{{100, 1, 50, 0}};
+    w.Look(7, full, false);
+    w.Look(8, full, false);
+    w.KeepOnly({8});
+    CHECK(w.Size() == 1);
+    CHECK(!w.Look(7, {}, false));
+    CHECK(w.Look(8, {}, false));
+}
+
+TEST(body_loot_messages_read_back)
+{
+    std::vector<net::ItemCount> items{{100, 2, 50, 0}, {200, 1, 80, 1}};
+    Bytes b = net::EncodeBodyLoot(0x00146338, items);
+    Reader r(b);
+    MsgType t;
+    net::ContainerContents m;
+    CHECK(r.Type(t) && t == MsgType::BodyLoot && Decode(r, m));
+    CHECK(m.ref == 0x00146338 && m.items.size() == 2 && m.items[1].item == 200 && m.items[1].mods == 1);
+}
+
 TEST(join_addresses_are_checked)
 {
     std::string host;

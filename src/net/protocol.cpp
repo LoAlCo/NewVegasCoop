@@ -619,6 +619,18 @@ namespace net
         return w.Take();
     }
 
+    Bytes EncodeBodyLoot(uint32_t ref, const std::vector<ItemCount>& items)
+    {
+        Writer w(MsgType::BodyLoot);
+        w.U32(ref);
+        w.U32(0);
+        size_t count = items.size() < kMaxItemKinds ? items.size() : kMaxItemKinds;
+        w.U16(static_cast<uint16_t>(count));
+        for (size_t i = 0; i < count; ++i)
+            WriteItem(w, items[i]);
+        return w.Take();
+    }
+
     bool Decode(Reader& r, ContainerContents& m)
     {
         uint16_t count;

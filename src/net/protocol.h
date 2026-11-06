@@ -90,6 +90,7 @@ namespace net
         PlayerModAnims = 69,
         Drag = 70,
         Mode = 71,
+        BodyLoot = 73,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -405,6 +406,8 @@ namespace net
     Bytes Encode(const ContainerChange& m);
     bool Decode(Reader& r, ContainerChange& m);
     Bytes Encode(const ContainerContents& m);
+    // The same contents, sent to everyone when a body's change, whoever is looking at it. Read like ContainerContents.
+    Bytes EncodeBodyLoot(uint32_t ref, const std::vector<ItemCount>& items);
     bool Decode(Reader& r, ContainerContents& m);
     constexpr size_t kMaxItemsPerMessage = 64;
     struct ItemState
