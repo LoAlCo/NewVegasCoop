@@ -2477,6 +2477,7 @@ namespace
             return;
         g_frozen = frozen;
         LOG_INFO("Loading: %s", frozen ? "the world waits" : "the world goes on");
+        g_npcs.RestartBodies();
         if (!frozen)
         {
             game::SetWorldSpeed(1.0f);

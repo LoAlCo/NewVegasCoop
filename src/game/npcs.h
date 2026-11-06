@@ -31,6 +31,7 @@ namespace game
         void ReleaseAll();
         void Forget();
         std::vector<uint32_t> MadeRefIds() const;
+        void RestartBodies() { m_bodies.clear(); }
         static void LabCopySteps(uint32_t steps) { s_labSteps = steps; }
         static void SetSmoothBodies(bool on) { s_smoothBodies = on; }
         uint32_t HostRefOf(uint32_t ourRef) const;
@@ -88,13 +89,14 @@ namespace game
             uint32_t diedAt = 0;
             uint8_t pile = 0;
             uint32_t nextBodyLook = 0;
-            float bodyX = 0, bodyY = 0, bodyZ = 0;
+            float bodyX = 0, bodyY = 0, bodyZ = 0, bodyHeading = 0;
         };
         struct Body
         {
             coop::BodyPlacer placer;
             coop::BodyFollower follower;
-            bool following = false, cantPull = false;
+            bool following = false, saidPull = false, saidNoPull = false;
+            uint32_t nextPullTry = 0;
             uint32_t followFrames = 0;
             float followOffSum = 0, followOffMost = 0;
             double followMs = 0;
