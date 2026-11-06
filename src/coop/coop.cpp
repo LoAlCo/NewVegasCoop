@@ -2847,12 +2847,13 @@ namespace coop
             m_net->Send(1, EncodeContainerView(hostRef), true);
     }
 
-    std::vector<ItemCount> Coop::LookAtContainer(const std::vector<ItemCount>& local)
+    std::vector<ItemCount> Coop::LookAtContainer(const std::vector<ItemCount>& local,
+        const std::vector<ItemCount>& playerChange)
     {
         if (m_role != Role::Friend || !InGame())
             return {};
         std::vector<ContainerChange> changes;
-        std::vector<ItemCount> fixes = m_friendContainer.Look(local, changes);
+        std::vector<ItemCount> fixes = m_friendContainer.Look(local, changes, playerChange);
         SendContainerChanges(changes);
         return fixes;
     }

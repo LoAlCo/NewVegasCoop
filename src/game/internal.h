@@ -184,6 +184,7 @@ namespace game
     extern Script* g_addItem;
     extern Script* g_activate;
     extern Script* g_refreshItems;
+    extern Script* g_refreshLootWindows;
     extern Script* g_loadOrder;
     extern Script* g_objectiveShown;
     extern Script* g_objectiveDone;
