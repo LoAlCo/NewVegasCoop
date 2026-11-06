@@ -5129,8 +5129,8 @@ TEST(close_and_far_off_bodies_are_not_eased)
     CHECK(!nearEnough.Look(1000, host, {coop::kBodyEaseStart, 0, 0}));
     CHECK(!nearEnough.Look(after, host, {coop::kBodyEaseStart, 0, 0}));
     CHECK(nearEnough.Done());
-    CHECK(!farOff.Look(1000, host, {coop::kBodyFarOff + 1, 0, 0}));
-    CHECK(!farOff.Look(after, host, {coop::kBodyFarOff + 1, 0, 0}));
+    CHECK(!farOff.Look(1000, host, {coop::kBodyEaseFarOff + 1, 0, 0}));
+    CHECK(!farOff.Look(after, host, {coop::kBodyEaseFarOff + 1, 0, 0}));
     CHECK(farOff.Done());
 }
 
@@ -5181,6 +5181,49 @@ TEST(a_rested_body_of_ours_that_moves_is_told_to_the_host)
     CHECK(r.Look(t, {100, 0, 0}, false, false));
 }
 
+TEST(a_body_hit_again_and_again_keeps_being_told_to_the_host)
+{
+    coop::BodyReporter r;
+    uint32_t t = 1000;
+    for (; t <= 1000 + coop::kBodySettleMs; t += 200)
+        CHECK(!r.Look(t, {0, 0, 0}, false, false));
+    float x = 100;
+    for (int blast = 0; blast < 4; ++blast)
+    {
+        for (int step = 0; step < 5; ++step, t += 200, x += 100)
+            CHECK(r.Look(t, {x, 0, 0}, false, false));
+        // It lies still for a moment, not long enough to have settled, and the next blast still counts.
+        t += coop::kBodyFollowEndMs;
+        CHECK(!r.Look(t, {x - 100, 0, 0}, false, false));
+        t += 200;
+    }
+}
+
+TEST(a_body_far_off_but_in_reach_is_eased_rather_than_jumped)
+{
+    coop::BodyEaser e;
+    coop::BodySpot host{0, 0, 0}, ours{coop::kBodyFarOff * 3, 0, 0};
+    CHECK(!e.Look(1000, host, ours));
+    CHECK(e.Look(1000 + coop::kBodyEaseAfterMs, host, ours));
+}
+
+TEST(body_limb_messages_read_back)
+{
+    Bytes b = Encode(net::BodyLimbs{0x00146338, 0x04AB});
+    Reader r(b);
+    MsgType t;
+    net::BodyLimbs m;
+    CHECK(r.Type(t) && t == MsgType::BodyLimbs && Decode(r, m));
+    CHECK(m.ref == 0x00146338 && m.limbs == 0x04AB);
+    // Nothing lost would mean a plain kill on the host.
+    Bytes none = Encode(net::BodyLimbs{0x00146338, 0});
+    Reader rn(none);
+    CHECK(rn.Type(t) && !Decode(rn, m));
+    Bytes wild = Encode(net::BodyLimbs{0x00146338, 0x8000});
+    Reader rw(wild);
+    CHECK(rw.Type(t) && !Decode(rw, m));
+}
+
 TEST(a_body_falling_from_its_death_is_not_told_to_the_host)
 {
     coop::BodyReporter r;
@@ -5214,8 +5257,8 @@ TEST(the_host_glides_between_a_visitors_updates)
     CHECK(c.Target(1300).x == 50);
     CHECK(c.Target(1400).x == 100);
     CHECK(c.Target(1700).x == 100);
-    CHECK(!c.Done(1200 + coop::kBodyFollowEndMs - 1));
-    CHECK(c.Done(1200 + coop::kBodyFollowEndMs));
+    CHECK(!c.Done(1200 + coop::kBodyChaseHoldMs - 1));
+    CHECK(c.Done(1200 + coop::kBodyChaseHoldMs));
     // Heard again after it ended: it starts from there, with no sweep across the old gap.
     c.Heard(5000, {900, 0, 0});
     CHECK(c.Target(5000).x == 900);

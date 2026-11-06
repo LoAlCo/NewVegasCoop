@@ -97,12 +97,14 @@ namespace coop
 
     // Once a body has landed, a smaller difference than BodyPlacer's is eased away once, by the same steering as a
     // drag: the torso ends up in the same general spot and the limbs land as they like. After that, only a move on the
-    // host does anything, so bodies lying still cost nothing. Far-off bodies are left to BodyPlacer.
+    // host does anything, so bodies lying still cost nothing. Only a body very far off, which can't be sliding
+    // anywhere sensible, is left to BodyPlacer.
     constexpr uint32_t kBodyEaseAfterMs = 1000;
     constexpr uint32_t kBodyEaseMaxMs = 3000;
     constexpr uint32_t kBodyEaseWaitMaxMs = 15000;
     constexpr float kBodyEaseStart = 30;
     constexpr float kBodyEaseStop = 16;
+    constexpr float kBodyEaseFarOff = 1000;
 
     class BodyEaser
     {
@@ -137,7 +139,7 @@ namespace coop
                 m_done = true;
             else if (now - m_stillSince >= kBodyEaseAfterMs)
             {
-                m_done = off <= kBodyEaseStart || off > kBodyFarOff;
+                m_done = off <= kBodyEaseStart || off > kBodyEaseFarOff;
                 m_easing = !m_done;
                 m_easingSince = now;
             }
@@ -153,6 +155,11 @@ namespace coop
         BodySpot m_host, m_ours;
         uint32_t m_firstSeen = 0, m_stillSince = 0, m_easingSince = 0;
     };
+
+    // After telling the host where a body is, its copy moving is only it doing as we said, for this long.
+    constexpr uint32_t kBodyEchoMs = 2000;
+    // How long the host keeps pulling after a visitor's last word: a body thrown far needs time to get there.
+    constexpr uint32_t kBodyChaseHoldMs = 2500;
 
     // On a visitor: should the host hear where our copy of a body is? While our player carries it, and when it moves
     // on its own after coming to rest (a blast of ours, a bump). Not when we're the ones moving it to match the host,
@@ -213,7 +220,7 @@ namespace coop
                 m_from.z + (m_to.z - m_from.z) * t};
         }
 
-        bool Done(uint32_t now) const { return !m_heard || now - m_at >= kBodyFollowEndMs; }
+        bool Done(uint32_t now) const { return !m_heard || now - m_at >= kBodyChaseHoldMs; }
 
     private:
         bool m_heard = false;

@@ -744,6 +744,19 @@ namespace net
         return r.U32(m.ref) && IsSharedRef(m.ref) && r.F32(m.x) && r.F32(m.y) && r.F32(m.z) && r.AtEnd();
     }
 
+    Bytes Encode(const BodyLimbs& m)
+    {
+        Writer w(MsgType::BodyLimbs);
+        w.U32(m.ref);
+        w.U16(m.limbs);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, BodyLimbs& m)
+    {
+        return r.U32(m.ref) && IsSharedRef(m.ref) && r.U16(m.limbs) && m.limbs != 0 && m.limbs < 0x8000 && r.AtEnd();
+    }
+
     Bytes Encode(const ItemMoves& m)
     {
         Writer w(MsgType::ItemMoves);

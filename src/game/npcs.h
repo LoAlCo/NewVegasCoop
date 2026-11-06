@@ -36,6 +36,12 @@ namespace game
         // On the host: steer bodies friends are moving. Every frame.
         void FollowFriendsBodies(coop::Coop& coop, uint32_t now);
         // On a visitor: where the bodies we moved went, to tell the host.
+        std::vector<net::BodyLimbs> TakeBodyLimbs()
+        {
+            std::vector<net::BodyLimbs> out;
+            out.swap(m_bodyLimbs);
+            return out;
+        }
         std::vector<net::BodyMove> TakeBodyReports()
         {
             std::vector<net::BodyMove> out;
@@ -100,6 +106,9 @@ namespace game
             coop::BodyReporter reporter;
             bool reporting = false;
             uint32_t nextReport = 0;
+            uint32_t echoUntil = 0;
+            uint32_t nextLimbLook = 0;
+            uint16_t toldLimbs = 0;
             bool easing = false;
             bool following = false, saidPull = false, saidNoPull = false;
             uint32_t nextPullTry = 0;
@@ -115,6 +124,7 @@ namespace game
         uint32_t m_bodiesMoved = 0;
         uint32_t m_bodiesPulled = 0;
         std::vector<net::BodyMove> m_bodyReports;
+        std::vector<net::BodyLimbs> m_bodyLimbs;
         std::map<uint32_t, coop::BodyChase> m_friendsBodies;
         static inline bool s_smoothBodies = true;
         struct Made

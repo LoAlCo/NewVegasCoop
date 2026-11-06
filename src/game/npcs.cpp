@@ -423,7 +423,10 @@ namespace game
                 }
                 else if (killed != m_killed.end() && (npc.limbs & ~killed->second.limbs))
                 {
-                    Kill(actor, npc.limbs & ~killed->second.limbs);
+                    // Limbs it lost here first come back from the host once it has taken them off too.
+                    uint16_t left = npc.limbs & ~killed->second.limbs & ~LimbsGone(actor);
+                    if (left)
+                        Kill(actor, left);
                     killed->second.limbs |= npc.limbs;
                 }
                 if (it != m_entries.end())
@@ -644,6 +647,10 @@ namespace game
             return;
         coop::BodySpot target{blended.x, blended.y, blended.z}, ours;
         bool following = b.follower.Look(now, target);
+        // The host's copy moving right after we told it where the body is, is only it doing as we said. Taken for the
+        // host moving it, it would stop our telling mid-flight and pull ours back to where theirs had got to.
+        if (b.reporting || !coop::IsDue(now, b.echoUntil))
+            following = false;
         if (following != b.following)
         {
             b.following = following;
@@ -679,7 +686,22 @@ namespace game
                         Name(actor), ref, reporting ? (held ? "our player carries" : "moved here") : "stopped");
                 }
                 if (reporting)
+                {
+                    b.echoUntil = now + coop::kBodyEchoMs;
                     m_bodyReports.push_back({ref, mine.x, mine.y, mine.z});
+                }
+                if (coop::IsDue(now, b.nextLimbLook))
+                {
+                    // A blast of ours can tear it apart in our game alone.
+                    b.nextLimbLook = now + 1000;
+                    uint16_t ours = LimbsGone(actor) & ~npc.limbs & ~b.toldLimbs;
+                    if (ours)
+                    {
+                        b.toldLimbs |= ours;
+                        m_bodyLimbs.push_back({ref, ours});
+                        LOG_INFO("NPCs: the body of %s (%08X) lost limbs %04X here; telling the host", Name(actor), ref, ours);
+                    }
+                }
             }
         }
         if ((!following && b.easer.Done() && !b.easing) || !coop::IsDue(now, b.nextPullTry) ||
@@ -728,6 +750,18 @@ namespace game
 
     void Npcs::FollowFriendsBodies(coop::Coop& coop, uint32_t now)
     {
+        for (const net::BodyLimbs& m : coop.TakeBodyLimbs())
+        {
+            TESObjectREFR* actor = LookupRef(m.ref);
+            if (!actor || !IsActor(actor) || !IsDead(actor) || !Is3DLoaded(actor))
+                continue;
+            uint16_t left = m.limbs & ~LimbsGone(actor);
+            if (!left)
+                continue;
+            Kill(actor, left);
+            LOG_INFO("NPCs: the body of %s (%08X) lost limbs %04X in a friend's game; taking them off here", Name(actor),
+                m.ref, left);
+        }
         std::vector<net::BodyMove> moves = coop.TakeBodyMoves();
         if (!s_smoothBodies)
             return;

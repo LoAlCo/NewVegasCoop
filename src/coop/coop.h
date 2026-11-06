@@ -250,6 +250,13 @@ namespace coop
         struct ItemMoveFrom { uint8_t playerId; net::ItemMove move; };
         std::vector<ItemMoveFrom> TakeItemMoves() { return std::move(m_itemMoves); }
         void ReportBodyMove(const net::BodyMove& m);
+        void ReportBodyLimbs(const net::BodyLimbs& m);
+        std::vector<net::BodyLimbs> TakeBodyLimbs()
+        {
+            std::vector<net::BodyLimbs> out;
+            out.swap(m_bodyLimbs);
+            return out;
+        }
         std::vector<net::BodyMove> TakeBodyMoves()
         {
             std::vector<net::BodyMove> out;
@@ -455,6 +462,7 @@ namespace coop
         std::vector<ItemDropFrom> m_itemDrops;
         std::vector<ItemMoveFrom> m_itemMoves;
         std::vector<net::BodyMove> m_bodyMoves;
+        std::vector<net::BodyLimbs> m_bodyLimbs;
         std::map<uint32_t, uint32_t> m_lastMoveSent;
         DesyncTracker m_desyncs;
         std::vector<net::CompanionState> m_myCompanions;
