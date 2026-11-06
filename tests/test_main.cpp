@@ -1758,6 +1758,61 @@ TEST(friend_container_counts_a_take_the_player_gained_with_no_menu_seen)
     CHECK(changes.empty());
 }
 
+TEST(only_the_watched_containers_items_are_counted_on_the_player)
+{
+    const uint32_t gun = 0x15169, ammo = 0x103B1B, caps = 0xF;
+    const std::vector<ItemCount> body{{gun, 1, 80, 0}, {gun, 2, 40, 0}, {ammo, 5}};
+
+    // One count per item, whatever its stacks: it's what's on the body that's counted, and nothing else.
+    CHECK((coop::FormsToCount({}, body) == std::vector<uint32_t>{gun, ammo} ||
+        coop::FormsToCount({}, body) == std::vector<uint32_t>{ammo, gun}));
+    CHECK(coop::FormsToCount({}, {}).empty());
+
+    // What left the body since the last look is still counted, or a take of its last one would go unseen.
+    const std::vector<ItemCount> noGun{{ammo, 5}};
+    const coop::FormCounts before{{gun, 0}, {ammo, 10}};
+    CHECK(coop::FormsToCount(before, noGun).size() == 2);
+
+    coop::FormCounts now{{gun, 1}, {ammo, 10}};
+    auto changes = coop::CountChanges(before, now);
+    CHECK(changes.size() == 1 && changes[0].item == gun && changes[0].count == 1);
+    CHECK(coop::CountChanges(now, now).empty());
+
+    // Something the last look didn't know about isn't a change, and one it can't count now is down to none.
+    now[caps] = 50;
+    CHECK(coop::CountChanges(before, now).size() == 1);
+    changes = coop::CountChanges(before, {{gun, 0}});
+    CHECK(changes.size() == 1 && changes[0].item == ammo && changes[0].count == -10);
+
+    // Only what's on the container now is carried over to the next look.
+    auto kept = coop::CountsToKeep(now, noGun);
+    CHECK(kept.size() == 1 && kept.at(ammo) == 10);
+    CHECK(coop::CountsToKeep({}, noGun).at(ammo) == 0);
+}
+
+TEST(a_take_seen_through_counts_on_the_player_reaches_the_host)
+{
+    const uint32_t gun = 0x15169, ammo = 0x103B1B;
+    coop::FriendContainer body;
+    std::vector<ContainerChange> changes;
+    const std::vector<ItemCount> full{{gun, 1, 80, 0}, {ammo, 5}};
+    body.View(0x1062A9, false);
+    coop::FormCounts mine = coop::CountsToKeep({{gun, 3}, {ammo, 20}}, full);
+    body.Look(full, changes, coop::CountChanges({}, mine));
+    CHECK(changes.empty());
+
+    const std::vector<ItemCount> left{{ammo, 5}};
+    const coop::FormCounts now{{gun, 4}, {ammo, 20}};
+    body.Look(left, changes, coop::CountChanges(mine, now));
+    CHECK((changes.size() == 1 && changes[0].change == ItemCount{gun, -1, 80, 0}));
+    changes.clear();
+
+    // The player gaining something the body has, with the body unchanged, sends nothing.
+    mine = coop::CountsToKeep(now, left);
+    body.Look(left, changes, coop::CountChanges(mine, {{ammo, 30}}));
+    CHECK(changes.empty());
+}
+
 TEST(friend_container_keeps_the_hosts_old_list_from_undoing_a_gained_take)
 {
     const uint32_t gun = 0x15169;

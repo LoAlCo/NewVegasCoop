@@ -33,6 +33,47 @@ namespace coop
         return static_cast<int32_t>(total);
     }
 
+    std::vector<uint32_t> FormsToCount(const FormCounts& before, const std::vector<net::ItemCount>& local)
+    {
+        FormCounts forms = before;
+        for (const net::ItemCount& i : local)
+            forms[i.item];
+        std::vector<uint32_t> out;
+        out.reserve(forms.size());
+        for (const auto& [form, count] : forms)
+            out.push_back(form);
+        return out;
+    }
+
+    std::vector<net::ItemCount> CountChanges(const FormCounts& before, const FormCounts& now)
+    {
+        std::vector<net::ItemCount> out;
+        for (const auto& [form, was] : before)
+        {
+            auto is = now.find(form);
+            int32_t count = is == now.end() ? 0 : is->second;
+            if (count != was)
+            {
+                net::ItemCount change;
+                change.item = form;
+                change.count = count - was;
+                out.push_back(change);
+            }
+        }
+        return out;
+    }
+
+    FormCounts CountsToKeep(const FormCounts& now, const std::vector<net::ItemCount>& local)
+    {
+        FormCounts keep;
+        for (const net::ItemCount& i : local)
+        {
+            auto is = now.find(i.item);
+            keep[i.item] = is == now.end() ? 0 : is->second;
+        }
+        return keep;
+    }
+
     ContainerTake PlanContainerTake(const std::vector<net::ItemCount>& have, const net::ItemCount& want)
     {
         ContainerTake plan;
