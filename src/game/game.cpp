@@ -3576,16 +3576,19 @@ namespace game
             return nullptr;
         }
 
-        // A body is shared, compared and steered at one bone, so both games talk about the same point: the middle of
-        // the torso, with a physics body on it and on both sides of it. Not every skeleton has it (radscorpions,
-        // robots), so go on to whatever else is near the middle, and at last to the first bone with a physics body.
+        // A body is shared, compared and steered at one bone, so both games talk about the same point: the chest, so
+        // the upper body leads and the hips and legs trail. Not every skeleton has it (radscorpions, robots), so go on
+        // down the torso, and at last to the first bone with a physics body. Skeleton mods put control nodes between
+        // the bones (one puts Bip01 Spine2 13 levels below the root, not the usual 6), so look deep.
         const char* BoneWithBody(const char* root)
         {
-            for (const char* name : {"Bip01 Spine1", "Bip01 Spine2", "Bip01 Spine", "Bip01 NonAccum", "Bip01 Pelvis",
+            constexpr int kBoneDepth = 24;
+            for (const char* name : {"Bip01 Spine2", "Bip01 Spine1", "Bip01 Spine", "Bip01 NonAccum", "Bip01 Pelvis",
                      "Bip01"})
-                if (const char* bone = FindNode(root, name, 6); bone && At<const char*>(bone, layout::kNiCollisionObject))
+                if (const char* bone = FindNode(root, name, kBoneDepth);
+                    bone && At<const char*>(bone, layout::kNiCollisionObject))
                     return bone;
-            return FirstWithCollision(root, 8);
+            return FirstWithCollision(root, kBoneDepth);
         }
     }
 
