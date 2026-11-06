@@ -1659,6 +1659,207 @@ TEST(friend_container_is_matched_while_only_aimed_at)
     CHECK((changes.size() == 1 && changes[0].change == ItemCount{0x15169, -1}));
 }
 
+TEST(friend_container_reports_what_was_taken_as_the_menu_shut)
+{
+    coop::FriendContainer body;
+    std::vector<ContainerChange> changes;
+    const std::vector<ItemCount> full{{0x15169, 3}, {0x103B1B, 5}};
+    CHECK(body.View(0x1062A9, false));
+    CHECK(body.Look(full, changes).empty());
+    CHECK(!body.View(0x1062A9, true));
+    CHECK(body.Look(full, changes).empty() && changes.empty());
+
+    // Take All: everything goes and the menu is shut before the next look.
+    CHECK(!body.View(0x1062A9, false));
+    CHECK(body.Look({}, changes).empty());
+    CHECK(changes.size() == 2);
+    int32_t took = 0;
+    for (const ContainerChange& c : changes)
+    {
+        CHECK(c.ref == 0x1062A9 && c.change.count < 0);
+        took -= c.change.count;
+    }
+    CHECK(took == 8);
+    if (changes.empty())
+        return;
+    uint32_t lastSeq = changes.back().seq;
+    changes.clear();
+
+    // Only that one look counts: after it, changes while just aiming at the body aren't the player's.
+    const std::vector<ItemCount> other{{0x15169, 1}};
+    CHECK(body.Look(other, changes).empty() && changes.empty());
+    CHECK(body.Look({}, changes).empty() && changes.empty());
+
+    // The host's reply from before it heard about the loot can't put the items back; its next one matches.
+    body.Heard({0x1062A9, lastSeq - 1, full});
+    CHECK(body.Look({}, changes).empty() && changes.empty());
+    body.Heard({0x1062A9, lastSeq, {}});
+    CHECK(body.Look({}, changes).empty() && changes.empty());
+}
+
+TEST(friend_container_menu_opened_and_shut_between_looks_still_counts)
+{
+    coop::FriendContainer body;
+    std::vector<ContainerChange> changes;
+    const std::vector<ItemCount> full{{0x15169, 3}};
+    body.View(0x1062A9, false);
+    body.Look(full, changes);
+    body.View(0x1062A9, true);
+    body.View(0x1062A9, false);
+    body.Look({}, changes);
+    CHECK((changes.size() == 1 && changes[0].change == ItemCount{0x15169, -3}));
+}
+
+TEST(friend_container_closing_doesnt_carry_over_to_another_container)
+{
+    coop::FriendContainer box;
+    std::vector<ContainerChange> changes;
+    box.View(0x1062A9, true);
+    box.Look({{0x15169, 3}}, changes);
+    box.View(0x1062A9, false);
+    CHECK(box.View(0x1062AA, false));
+    box.Look({{0x15169, 3}}, changes);
+    box.Look({}, changes);
+    CHECK(changes.empty());
+}
+
+TEST(friend_container_counts_a_take_the_player_gained_with_no_menu_seen)
+{
+    const uint32_t gun = 0x15169, ammo = 0x103B1B;
+    coop::FriendContainer body;
+    std::vector<ContainerChange> changes;
+    const std::vector<ItemCount> full{{gun, 1, 80, 0}, {ammo, 5}};
+    body.View(0x1062A9, false);
+    body.Look(full, changes);
+
+    // The player's copy can read a different condition: it's the same item leaving the body.
+    const std::vector<ItemCount> noGun{{ammo, 5}};
+    body.Look(noGun, changes, {{gun, 1, 79, 0}});
+    CHECK((changes.size() == 1 && changes[0].change == ItemCount{gun, -1, 80, 0}));
+    changes.clear();
+
+    // The game changing its copy of the body on its own isn't the player's doing, nor is an item gained elsewhere.
+    body.Look({}, changes, {{gun, 3}});
+    CHECK(changes.empty());
+    body.Settle(noGun);
+
+    // Only as many as the player really gained count.
+    const std::vector<ItemCount> twoLeft{{ammo, 2}};
+    body.Look(twoLeft, changes, {{ammo, 1}});
+    CHECK((changes.size() == 1 && changes[0].change == ItemCount{ammo, -1}));
+    changes.clear();
+
+    // Putting something in works the same way, and without the player losing it, it doesn't count.
+    const std::vector<ItemCount> four{{ammo, 4}}, nine{{ammo, 9}};
+    body.Look(four, changes, {{ammo, -2}});
+    CHECK((changes.size() == 1 && changes[0].change == ItemCount{ammo, 2}));
+    changes.clear();
+    body.Look(nine, changes, {{ammo, 5}});
+    CHECK(changes.empty());
+}
+
+TEST(friend_container_keeps_the_hosts_old_list_from_undoing_a_gained_take)
+{
+    const uint32_t gun = 0x15169;
+    coop::FriendContainer body;
+    std::vector<ContainerChange> changes;
+    const std::vector<ItemCount> two{{gun, 2}};
+    body.View(0x1062A9, false);
+    body.Look(two, changes);
+    body.Look({}, changes, two);
+    CHECK(changes.size() == 1);
+    if (changes.empty())
+        return;
+    uint32_t seq = changes[0].seq;
+    body.Heard({0x1062A9, seq - 1, two});
+    CHECK(body.Look({}, changes).empty());
+    body.Heard({0x1062A9, seq, {}});
+    CHECK(body.Look({}, changes).empty());
+}
+
+TEST(host_plans_a_take_from_what_the_container_really_has)
+{
+    const uint32_t gun = 0x15169, ammo = 0x103B1B;
+    const std::vector<ItemCount> body{{ammo, 10}, {gun, 1, 40, 0}, {gun, 2, 80, 0}};
+
+    auto exact = coop::PlanContainerTake(body, {gun, -1, 80, 0});
+    CHECK((exact.taken == 1 && exact.missing == 0 && exact.removes == (std::vector<ItemCount>{{gun, -1, 80, 0}})));
+
+    auto partial = coop::PlanContainerTake(body, {ammo, -25});
+    CHECK((partial.taken == 10 && partial.missing == 15 && partial.removes == (std::vector<ItemCount>{{ammo, -10}})));
+
+    // Their copy read a different condition: the body still loses one, and nobody is told it was gone.
+    auto otherKind = coop::PlanContainerTake(body, {gun, -1, 41, 0});
+    CHECK((otherKind.taken == 1 && otherKind.missing == 0 &&
+        otherKind.removes == (std::vector<ItemCount>{{gun, -1, 40, 0}})));
+
+    auto spills = coop::PlanContainerTake(body, {gun, -3, 80, 0});
+    CHECK((spills.taken == 3 && spills.missing == 0 &&
+        spills.removes == (std::vector<ItemCount>{{gun, -2, 80, 0}, {gun, -1, 40, 0}})));
+
+    auto none = coop::PlanContainerTake(body, {0x999, -2});
+    CHECK(none.taken == 0 && none.missing == 2 && none.removes.empty());
+
+    // Two players taking the same thing: the second finds it gone and gets the refund.
+    std::vector<ItemCount> left{{gun, 1, 80, 0}};
+    auto first = coop::PlanContainerTake(left, {gun, -1, 80, 0});
+    CHECK(first.taken == 1 && first.missing == 0);
+    left.clear();
+    auto second = coop::PlanContainerTake(left, {gun, -1, 80, 0});
+    CHECK(second.taken == 0 && second.missing == 1);
+
+    CHECK(coop::TotalOf(body, gun) == 3 && coop::TotalOf(body, ammo) == 10 && coop::TotalOf(body, 0x999) == 0);
+}
+
+TEST(take_all_reaches_the_host_and_the_body_stays_empty)
+{
+    coop::Coop host, buddy;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(buddy.Join("127.0.0.1", kTestPort, "Buddy"));
+    CHECK((RunUntil({&host, &buddy}, [&] { return buddy.GetFriendState() == coop::FriendState::Joined; })));
+
+    const uint32_t body = 0x1062A9;
+    const std::vector<ItemCount> hostHas{{0x15169, 3}};
+    auto nothingPutBack = [&] {
+        RunUntil({&host, &buddy}, [&] { CHECK(buddy.LookAtContainer({}).empty()); return false; }, 150);
+    };
+    buddy.ViewContainer(body, false);
+    CHECK((RunUntil({&host, &buddy}, [&] { return host.ViewedContainers() == std::vector<uint32_t>{body}; })));
+    host.SetContainerContents(body, hostHas);
+    RunUntil({&host, &buddy}, [&] { CHECK(buddy.LookAtContainer(hostHas).empty()); return false; }, 100);
+    buddy.ViewContainer(body, true);
+    buddy.LookAtContainer(hostHas);
+
+    buddy.ViewContainer(body, false);
+    buddy.LookAtContainer({});
+    std::vector<coop::Coop::ItemChangeFrom> asked;
+    CHECK((RunUntil({&host, &buddy}, [&] {
+        for (auto& c : host.TakeContainerChanges())
+            asked.push_back(c);
+        return !asked.empty();
+    })));
+    CHECK((asked.size() == 1 && asked[0].change.ref == body && asked[0].change.change == ItemCount{0x15169, -3}));
+    if (asked.empty())
+    {
+        buddy.Stop();
+        host.Stop();
+        return;
+    }
+    host.ContainerChangeDone(asked[0].playerId, asked[0].change.seq, {0x15169, 0});
+    host.SetContainerContents(body, {});
+    nothingPutBack();
+
+    buddy.ViewContainer(0);
+    CHECK((RunUntil({&host, &buddy}, [&] { return host.ViewedContainers().empty(); })));
+    buddy.ViewContainer(body, false);
+    CHECK((RunUntil({&host, &buddy}, [&] { return host.ViewedContainers() == std::vector<uint32_t>{body}; })));
+    host.SetContainerContents(body, {});
+    nothingPutBack();
+    CHECK(buddy.TakeItemRefunds().empty());
+    buddy.Stop();
+    host.Stop();
+}
+
 TEST(container_changes_reach_the_host_and_contents_reach_the_friend)
 {
     coop::Coop host, buddy;
@@ -5005,6 +5206,30 @@ TEST(the_host_tells_friends_when_enemies_fight_them)
     CHECK(!a.HostSaysFighting());
     b2.Stop();
     host.Stop();
+}
+
+TEST(an_item_leaves_the_games_list_without_breaking_it)
+{
+    int a, b, c, other;
+    coop::ItemNode third{&c, nullptr}, second{&b, &third}, head{&a, &second};
+    CHECK(!coop::RemoveFromList(&head, &other));
+    CHECK(coop::RemoveFromList(&head, &b));
+    CHECK(head.item == &a && head.next == &second && second.item == &c && second.next == nullptr);
+    CHECK(coop::RemoveFromList(&head, &c));
+    CHECK(head.item == &a && head.next == nullptr);
+    CHECK(coop::RemoveFromList(&head, &a));
+    CHECK(head.item == nullptr && head.next == nullptr);
+    CHECK(!coop::RemoveFromList(&head, &a));
+
+    // Taking out the first of several keeps the first node, which belongs to whatever owns the list.
+    coop::ItemNode two{&b, nullptr}, one{&a, &two};
+    CHECK(coop::RemoveFromList(&one, &a));
+    CHECK(one.item == &b && one.next == nullptr);
+
+    CHECK(!coop::RemoveFromList(nullptr, &a));
+    coop::ItemNode broken{&a, nullptr};
+    broken.next = &broken;
+    CHECK(!coop::RemoveFromList(&broken, &other));
 }
 
 TEST(a_stack_merged_away_is_seen_gone)

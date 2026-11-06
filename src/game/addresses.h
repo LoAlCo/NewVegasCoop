@@ -306,6 +306,8 @@ namespace game::layout
     constexpr uint32_t kHudSubtitleShown = 0x1A8;
     constexpr uint32_t kSubtitleShowFor = 0x108;
     constexpr uint8_t kExtraCount = 0x24;
+    constexpr uint8_t kExtraDroppedItems = 0x3A;
+    constexpr uint32_t kDroppedItemsList = 0x0C;
     constexpr uint32_t kCountValue = 0x0C;
     constexpr uint8_t kExtraWeaponModFlags = 0x8D;
     constexpr uint32_t kWeaponModFlagsValue = 0x0C;
