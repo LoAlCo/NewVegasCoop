@@ -236,7 +236,7 @@ namespace game
         }
     }
 
-    void Puppet::Attack(TESObjectREFR* actor, uint8_t shots, bool release)
+    void Puppet::Attack(TESObjectREFR* actor, uint8_t shots, bool release, bool paths)
     {
         if (!actor)
             return;
@@ -251,10 +251,9 @@ namespace game
             LOG_DEBUG("%s: didn't attack (%u shots): its weapon isn't out", m_who.c_str(), shots);
             return;
         }
-        bool waitForPaths = FiresAlongPaths(m_worn);
-        PlayAttack(actor, m_worn, shots, !waitForPaths);
-        if (waitForPaths)
-            m_shotPaths.Attacked(shots, GetTickCount());
+        PlayAttack(actor, m_worn, shots, !paths);
+        if (paths)
+            m_shotPaths.Attacked(shots, GetTickCount(), ShotPathWaitMs(m_worn));
         LOG_DEBUG("%s attacks (%u shots)", m_who.c_str(), shots);
     }
 
@@ -262,7 +261,7 @@ namespace game
     {
         if (!actor)
             return;
-        m_shotPaths.PathCame(GetTickCount());
+        m_shotPaths.PathCame(GetTickCount(), !path.mustArrive);
         bool weaponOut = (StanceFlags(actor) & coop::Pose::kWeaponOut) != 0;
         if (!game::FireAlong(actor, m_worn, path, weaponOut))
             LOG_DEBUG("%s: couldn't fire along its path (%08X from %.0f, %.0f, %.0f)", m_who.c_str(), path.projectile,

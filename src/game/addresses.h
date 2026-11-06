@@ -112,6 +112,8 @@ namespace game::addr
     constexpr uintptr_t kMissileSpawned = 0x009B7CC0;
     constexpr uintptr_t kGrenadeSpawnedSlot = 0x0108F97C;
     constexpr uintptr_t kGrenadeSpawned = 0x009B40D0;
+    constexpr uintptr_t kBeamSpawnedSlot = 0x0108C6CC;
+    constexpr uintptr_t kBeamSpawned = 0x00979280;
     constexpr uint32_t kProjectileSpeedMult = 0xD0;
     constexpr uint32_t kProjectileWeapon = 0xF8;
     constexpr uint32_t kProjectileSource = 0xFC;

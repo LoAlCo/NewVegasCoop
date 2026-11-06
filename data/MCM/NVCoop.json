@@ -282,6 +282,23 @@
 						}
 					]
 				},
+				"32": {
+					"title": "Your Shots Fly the Same Path for Friends",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Friends' copies of your shots follow your real shots. Off: they fly from your character's aim, as they used to",
+					"vars": [
+						{
+							"configINI": "Settings:bShotPaths",
+							"default": 1
+						}
+					]
+				},
+				"31": {
+					"title": "Testing",
+					"enable": 1,
+					"type": 0
+				},
 				"22": {
 					"title": "Desync Notices",
 					"type": 5,

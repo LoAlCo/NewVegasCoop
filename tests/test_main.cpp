@@ -681,7 +681,16 @@ TEST(attacks_reach_everyone_else)
     CHECK(r2.Type(t) && !Decode(r2, m));
     Bytes ok = Encode(net::Attack{2, 3});
     Reader r3(ok);
-    CHECK(r3.Type(t) && Decode(r3, m) && m.playerId == 2 && m.shots == 3);
+    CHECK(r3.Type(t) && Decode(r3, m) && m.playerId == 2 && m.shots == 3 && !m.paths && !m.release);
+    Bytes withPaths = Encode(net::Attack{2, 3, false, true});
+    Reader r4(withPaths);
+    CHECK(r4.Type(t) && Decode(r4, m) && m.shots == 3 && m.paths && !m.release);
+    Bytes released = Encode(net::Attack{2, 0, true, true});
+    Reader r5(released);
+    CHECK(r5.Type(t) && Decode(r5, m) && m.release && !m.paths);
+    Bytes badFlags = {static_cast<uint8_t>(MsgType::Attack), 2, 3, 3};
+    Reader r6(badFlags);
+    CHECK(r6.Type(t) && !Decode(r6, m));
 
     coop::Coop host, a, b;
     CHECK(host.Host(kTestPort, "Host"));
@@ -768,18 +777,32 @@ TEST(shot_paths_round_trip_and_checks)
 {
     MsgType t;
     net::ShotPath p;
-    Bytes ok = Encode(net::ShotPath{2, 0x1BB6, -70868.f, 2014.f, 8366.f, 0.25f, 3.5f, 1.5f});
+    auto close = [](float a, float b) { return std::fabs(a - b) < 0.0002f; };
+    Bytes plain = Encode(net::ShotPath{2, 0, -70868.f, 2014.f, 8366.f, 0.25f, 3.0f});
+    CHECK(plain.size() == 19);
+    Reader r0(plain);
+    CHECK(r0.Type(t) && t == MsgType::ShotPath && Decode(r0, p) && p.playerId == 2 && p.projectile == 0 &&
+        p.x == -70868.f && p.y == 2014.f && p.z == 8366.f && close(p.rotX, 0.25f) && close(p.rotZ, 3.0f) &&
+        p.speedMult == 1 && p.pellets == 1 && p.spread == 0);
+    Bytes wrapped = Encode(net::ShotPath{2, 0, 0, 0, 0, 0, 6.2f});
+    Reader rw(wrapped);
+    CHECK(rw.Type(t) && Decode(rw, p) && close(p.rotZ, 6.2f - 6.2831853f));
+    Bytes ok = Encode(net::ShotPath{2, 0x1BB6, 1, 2, 3, 0.25f, 3.0f, 1.5f, 7, 0.04f});
+    CHECK(ok.size() == 19 + 4 + 4 + 2);
     Reader r1(ok);
-    CHECK(r1.Type(t) && t == MsgType::ShotPath && Decode(r1, p) && p.playerId == 2 && p.projectile == 0x1BB6 &&
-        p.x == -70868.f && p.y == 2014.f && p.z == 8366.f && p.rotX == 0.25f && p.rotZ == 3.5f && p.speedMult == 1.5f);
-    for (net::ShotPath bad : {net::ShotPath{2, 0}, net::ShotPath{2, 0xFF001343}, net::ShotPath{2, 0x1BB6, 1e9f},
-             net::ShotPath{2, 0x1BB6, 0, 0, 0, 200.f}, net::ShotPath{2, 0x1BB6, 0, 0, 0, 0, -200.f},
-             net::ShotPath{2, 0x1BB6, 0, 0, 0, 0, 0, 0.f}, net::ShotPath{2, 0x1BB6, 0, 0, 0, 0, 0, 500.f}})
+    CHECK(r1.Type(t) && Decode(r1, p) && p.projectile == 0x1BB6 && p.speedMult == 1.5f && p.pellets == 7 && close(p.spread, 0.04f));
+    for (net::ShotPath bad : {net::ShotPath{2, 0xFF001343}, net::ShotPath{2, 0x1BB6, 1e9f},
+             net::ShotPath{2, 0x1BB6, 0, 0, 0, 0, 0, 500.f}, net::ShotPath{2, 0x1BB6, 0, 0, 0, 0, 0, -1.f},
+             net::ShotPath{2, 0x1BB6, 0, 0, 0, 0, 0, 1, 0}, net::ShotPath{2, 0x1BB6, 0, 0, 0, 0, 0, 1, 200}})
     {
         Bytes b = Encode(bad);
         Reader r(b);
         CHECK(r.Type(t) && !Decode(r, p));
     }
+    Bytes badFlags = {static_cast<uint8_t>(MsgType::ShotPath), 2, 16};
+    badFlags.resize(19, 0);
+    Reader rf(badFlags);
+    CHECK(rf.Type(t) && !Decode(rf, p));
     Bytes longer = Encode(net::ShotPath{2, 0x1BB6});
     longer.push_back(0);
     Reader r2(longer);
@@ -791,8 +814,12 @@ TEST(shot_paths_round_trip_and_checks)
     CHECK(b.Join("127.0.0.1", kTestPort, "B"));
     std::vector<coop::Coop*> all{&host, &a, &b};
     CHECK(RunUntil(all, [&] { return a.Remotes().size() == 2 && b.Remotes().size() == 2; }));
-    a.ShareShotPath({0, 0x1BB6, 1, 2, 3, 0.5f, 1.5f, 1});
-    host.ShareShotPath({0, 0x7EA30, 4, 5, 6, 0, 0, 1});
+    net::ShotPath slow{0, 0x1BB6, 1, 2, 3, 0.5f, 1.5f};
+    slow.mustArrive = true;
+    net::ShotPath slowToo{0, 0x7EA30, 4, 5, 6};
+    slowToo.mustArrive = true;
+    a.ShareShotPath(slow);
+    host.ShareShotPath(slowToo);
     std::vector<net::ShotPath> atHost, atA, atB;
     auto take = [&] {
         for (auto& x : host.TakeShotPaths()) atHost.push_back(x);
@@ -801,14 +828,18 @@ TEST(shot_paths_round_trip_and_checks)
     };
     CHECK(RunUntil(all, [&] { take(); return atHost.size() >= 1 && atA.size() >= 1 && atB.size() >= 2; }));
     RunUntil(all, [&] { take(); return false; }, 100);
-    CHECK(atHost.size() == 1 && atHost[0].projectile == 0x1BB6 && atHost[0].playerId == a.MyPlayerId() && atHost[0].rotZ == 1.5f);
+    CHECK(atHost.size() == 1 && atHost[0].projectile == 0x1BB6 && atHost[0].playerId == a.MyPlayerId() && close(atHost[0].rotZ, 1.5f));
     CHECK(atA.size() == 1 && atA[0].projectile == 0x7EA30 && atA[0].playerId == host.MyPlayerId());
     CHECK(atB.size() == 2);
 
     atHost.clear();
     atB.clear();
-    for (int i = 0; i < 40; ++i)
-        a.ShareShotPath({0, 0x1BB6, float(i), 0, 0, 0, 0, 1});
+    for (int i = 0; i < 100; ++i)
+    {
+        net::ShotPath flood{0, 0, float(i)};
+        flood.mustArrive = true;
+        a.ShareShotPath(flood);
+    }
     RunUntil(all, [&] { take(); return false; }, 300);
     CHECK(atHost.size() >= coop::kMaxShotPathsPerSecond - 1 && atHost.size() <= 2 * coop::kMaxShotPathsPerSecond);
     CHECK(atB.size() == atHost.size());
@@ -837,6 +868,71 @@ TEST(attacks_and_shot_paths_pair_up_in_either_order)
         CHECK(paths.TakeOverdue(now + i * 200 + 40) == 0);
     }
     CHECK(paths.TakeOverdue(now + 20000) == 0);
+}
+
+TEST(a_fast_guns_lost_path_is_given_up_on_sooner)
+{
+    coop::ShotPaths paths;
+    uint32_t now = 1000;
+    paths.Attacked(1, now, coop::kFastShotPathWaitMs);
+    CHECK(paths.TakeOverdue(now + coop::kFastShotPathWaitMs - 1) == 0);
+    CHECK(paths.TakeOverdue(now + coop::kFastShotPathWaitMs) == 1);
+
+    // Thirty shots a second, one path in ten lost: nothing is fired late in the stream, or piled up for its end.
+    uint32_t overdue = 0;
+    for (uint32_t i = 0; i < 300; ++i)
+    {
+        uint32_t at = now + i * 33;
+        if (i % 10 != 0)
+            paths.PathCame(at, true);
+        paths.Attacked(1, at + 15, coop::kFastShotPathWaitMs);
+        overdue += paths.TakeOverdue(at + 16);
+    }
+    overdue += paths.TakeOverdue(now + 300 * 33 + coop::kFastShotPathWaitMs);
+    CHECK(overdue <= 1);
+}
+
+TEST(a_shotguns_pellets_become_one_path)
+{
+    auto pellet = [](float rotX, float rotZ) { return net::ShotPath{0, 0, 10, 20, 30, rotX, rotZ}; };
+    auto close = [](float a, float b) { return std::fabs(a - b) < 0.0001f; };
+    CHECK(coop::GroupPellets({}).empty());
+
+    auto one = coop::GroupPellets({pellet(0.1f, 1.0f)});
+    CHECK(one.size() == 1 && one[0].pellets == 1 && one[0].spread == 0 && one[0].rotX == 0.1f);
+
+    auto shotgun = coop::GroupPellets({pellet(0, 1.0f), pellet(0, 1.02f), pellet(0.01f, 1.01f), pellet(-0.01f, 1.01f)});
+    CHECK(shotgun.size() == 1 && shotgun[0].pellets == 4 && close(shotgun[0].rotX, 0) && close(shotgun[0].rotZ, 1.01f) &&
+        close(shotgun[0].spread, 0.01f));
+
+    // Either side of where the angle wraps round.
+    auto wrapping = coop::GroupPellets({pellet(0, 3.14f), pellet(0, -3.14f)});
+    CHECK(wrapping.size() == 1 && wrapping[0].spread < 0.01f);
+
+    // Moved between shots, or a different projectile: separate shots.
+    net::ShotPath moved = pellet(0, 1);
+    moved.x = 11;
+    net::ShotPath other = pellet(0, 1);
+    other.projectile = 0x1BB6;
+    CHECK(coop::GroupPellets({pellet(0, 1), moved, other}).size() == 3);
+
+    std::vector<net::ShotPath> many(net::kMaxShotPellets + 3, pellet(0, 1));
+    auto capped = coop::GroupPellets(many);
+    CHECK(capped.size() == 2 && capped[0].pellets == net::kMaxShotPellets && capped[1].pellets == 3);
+}
+
+TEST(fast_shots_are_only_logged_now_and_then)
+{
+    coop::ShotLogPace pace;
+    uint32_t said = 0, lines = 0;
+    for (uint32_t i = 0; i < 300; ++i)
+        if (uint32_t n = pace.Look(false, 1000 + i * 33))
+        {
+            said += n;
+            ++lines;
+        }
+    CHECK(lines <= 11);
+    CHECK(pace.Look(true, 1000 + 300 * 33) + said == 301);
 }
 
 TEST(an_attack_whose_path_never_comes_is_fired_anyway_once)
@@ -1137,7 +1233,7 @@ TEST(a_throw_leaving_the_hand_is_its_own_attack)
     Reader rn(none);
     CHECK(rn.Type(t) && !Decode(rn, a));
     Bytes odd = Encode(Attack{2, 1, false});
-    odd[3] = 2;
+    odd[3] = 3;
     Reader ro(odd);
     CHECK(ro.Type(t) && !Decode(ro, a));
 
