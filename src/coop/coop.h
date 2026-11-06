@@ -227,6 +227,8 @@ namespace coop
         void ForgetMyPlace();
         void SetNpcs(uint32_t space, std::vector<net::NpcState> npcs);
         const std::map<uint32_t, RemoteNpc>& Npcs() const { return m_npcs; }
+        uint32_t NpcListAt() const { return m_npcListAt; }
+        uint32_t NpcListSpace() const { return m_npcListSpace; }
         void NpcAttacked(uint32_t ref, uint8_t shots, bool reloaded = false, bool released = false);
         void SetNpcGear(uint32_t ref, std::vector<net::WornItem> items);
         std::vector<net::NpcAttack> TakeNpcAttacks() { return std::move(m_npcAttacks); }
@@ -422,6 +424,7 @@ namespace coop
         std::map<uint32_t, NpcGearSent> m_npcGear;
         std::vector<net::NpcAttack> m_npcAttacks;
         std::map<uint32_t, RemoteNpc> m_npcs;
+        uint32_t m_npcListAt = 0, m_npcListSpace = 0, m_lastNpcListSent = 0;
         bool m_warnedNpcs = false;
         std::vector<net::DoorState> m_myDoors;
         std::map<uint32_t, net::DoorState> m_sentDoors;

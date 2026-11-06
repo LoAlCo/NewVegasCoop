@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "coop/absent_npcs.h"
 #include "coop/coop.h"
 #include "coop/shot_counter.h"
 #include "game/game.h"
@@ -31,6 +32,7 @@ namespace game
         static void LabCopySteps(uint32_t steps) { s_labSteps = steps; }
         uint32_t HostRefOf(uint32_t ourRef) const;
         TESObjectREFR* OurRefOf(uint32_t hostRef) const { return Find(hostRef); }
+        bool KeepsOff(uint32_t ref) const { return m_absent.KeepsOff(ref); }
 
     private:
         struct Entry
@@ -52,6 +54,8 @@ namespace game
             uint32_t dressings = 0;
         };
         void UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
+        void HideWhatTheHostLacks(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose,
+            const StandIns& standIns);
         TESObjectREFR* Find(uint32_t ref) const;
         TESObjectREFR* Make(uint32_t ref, const coop::RemoteNpc& npc, const coop::Pose& pose, uint32_t now);
         void Unmake(uint32_t ref);
@@ -90,6 +94,9 @@ namespace game
         std::map<uint32_t, uint32_t> m_nextRevive;
         struct SwitchedOff { uint32_t since = 0; uint32_t nextTry = 0; uint32_t tries = 0; };
         std::map<uint32_t, SwitchedOff> m_switchedOff;
+        coop::AbsentNpcs m_absent;
+        uint32_t m_nextAbsentLook = 0;
+        uint32_t m_absentHidden = 0;
         std::map<uint32_t, uint32_t> m_localDeaths;
         std::set<uint32_t> m_piled;
         uint32_t m_nextShare = 0;

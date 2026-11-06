@@ -1,6 +1,7 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
 #include "coop/coop.h"
+#include "coop/absent_npcs.h"
 #include "coop/attack_versions.h"
 #include "coop/balance.h"
 #include "coop/game_mode.h"
@@ -847,6 +848,23 @@ TEST(friends_see_the_hosts_npcs_and_forget_the_ones_it_stops_sharing)
         return a.Npcs().size() == 1 && a.Npcs().at(0x5000).motion.Sample(GetTickCount() + 1000, q) && q.x == 500;
     }, coop::kNpcTimeoutMs + 2000));
     a.Stop();
+    host.Stop();
+}
+
+TEST(friends_keep_hearing_the_hosts_npc_list_when_it_is_empty)
+{
+    coop::Coop host, a;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    CHECK(a.NpcListAt() == 0);
+    host.SetNpcs(0x777, {});
+    CHECK(RunUntil({&host, &a}, [&] { return a.NpcListAt() != 0 && a.NpcListSpace() == 0x777; }));
+    CHECK(a.Npcs().empty());
+    uint32_t first = a.NpcListAt();
+    CHECK(RunUntil({&host, &a}, [&] { return a.NpcListAt() != first; }, coop::kIdlePoseIntervalMs + 2000));
+    a.Stop();
+    CHECK(a.NpcListAt() == 0);
     host.Stop();
 }
 
@@ -4971,4 +4989,99 @@ TEST(a_stack_merged_away_is_seen_gone)
     coop::StackNode broken{&b, nullptr};
     broken.next = &broken;
     CHECK(coop::HoldsStack(&broken, &a));
+}
+
+TEST(an_npc_the_host_lacks_is_hidden_only_after_a_steady_absence)
+{
+    const uint32_t trudy = 0x104C6D, saloon = 0x106185;
+    coop::AbsentNpcs a;
+    CHECK(a.Look(1000, true, saloon, {trudy}).hide.empty());
+    CHECK(a.Look(1000 + coop::kAbsentMs - 1, true, saloon, {trudy}).hide.empty());
+    auto done = a.Look(1000 + coop::kAbsentMs, true, saloon, {trudy});
+    CHECK(done.hide.size() == 1 && done.hide[0] == trudy);
+    CHECK(a.HiddenCount() == 1);
+
+    coop::AbsentNpcs moved;
+    moved.Look(1000, true, saloon, {trudy});
+    CHECK(moved.Look(3000, true, saloon, {}).hide.empty());
+    CHECK(moved.Look(3000 + coop::kAbsentMs - 1, true, saloon, {trudy}).hide.empty());
+}
+
+TEST(no_hiding_while_the_host_list_cant_be_trusted)
+{
+    const uint32_t ref = 0x10588E, saloon = 0x106185, outside = 0xDA726;
+    coop::AbsentNpcs a;
+    a.Look(1000, true, saloon, {ref});
+    CHECK(a.Look(1000 + coop::kAbsentMs, false, saloon, {ref}).hide.empty());
+    CHECK(a.Look(2000 + coop::kAbsentMs, true, saloon, {ref}).hide.empty());
+    CHECK(a.Look(2000 + 2 * coop::kAbsentMs - 1, true, saloon, {ref}).hide.empty());
+    CHECK(a.Look(2000 + 2 * coop::kAbsentMs, true, outside, {ref}).hide.empty());
+    CHECK(a.HiddenCount() == 0);
+
+    const uint32_t listAt = 50000;
+    CHECK(coop::CanTellWhoHostLacks(listAt + 100, listAt, saloon, saloon, saloon, 3, 40));
+    CHECK(!coop::CanTellWhoHostLacks(listAt + 100, 0, saloon, saloon, saloon, 3, 40));
+    CHECK(!coop::CanTellWhoHostLacks(listAt + coop::kNpcListFreshMs + 1, listAt, saloon, saloon, saloon, 3, 40));
+    CHECK(!coop::CanTellWhoHostLacks(listAt + 100, listAt, outside, saloon, saloon, 3, 40));
+    CHECK(!coop::CanTellWhoHostLacks(listAt + 100, listAt, saloon, outside, saloon, 3, 40));
+    CHECK(!coop::CanTellWhoHostLacks(listAt + 100, listAt, saloon, saloon, 0, 3, 40));
+    CHECK(!coop::CanTellWhoHostLacks(listAt + 100, listAt, saloon, saloon, saloon, 40, 40));
+}
+
+TEST(hiding_ends_when_the_host_has_the_npc_and_gives_up_on_a_stubborn_script)
+{
+    const uint32_t ref = 0x104C68, saloon = 0x106185;
+    coop::AbsentNpcs a;
+    uint32_t now = 1000;
+    auto wait = [&] {
+        a.Look(now, true, saloon, {ref});
+        now += coop::kAbsentMs;
+        return a.Look(now, true, saloon, {ref});
+    };
+    CHECK(wait().hide.size() == 1);
+    CHECK(a.Reshown(ref));
+    CHECK(!a.Reshown(ref));
+    for (uint32_t i = 0; i < coop::kMaxHides; ++i)
+        CHECK(wait().hide.size() == 1);
+    auto last = wait();
+    CHECK(last.hide.empty() && last.gaveUp.size() == 1 && last.gaveUp[0] == ref);
+    last = wait();
+    CHECK(last.hide.empty() && last.gaveUp.empty());
+    CHECK(a.TakeHidden().empty());
+
+    coop::AbsentNpcs b;
+    b.Look(1000, true, saloon, {ref});
+    CHECK(b.Look(1000 + coop::kAbsentMs, true, saloon, {ref}).hide.size() == 1);
+    auto refs = b.TakeHidden();
+    CHECK(refs.size() == 1 && refs[0] == ref && b.HiddenCount() == 0);
+}
+
+TEST(the_hosts_switched_on_resend_doesnt_undo_a_hide)
+{
+    const uint32_t joe = 0x104C68, saloon = 0x106185;
+    coop::AbsentNpcs a;
+    CHECK(!a.KeepsOff(joe));
+    a.Look(1000, true, saloon, {joe});
+    CHECK(!a.KeepsOff(joe));
+    uint32_t now = 1000 + coop::kAbsentMs;
+    CHECK(a.Look(now, true, saloon, {joe}).hide.size() == 1);
+    CHECK(a.KeepsOff(joe));
+    CHECK(!a.KeepsOff(0x104C6D));
+    CHECK(a.Reshown(joe));
+    CHECK(!a.KeepsOff(joe));
+
+    for (uint32_t i = 0; i <= coop::kMaxHides; ++i)
+    {
+        a.Look(now, true, saloon, {joe});
+        now += coop::kAbsentMs;
+        auto look = a.Look(now, true, saloon, {joe});
+        CHECK(a.KeepsOff(joe) == (i < coop::kMaxHides));
+        CHECK(look.gaveUp.empty() == (i < coop::kMaxHides));
+    }
+
+    coop::AbsentNpcs b;
+    b.Look(1000, true, saloon, {joe});
+    b.Look(1000 + coop::kAbsentMs, true, saloon, {joe});
+    b.Clear();
+    CHECK(!b.KeepsOff(joe));
 }

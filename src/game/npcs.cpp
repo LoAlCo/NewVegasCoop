@@ -37,6 +37,7 @@ namespace game
         constexpr uint32_t kSwitchOnHeardMs = 1000;
         constexpr uint32_t kSwitchOnEveryMs = 3000;
         constexpr uint32_t kMaxSwitchOns = 5;
+        constexpr uint32_t kAbsentLookEveryMs = 500;
 
         double MsSince(const LARGE_INTEGER& start)
         {
@@ -296,9 +297,62 @@ namespace game
         LARGE_INTEGER start;
         QueryPerformanceCounter(&start);
         UpdateCopies(coop, now, myPose, standIns);
+        HideWhatTheHostLacks(coop, now, myPose, standIns);
         m_updateMs += MsSince(start);
         ++m_updates;
         LogStats(now, coop.Npcs().size());
+    }
+
+    void Npcs::HideWhatTheHostLacks(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose,
+        const StandIns& standIns)
+    {
+        if (!coop::IsDue(now, m_nextAbsentLook))
+            return;
+        m_nextAbsentLook = now + kAbsentLookEveryMs;
+
+        const auto& shared = coop.Npcs();
+        coop::Pose host;
+        auto remote = coop.Remotes().find(coop::kHostPlayerId);
+        bool canTell = remote != coop.Remotes().end() && remote->second.motion.Sample(now, host) &&
+            !InLoadingScreen() && coop::CanTellWhoHostLacks(now, coop.NpcListAt(), coop.NpcListSpace(), host.space,
+                myPose.space, shared.size(), coop::kMaxNpcs);
+
+        std::vector<uint32_t> missing;
+        if (canTell)
+        {
+            const float reach = LoadedReach() / 2;
+            const std::vector<uint32_t> ourCopies = MadeRefIds();
+            NearbyActors(m_nearby);
+            for (TESObjectREFR* actor : m_nearby)
+            {
+                uint32_t ref = RefId(actor);
+                coop::Pose at;
+                if (actor == Player() || standIns.IsStandIn(actor) || !net::IsSharedRef(ref) || !IsEnabled(actor) ||
+                    IsDead(actor) || IsTeammate(actor) || !Is3DLoaded(actor) || !GetPose(actor, at) ||
+                    at.space != myPose.space || std::hypot(at.x - host.x, at.y - host.y) > reach)
+                    continue;
+                bool listed = net::IsMadeWhilePlaying(ref) ?
+                    std::find(ourCopies.begin(), ourCopies.end(), ref) != ourCopies.end() : shared.count(ref) != 0;
+                if (!listed)
+                    missing.push_back(ref);
+            }
+        }
+
+        coop::AbsentNpcs::Result result = m_absent.Look(now, canTell, myPose.space, missing);
+        for (uint32_t ref : result.hide)
+        {
+            TESObjectREFR* actor = LookupRef(ref);
+            if (!actor)
+                continue;
+            Release(ref);
+            SetEnabled(actor, false);
+            ++m_absentHidden;
+            LOG_INFO("NPCs: %s (%08X) is here but the host's game doesn't have it here; switched it off until it does",
+                Name(actor), ref);
+        }
+        for (uint32_t ref : result.gaveUp)
+            LOG_WARN("NPCs: %08X isn't in the host's game here, but something in ours keeps switching it on; leaving it",
+                ref);
     }
 
     void Npcs::UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
@@ -355,6 +409,13 @@ namespace game
             {
                 if (it != m_entries.end() && !stillHere(ref))
                     Release(ref);
+                continue;
+            }
+
+            if (!made && m_absent.Reshown(ref) && !IsEnabled(actor))
+            {
+                SetEnabled(actor, true);
+                LOG_INFO("NPCs: the host's game has %s (%08X) here now; switched our copy back on", Name(actor), ref);
                 continue;
             }
 
@@ -756,6 +817,12 @@ namespace game
             Unmake(m_made.begin()->first);
         while (!m_entries.empty())
             Release(m_entries.begin()->first);
+        for (uint32_t ref : m_absent.TakeHidden())
+            if (TESObjectREFR* actor = LookupRef(ref); actor && IsActor(actor))
+            {
+                SetEnabled(actor, true);
+                LOG_DEBUG("NPCs: co-op's over; switched %08X back on", ref);
+            }
         m_killed.clear();
         m_nextRevive.clear();
         m_switchedOff.clear();
@@ -763,6 +830,7 @@ namespace game
 
     void Npcs::Forget()
     {
+        m_absent.Clear();
         m_entries.clear();
         m_made.clear();
         m_killed.clear();
@@ -795,6 +863,10 @@ namespace game
         if (!first && (m_madeCount || m_unmadeCount || !m_made.empty()))
             LOG_INFO("NPCs: %zu copies we made of ones the host's game made while playing; made %u, deleted %u, "
                 "dressed %u times (in 30 s)", m_made.size(), m_madeCount, m_unmadeCount, m_dressed);
+        if (!first && (m_absentHidden || m_absent.HiddenCount()))
+            LOG_INFO("NPCs: %zu of ours switched off because the host's game doesn't have them; %u more in 30 s",
+                m_absent.HiddenCount(), m_absentHidden);
+        m_absentHidden = 0;
         m_madeCount = m_unmadeCount = m_dressed = 0;
         m_shareMs = m_updateMs = 0;
         m_shares = m_updates = m_brought = m_reloads = 0;

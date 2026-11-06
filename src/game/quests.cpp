@@ -6,6 +6,7 @@
 #include "coop/quests.h"
 #include "game/addresses.h"
 #include "game/game.h"
+#include "game/npcs.h"
 #include "log.h"
 
 #include <windows.h>
@@ -82,11 +83,19 @@ namespace game
             }
             return;
         }
+        for (const EnableChange& c : changes)
+            if (IsActor(LookupRef(c.ref)))
+                LOG_DEBUG("Quests: our game switched actor %08X %s", c.ref, c.enabled ? "on" : "off");
         for (const net::RefEnable& e : coop.TakeRefEnables())
         {
             TESObjectREFR* ref = ours(e.ref) ? LookupRef(e.ref) : nullptr;
             if (!ref || IsEnabled(ref) == e.enabled)
                 continue;
+            if (e.enabled && m_npcs && m_npcs->KeepsOff(e.ref))
+            {
+                LOG_DEBUG("Quests: %08X is switched on in the host's game but not near it; keeping ours off", e.ref);
+                continue;
+            }
             SetEnabled(ref, e.enabled);
             ++m_enablesSet;
             LOG_DEBUG("Quests: %08X switched %s (as on the host)", e.ref, e.enabled ? "on" : "off");
@@ -94,8 +103,9 @@ namespace game
         TakeEnables();
     }
 
-    void Quests::Update(coop::Coop& coop, uint32_t now)
+    void Quests::Update(coop::Coop& coop, uint32_t now, const Npcs& npcs)
     {
+        m_npcs = &npcs;
         if (!coop.InGame())
         {
             if (m_detachedAll || !m_prints.empty())

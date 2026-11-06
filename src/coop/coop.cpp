@@ -104,6 +104,7 @@ namespace coop
         m_npcGear.clear();
         m_npcAttacks.clear();
         m_npcs.clear();
+        m_npcListAt = m_npcListSpace = 0;
         m_myDoors.clear();
         m_sentDoors.clear();
         m_doorUses.clear();
@@ -208,6 +209,7 @@ namespace coop
                     m_frozen = false;
                     m_remotes.clear();
                     m_npcs.clear();
+                    m_npcListAt = m_npcListSpace = 0;
                     m_looks.clear();
                     ++m_looksChanges;
                     m_friendContainer.Reset();
@@ -2402,8 +2404,9 @@ namespace coop
             m_sentNpcs[n.ref] = SentNpc{n, now};
             msg.npcs.push_back(n);
         }
-        if (!msg.npcs.empty())
+        if (!msg.npcs.empty() || now - m_lastNpcListSent >= kIdlePoseIntervalMs)
         {
+            m_lastNpcListSent = now;
             Bytes data = Encode(msg);
             m_npcUpdatesSent += static_cast<uint32_t>(msg.npcs.size());
             m_npcBytesSent += static_cast<uint32_t>(data.size());
@@ -2487,6 +2490,8 @@ namespace coop
     void Coop::HeardNpcs(const NpcStates& m)
     {
         uint32_t now = GetTickCount();
+        m_npcListAt = now;
+        m_npcListSpace = m.space;
         for (const NpcState& n : m.npcs)
         {
             auto it = m_npcs.find(n.ref);

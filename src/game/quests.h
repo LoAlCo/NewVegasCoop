@@ -12,10 +12,12 @@
 
 namespace game
 {
+    class Npcs;
+
     class Quests
     {
     public:
-        void Update(coop::Coop& coop, uint32_t now);
+        void Update(coop::Coop& coop, uint32_t now, const Npcs& npcs);
         void Stop();
         void Forget() { m_switched.clear(); }
 
@@ -24,6 +26,7 @@ namespace game
         void Friend(coop::Coop& coop, uint32_t now);
         std::vector<std::string> m_loadOrder;
         const std::vector<std::string>* m_questMods = nullptr;
+        const Npcs* m_npcs = nullptr;
         std::vector<std::pair<uint32_t, uint32_t>> m_prints;
         uint32_t m_joins = 0;
         size_t m_resendAt = 0;

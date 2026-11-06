@@ -1207,8 +1207,10 @@ namespace
         TESObjectREFR* by = g_standIns.Character(hit.playerId);
         TESObjectREFR* target = game::LookupRef(hit.targetRef);
         coop::Pose at, from;
-        bool ok = by && game::IsActor(target) && target != game::Player() && !g_standIns.IsStandIn(target) &&
-            game::GetPose(target, at) && game::GetPose(by, from) && at.space == from.space;
+        bool switchedOff = target && !game::IsEnabled(target);
+        bool ok = by && !switchedOff && game::IsActor(target) && target != game::Player() &&
+            !g_standIns.IsStandIn(target) && game::GetPose(target, at) && game::GetPose(by, from) &&
+            at.space == from.space;
         if (ok && game::IsTeammate(target))
         {
             LOG_DEBUG("Player %u hit our companion %08X: no friendly fire in the party", hit.playerId, hit.targetRef);
@@ -1217,7 +1219,8 @@ namespace
         float dx = at.x - from.x, dy = at.y - from.y, dz = at.z - from.z;
         if (!ok || dx * dx + dy * dy + dz * dz > MaxHitDistance() * MaxHitDistance())
         {
-            LOG_INFO("Ignored a hit from player %u on %08X", hit.playerId, hit.targetRef);
+            LOG_INFO("Ignored a hit from player %u on %08X%s", hit.playerId, hit.targetRef,
+                switchedOff ? " (it's switched off in our game)" : "");
             ++g_tally.ignored;
             return;
         }
@@ -2718,7 +2721,7 @@ namespace
         g_partClock.Done(kPartContainers);
         g_items.Update(g_coop, now);
         g_partClock.Done(kPartItems);
-        g_quests.Update(g_coop, now);
+        g_quests.Update(g_coop, now, g_npcs);
         g_partClock.Done(kPartQuests);
         game::Dialogue::TalkLogSettings talkLog;
         talkLog.on = g_config.talkLog;
