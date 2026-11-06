@@ -22,6 +22,18 @@ namespace coop
         return line;
     }
 
+    // The top left corner of the log: percents of the screen, kept on screen however big the log is
+    struct TalkLogCorner { float x, y; };
+    inline TalkLogCorner PlaceTalkLog(float xPercent, float yPercent, float screenWidth, float screenHeight,
+        float width, float height)
+    {
+        auto place = [](float percent, float screen, float size) {
+            const float margin = 8;
+            return std::clamp(screen * percent / 100, margin, std::max<float>(margin, screen - size - margin));
+        };
+        return {place(xPercent, screenWidth, width), place(yPercent, screenHeight, height)};
+    }
+
     class TalkLog
     {
     public:
@@ -74,4 +86,27 @@ namespace coop
         uint32_t m_lineMs = 15000;
         uint32_t m_lastId = 0;
     };
+
+    // Sample lines for trying out the log's look, as many as it would really show
+    inline std::vector<TalkLog::Shown> TalkLogPreview(int lines)
+    {
+        static constexpr std::string_view kSamples[TalkLog::kMostLines][2] = {
+            {"Preview", "Nearby conversations show here."},
+            {"Friend", "Anything you can tell me about this place?"},
+            {"NPC", "Not much to tell. Folks come through, trade what they have, and move on before dark."},
+            {"Friend", "Who runs things around here?"},
+            {"NPC", "Depends who you ask."},
+            {"Friend", "I'm asking you."},
+            {"NPC", "Then you should talk to the sheriff, and you should keep that weapon where it can be seen."},
+            {"Friend", "Fair enough."},
+            {"NPC", "Watch yourself out there."},
+            {"Friend", "I will. Thanks."},
+        };
+        constexpr uint32_t kFirstId = 0xFFFFFF00;
+        std::vector<TalkLog::Shown> shown;
+        const size_t count = std::clamp<size_t>(static_cast<size_t>(std::max<int>(lines, 0)), 0, TalkLog::kMostLines);
+        for (size_t i = 0; i < count; ++i)
+            shown.push_back({TalkLine(kSamples[i][0], kSamples[i][1]), kFirstId + static_cast<uint32_t>(i), 1.0f});
+        return shown;
+    }
 }

@@ -22,11 +22,14 @@ struct Config
     bool friendMarkers = true;
     bool talkLog = true;
     int talkLogSize = 65;
+    int talkLogX = 2, talkLogY = 25;
+    int talkLogWidth = 600;
     int talkLogLines = 4;
     int talkLogSeconds = 15;
     int talkLogGap = 6;
     int talkLogRange = 1500;
     bool talkLogDividers = true;
+    bool talkLogPreview = false;
     int talkLogStyle = 1;
     bool talkLogHudColor = true;
     int talkLogRed = 255, talkLogGreen = 255, talkLogBlue = 255;

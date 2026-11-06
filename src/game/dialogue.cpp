@@ -223,6 +223,23 @@ namespace game
             g_dialogue->RunForFriend(1, {info, onEnd, speaker});
     }
 
+    static TalkLogLook LookOf(const Dialogue::TalkLogSettings& log)
+    {
+        TalkLogLook look;
+        look.scale = log.size / 100.0f;
+        look.gap = static_cast<float>(log.gap);
+        look.xPercent = static_cast<float>(log.x);
+        look.yPercent = static_cast<float>(log.y);
+        look.width = static_cast<float>(log.width);
+        look.dividers = log.dividers;
+        look.style = log.style;
+        look.hudColor = log.hudColor;
+        look.red = log.red;
+        look.green = log.green;
+        look.blue = log.blue;
+        return look;
+    }
+
     void Dialogue::Update(uint32_t now)
     {
         m_thread = GetCurrentThreadId();
@@ -232,7 +249,10 @@ namespace game
             m_reportedTalking = false;
             m_reportedNpc = 0;
             m_talkLog.Clear();
-            ShowTalkLog({}, TalkLogLook{});
+            if (m_talkLogSettings.preview)
+                ShowTalkLog(coop::TalkLogPreview(m_talkLogSettings.lines), LookOf(m_talkLogSettings));
+            else
+                ShowTalkLog({}, TalkLogLook{});
             return;
         }
         bool host = m_coop->GetRole() == coop::Role::Host;
@@ -428,15 +448,7 @@ namespace game
         if (!log.on)
             m_talkLog.Clear();
         m_talkLog.Configure(static_cast<size_t>(log.lines), static_cast<uint32_t>(log.seconds) * 1000);
-        TalkLogLook look;
-        look.scale = log.size / 100.0f;
-        look.gap = static_cast<float>(log.gap);
-        look.dividers = log.dividers;
-        look.style = log.style;
-        look.hudColor = log.hudColor;
-        look.red = log.red;
-        look.green = log.green;
-        look.blue = log.blue;
-        ShowTalkLog(m_talkLog.Update(now), look);
+        std::vector<coop::TalkLog::Shown> shown = m_talkLog.Update(now);
+        ShowTalkLog(log.preview ? coop::TalkLogPreview(log.lines) : shown, LookOf(log));
     }
 }

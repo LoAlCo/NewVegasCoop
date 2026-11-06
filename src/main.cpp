@@ -2723,11 +2723,15 @@ namespace
         game::Dialogue::TalkLogSettings talkLog;
         talkLog.on = g_config.talkLog;
         talkLog.size = g_config.talkLogSize;
+        talkLog.x = g_config.talkLogX;
+        talkLog.y = g_config.talkLogY;
+        talkLog.width = g_config.talkLogWidth;
         talkLog.lines = g_config.talkLogLines;
         talkLog.seconds = g_config.talkLogSeconds;
         talkLog.gap = g_config.talkLogGap;
         talkLog.range = g_config.talkLogRange;
         talkLog.dividers = g_config.talkLogDividers;
+        talkLog.preview = g_config.talkLogPreview;
         talkLog.style = g_config.talkLogStyle;
         talkLog.hudColor = g_config.talkLogHudColor;
         talkLog.red = static_cast<uint8_t>(g_config.talkLogRed);
