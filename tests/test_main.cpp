@@ -5085,3 +5085,28 @@ TEST(the_hosts_switched_on_resend_doesnt_undo_a_hide)
     b.Clear();
     CHECK(!b.KeepsOff(joe));
 }
+
+TEST(an_npc_we_cant_hide_isnt_counted_or_retried)
+{
+    const uint32_t ref = 0x104C68, saloon = 0x106185;
+    coop::AbsentNpcs a;
+    a.Look(1000, true, saloon, {ref});
+    uint32_t now = 1000 + coop::kAbsentMs;
+    CHECK(a.Look(now, true, saloon, {ref}).hide.size() == 1);
+    CHECK(a.HiddenCount() == 1);
+    a.GiveUp(ref);
+    CHECK(a.HiddenCount() == 0 && !a.KeepsOff(ref));
+    a.Look(now, true, saloon, {ref});
+    now += coop::kAbsentMs;
+    auto again = a.Look(now, true, saloon, {ref});
+    CHECK(again.hide.empty() && again.gaveUp.empty());
+    CHECK(a.TakeHidden().empty());
+
+    coop::AbsentNpcs listed;
+    listed.Look(1000, true, saloon, {ref});
+    listed.Look(1000 + coop::kAbsentMs, true, saloon, {ref});
+    listed.GiveUp(ref);
+    CHECK(listed.Reshown(ref));
+    listed.Look(2000 + coop::kAbsentMs, true, saloon, {ref});
+    CHECK(listed.Look(2000 + 2 * coop::kAbsentMs, true, saloon, {ref}).hide.size() == 1);
+}

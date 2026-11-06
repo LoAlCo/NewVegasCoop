@@ -345,6 +345,13 @@ namespace game
             if (!actor)
                 continue;
             Release(ref);
+            if (TESObjectREFR* parent = TopEnableParent(actor))
+            {
+                m_absent.GiveUp(ref);
+                LOG_INFO("NPCs: %s (%08X) is here but the host's game doesn't have it here; can't switch it off (it has "
+                    "enable parent %08X, and the game refuses those), so it stays", Name(actor), ref, RefId(parent));
+                continue;
+            }
             SetEnabled(actor, false);
             ++m_absentHidden;
             LOG_INFO("NPCs: %s (%08X) is here but the host's game doesn't have it here; switched it off until it does",
