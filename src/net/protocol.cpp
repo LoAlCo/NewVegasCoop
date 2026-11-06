@@ -1561,6 +1561,27 @@ namespace net
             r.F32(m.x) && r.F32(m.y) && r.F32(m.z) && r.AtEnd();
     }
 
+    Bytes Encode(const ShotPath& m)
+    {
+        Writer w(MsgType::ShotPath);
+        w.U8(m.playerId);
+        w.U32(m.projectile);
+        w.F32(m.x);
+        w.F32(m.y);
+        w.F32(m.z);
+        w.F32(m.rotX);
+        w.F32(m.rotZ);
+        w.F32(m.speedMult);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, ShotPath& m)
+    {
+        return r.U8(m.playerId) && r.U32(m.projectile) && m.projectile != 0 && !IsMadeWhilePlaying(m.projectile) &&
+            r.F32(m.x) && r.F32(m.y) && r.F32(m.z) && r.F32(m.rotX) && std::fabs(m.rotX) <= 100 && r.F32(m.rotZ) &&
+            std::fabs(m.rotZ) <= 100 && r.F32(m.speedMult) && m.speedMult > 0 && m.speedMult <= 100 && r.AtEnd();
+    }
+
     Bytes Encode(const ModsMatch& m)
     {
         Writer w(MsgType::ModsMatch);

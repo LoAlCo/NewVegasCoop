@@ -308,6 +308,13 @@ namespace game
             it->second.puppet.Attack(it->second.ref, shots, release);
     }
 
+    void StandIns::FireAlong(const net::ShotPath& path)
+    {
+        auto it = m_entries.find(path.playerId);
+        if (it != m_entries.end() && Live(it->second) && !it->second.loading && !it->second.downed)
+            it->second.puppet.FireAlong(it->second.ref, path);
+    }
+
     TESObjectREFR* StandIns::Character(uint8_t playerId) const
     {
         auto it = m_entries.find(playerId);

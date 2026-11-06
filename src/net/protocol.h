@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 70;
+    constexpr uint32_t kProtocolVersion = 71;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -90,6 +90,7 @@ namespace net
         PlayerModAnims = 69,
         Drag = 70,
         Mode = 71,
+        ShotPath = 72,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -751,6 +752,18 @@ namespace net
     };
     Bytes Encode(const ExplosionAt& m);
     bool Decode(Reader& r, ExplosionAt& m);
+
+    // Where a slow shot left the shooter's gun, so others' copies of it fly the same way.
+    struct ShotPath
+    {
+        uint8_t playerId = 0;
+        uint32_t projectile = 0;
+        float x = 0, y = 0, z = 0;
+        float rotX = 0, rotZ = 0;
+        float speedMult = 1;
+    };
+    Bytes Encode(const ShotPath& m);
+    bool Decode(Reader& r, ShotPath& m);
     Bytes Encode(const ModsMatch& m);
     bool Decode(Reader& r, ModsMatch& m);
     Bytes Encode(const SaveOrder& m);

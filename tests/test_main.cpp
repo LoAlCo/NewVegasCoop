@@ -12,6 +12,7 @@
 #include "coop/quests.h"
 #include "coop/sha256.h"
 #include "coop/shot_counter.h"
+#include "coop/shot_paths.h"
 #include "coop/clock.h"
 #include "coop/steer.h"
 #include "coop/talk_log.h"
@@ -761,6 +762,101 @@ TEST(explosions_are_shown_where_they_went_off)
     b.Stop();
     a.Stop();
     host.Stop();
+}
+
+TEST(shot_paths_round_trip_and_checks)
+{
+    MsgType t;
+    net::ShotPath p;
+    Bytes ok = Encode(net::ShotPath{2, 0x1BB6, -70868.f, 2014.f, 8366.f, 0.25f, 3.5f, 1.5f});
+    Reader r1(ok);
+    CHECK(r1.Type(t) && t == MsgType::ShotPath && Decode(r1, p) && p.playerId == 2 && p.projectile == 0x1BB6 &&
+        p.x == -70868.f && p.y == 2014.f && p.z == 8366.f && p.rotX == 0.25f && p.rotZ == 3.5f && p.speedMult == 1.5f);
+    for (net::ShotPath bad : {net::ShotPath{2, 0}, net::ShotPath{2, 0xFF001343}, net::ShotPath{2, 0x1BB6, 1e9f},
+             net::ShotPath{2, 0x1BB6, 0, 0, 0, 200.f}, net::ShotPath{2, 0x1BB6, 0, 0, 0, 0, -200.f},
+             net::ShotPath{2, 0x1BB6, 0, 0, 0, 0, 0, 0.f}, net::ShotPath{2, 0x1BB6, 0, 0, 0, 0, 0, 500.f}})
+    {
+        Bytes b = Encode(bad);
+        Reader r(b);
+        CHECK(r.Type(t) && !Decode(r, p));
+    }
+    Bytes longer = Encode(net::ShotPath{2, 0x1BB6});
+    longer.push_back(0);
+    Reader r2(longer);
+    CHECK(r2.Type(t) && !Decode(r2, p));
+
+    coop::Coop host, a, b;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(b.Join("127.0.0.1", kTestPort, "B"));
+    std::vector<coop::Coop*> all{&host, &a, &b};
+    CHECK(RunUntil(all, [&] { return a.Remotes().size() == 2 && b.Remotes().size() == 2; }));
+    a.ShareShotPath({0, 0x1BB6, 1, 2, 3, 0.5f, 1.5f, 1});
+    host.ShareShotPath({0, 0x7EA30, 4, 5, 6, 0, 0, 1});
+    std::vector<net::ShotPath> atHost, atA, atB;
+    auto take = [&] {
+        for (auto& x : host.TakeShotPaths()) atHost.push_back(x);
+        for (auto& x : a.TakeShotPaths()) atA.push_back(x);
+        for (auto& x : b.TakeShotPaths()) atB.push_back(x);
+    };
+    CHECK(RunUntil(all, [&] { take(); return atHost.size() >= 1 && atA.size() >= 1 && atB.size() >= 2; }));
+    RunUntil(all, [&] { take(); return false; }, 100);
+    CHECK(atHost.size() == 1 && atHost[0].projectile == 0x1BB6 && atHost[0].playerId == a.MyPlayerId() && atHost[0].rotZ == 1.5f);
+    CHECK(atA.size() == 1 && atA[0].projectile == 0x7EA30 && atA[0].playerId == host.MyPlayerId());
+    CHECK(atB.size() == 2);
+
+    atHost.clear();
+    atB.clear();
+    for (int i = 0; i < 40; ++i)
+        a.ShareShotPath({0, 0x1BB6, float(i), 0, 0, 0, 0, 1});
+    RunUntil(all, [&] { take(); return false; }, 300);
+    CHECK(atHost.size() >= coop::kMaxShotPathsPerSecond - 1 && atHost.size() <= 2 * coop::kMaxShotPathsPerSecond);
+    CHECK(atB.size() == atHost.size());
+    b.Stop();
+    a.Stop();
+    host.Stop();
+}
+
+TEST(attacks_and_shot_paths_pair_up_in_either_order)
+{
+    coop::ShotPaths paths;
+    uint32_t now = 1000;
+    paths.Attacked(1, now);
+    paths.PathCame(now + 100);
+    CHECK(paths.TakeOverdue(now + 5000) == 0);
+
+    paths.PathCame(now);
+    paths.Attacked(1, now + 10);
+    CHECK(paths.TakeOverdue(now + 5000) == 0);
+
+    // Rapid fire: five shots a second, every path a frame or two after its attack.
+    for (uint32_t i = 0; i < 20; ++i)
+    {
+        paths.Attacked(1, now + i * 200);
+        paths.PathCame(now + i * 200 + 30);
+        CHECK(paths.TakeOverdue(now + i * 200 + 40) == 0);
+    }
+    CHECK(paths.TakeOverdue(now + 20000) == 0);
+}
+
+TEST(an_attack_whose_path_never_comes_is_fired_anyway_once)
+{
+    coop::ShotPaths paths;
+    uint32_t now = 1000;
+    paths.Attacked(3, now);
+    paths.PathCame(now + 50);
+    CHECK(paths.TakeOverdue(now + coop::kShotPathWaitMs - 1) == 0);
+    CHECK(paths.TakeOverdue(now + coop::kShotPathWaitMs) == 2);
+    CHECK(paths.TakeOverdue(now + coop::kShotPathWaitMs + 1000) == 0);
+
+    // A path with no attack doesn't cancel an attack long after it.
+    paths.PathCame(now);
+    paths.Attacked(1, now + coop::kShotPathWaitMs + 1);
+    CHECK(paths.TakeOverdue(now + 2 * coop::kShotPathWaitMs + 1) == 1);
+
+    // A flood stays bounded.
+    paths.Attacked(1000, now);
+    CHECK(paths.TakeOverdue(now + coop::kShotPathWaitMs) == coop::kMaxShotsWaiting);
 }
 
 TEST(npc_states_round_trip_and_checks)

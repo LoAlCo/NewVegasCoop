@@ -950,6 +950,18 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::ShotPath)
+        {
+            net::ShotPath m;
+            if (!Decode(r, m) || !WithinLimit(player.shotPathsSince, player.shotPaths, kMaxShotPathsPerSecond))
+                return;
+            m.playerId = player.id;
+            SendToJoined(Encode(m), true, peer);
+            if (m_shotPaths.size() < kMaxQueuedShotPaths)
+                m_shotPaths.push_back(m);
+            return;
+        }
+
         if (type == MsgType::Regroup)
         {
             if (r.AtEnd() && m_hasPose)
@@ -1297,6 +1309,14 @@ namespace coop
             if (Decode(r, m) && m.playerId != m_myId && m_remotes.count(m.playerId))
                 QueueAttack(m.playerId, m.shots, m.release);
         }
+        else if (type == MsgType::ShotPath)
+        {
+            net::ShotPath m;
+            if (Decode(r, m) && m.playerId != m_myId && m_remotes.count(m.playerId) &&
+                WithinLimit(m_hostShotPathsSince, m_hostShotPaths, kMaxHostShotPathsPerSecond) &&
+                m_shotPaths.size() < kMaxQueuedShotPaths)
+                m_shotPaths.push_back(m);
+        }
         else if (type == MsgType::VoiceData)
         {
             net::VoiceData m;
@@ -1610,6 +1630,17 @@ namespace coop
             SendToJoined(Encode(e), true);
         else
             m_net->Send(1, Encode(e), true);
+    }
+
+    void Coop::ShareShotPath(net::ShotPath path)
+    {
+        if (!InGame() || !WithinLimit(m_myShotPathsSince, m_myShotPaths, kMaxShotPathsPerSecond))
+            return;
+        path.playerId = m_myId;
+        if (m_role == Role::Host)
+            SendToJoined(Encode(path), true);
+        else
+            m_net->Send(1, Encode(path), true);
     }
 
     void Coop::QueueAttack(uint8_t playerId, uint8_t shots, bool release)

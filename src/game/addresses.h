@@ -107,6 +107,14 @@ namespace game::addr
     constexpr uintptr_t kMineReactsCall = 0x009C3BD1;
     constexpr uintptr_t kProjectileTurnOff = 0x009C43E0;
     constexpr uintptr_t kWeaponEquippedAmmo = 0x00525980;
+    constexpr uintptr_t kSpawnProjectile = 0x009BCA60;
+    constexpr uintptr_t kMissileSpawnedSlot = 0x0108FD4C;
+    constexpr uintptr_t kMissileSpawned = 0x009B7CC0;
+    constexpr uintptr_t kGrenadeSpawnedSlot = 0x0108F97C;
+    constexpr uintptr_t kGrenadeSpawned = 0x009B40D0;
+    constexpr uint32_t kProjectileSpeedMult = 0xD0;
+    constexpr uint32_t kProjectileWeapon = 0xF8;
+    constexpr uint32_t kProjectileSource = 0xFC;
     constexpr uintptr_t kPlayerCombatCount = 0x00953C20;
     constexpr uintptr_t kLevelUpCombatCalls[] = {0x0077C58C, 0x0077D6BE};
     constexpr uintptr_t kTakeOffItem = 0x004C0CF0;

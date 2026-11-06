@@ -35,6 +35,9 @@ namespace coop
     constexpr uint32_t kMaxExplosionsPerSecond = 16;
     constexpr uint32_t kMaxHostExplosionsPerSecond = 32;
     constexpr size_t kMaxQueuedExplosions = 64;
+    constexpr uint32_t kMaxShotPathsPerSecond = 16;
+    constexpr uint32_t kMaxHostShotPathsPerSecond = 48;
+    constexpr size_t kMaxQueuedShotPaths = 64;
 
     struct JoinAsk
     {
@@ -93,6 +96,7 @@ namespace coop
         uint32_t askId = 0;
         uint32_t askedAt = 0;
         uint32_t explosionsSince = 0, explosions = 0;
+        uint32_t shotPathsSince = 0, shotPaths = 0;
         uint32_t itemMovesSince = 0, itemMoves = 0;
         net::DesyncReport desyncs;
         ChatLimiter chatLimit;
@@ -183,6 +187,7 @@ namespace coop
         std::vector<HitReport> TakeHits() { return std::move(m_hits); }
         void Attack(uint8_t shots, bool release = false);
         void ShareExplosion(const net::ExplosionAt& e);
+        void ShareShotPath(net::ShotPath path);
         void SawDesync(const Disagreement& d);
         void SetCompanions(const std::vector<net::CompanionState>& companions);
         struct CompanionOrderFrom { uint8_t playerId; net::CompanionOrder order; };
@@ -210,6 +215,7 @@ namespace coop
         std::vector<net::PlayerCommand> TakePlayerCommands() { return std::move(m_playerCommands); }
         std::vector<std::string> TakeDesyncNotices() { return std::move(m_desyncNotices); }
         std::vector<net::ExplosionAt> TakeExplosions() { return std::move(m_explosions); }
+        std::vector<net::ShotPath> TakeShotPaths() { return std::move(m_shotPaths); }
         std::vector<AttackReport> TakeAttacks() { return std::move(m_attacks); }
         void SetMyHealth(float health, float maxHealth);
         void DamagePlayer(uint8_t playerId, float amount);
@@ -502,6 +508,9 @@ namespace coop
         bool m_askingHost = false;
         std::vector<net::ExplosionAt> m_explosions;
         uint32_t m_hostExplosionsSince = 0, m_hostExplosions = 0;
+        std::vector<net::ShotPath> m_shotPaths;
+        uint32_t m_myShotPathsSince = 0, m_myShotPaths = 0;
+        uint32_t m_hostShotPathsSince = 0, m_hostShotPaths = 0;
         static bool WithinLimit(uint32_t& since, uint32_t& count, uint32_t most);
         std::string m_modReport;
         ModFolders m_modFolders;
