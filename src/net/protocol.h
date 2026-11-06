@@ -15,7 +15,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 77;
+    constexpr uint32_t kProtocolVersion = 78;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -93,6 +93,7 @@ namespace net
         Mode = 71,
         ShotPath = 72,
         BodyLoot = 73,
+        BodyMove = 74,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -462,6 +463,15 @@ namespace net
         float rx = 0, ry = 0, rz = 0;
         bool held = false;
     };
+    // Where a visitor's copy of a body is while they move it, for the host to steer theirs there.
+    struct BodyMove
+    {
+        uint32_t ref = 0;
+        float x = 0, y = 0, z = 0;
+    };
+    Bytes Encode(const BodyMove& m);
+    bool Decode(Reader& r, BodyMove& m);
+
     struct ItemMoves
     {
         std::vector<ItemMove> moves;

@@ -2709,10 +2709,15 @@ namespace
         }
         g_partClock.Done(kPartPlayers);
         if (g_coop.GetRole() == coop::Role::Host)
+        {
             g_npcs.Share(g_coop, now, me, g_standIns);
+            g_npcs.FollowFriendsBodies(g_coop, now);
+        }
         else if (g_coop.InGame())
         {
             g_npcs.Update(g_coop, now, me, g_standIns);
+            for (const net::BodyMove& move : g_npcs.TakeBodyReports())
+                g_coop.ReportBodyMove(move);
             g_npcs.CheckDesyncs(g_coop, now, me);
             for (const net::NpcAttack& attack : g_coop.TakeNpcAttacks())
                 g_npcs.Attack(attack.ref, attack.shots, attack.reload, attack.release);
@@ -3320,7 +3325,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
         return false;
 
     Log::Open("");
-    LOG_INFO("NVCoop %s, Combined v7 test build, starting (xNVSE %08X, game %08X)",
+    LOG_INFO("NVCoop %s, Combined v8 test build, starting (xNVSE %08X, game %08X)",
         NVCOOP_VERSION_STRING, nvse->nvseVersion, nvse->runtimeVersion);
 
     if (nvse->runtimeVersion != RUNTIME_VERSION_1_4_0_525)

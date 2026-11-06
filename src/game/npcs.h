@@ -37,6 +37,15 @@ namespace game
         uint32_t HostRefOf(uint32_t ourRef) const;
         // Bodies near us when hosting, in order of ref, and whether each is still settling from its death.
         std::vector<std::pair<uint32_t, bool>> DeadBodies(uint32_t now) const;
+        // On the host: steer bodies friends are moving. Every frame.
+        void FollowFriendsBodies(coop::Coop& coop, uint32_t now);
+        // On a visitor: where the bodies we moved went, to tell the host.
+        std::vector<net::BodyMove> TakeBodyReports()
+        {
+            std::vector<net::BodyMove> out;
+            out.swap(m_bodyReports);
+            return out;
+        }
         TESObjectREFR* OurRefOf(uint32_t hostRef) const { return Find(hostRef); }
         bool KeepsOff(uint32_t ref) const { return m_absent.KeepsOff(ref); }
 
@@ -98,6 +107,9 @@ namespace game
             coop::BodyPlacer placer;
             coop::BodyFollower follower;
             coop::BodyEaser easer;
+            coop::BodyReporter reporter;
+            bool reporting = false;
+            uint32_t nextReport = 0;
             bool easing = false;
             bool following = false, saidPull = false, saidNoPull = false;
             uint32_t nextPullTry = 0;
@@ -112,6 +124,8 @@ namespace game
         std::map<uint32_t, Body> m_bodies;
         uint32_t m_bodiesMoved = 0;
         uint32_t m_bodiesPulled = 0;
+        std::vector<net::BodyMove> m_bodyReports;
+        std::map<uint32_t, coop::BodyChase> m_friendsBodies;
         static inline bool s_smoothBodies = true;
         struct Made
         {
