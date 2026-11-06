@@ -231,6 +231,7 @@ namespace game
         look.xPercent = static_cast<float>(log.x);
         look.yPercent = static_cast<float>(log.y);
         look.width = static_cast<float>(log.width);
+        look.alignRight = log.alignRight;
         look.dividers = log.dividers;
         look.style = log.style;
         look.hudColor = log.hudColor;

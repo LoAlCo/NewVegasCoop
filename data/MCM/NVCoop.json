@@ -526,11 +526,27 @@
 					}
 				},
 				"11": {
+					"title": "Alignment",
+					"type": 1,
+					"enable": 1,
+					"mouse": "Which side of the log the lines sit against. Right suits a log on the right of the screen",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogAlign",
+							"default": 0
+						}
+					],
+					"strings": [
+						"Left",
+						"Right"
+					]
+				},
+				"12": {
 					"title": "Look",
 					"enable": 1,
 					"type": 0
 				},
-				"12": {
+				"13": {
 					"title": "Text Size",
 					"type": 2,
 					"enable": 1,
@@ -548,7 +564,7 @@
 						"valueMax": 150
 					}
 				},
-				"13": {
+				"14": {
 					"title": "Spacing",
 					"type": 2,
 					"enable": 1,
@@ -566,7 +582,7 @@
 						"valueMax": 40
 					}
 				},
-				"14": {
+				"15": {
 					"title": "Readability",
 					"type": 1,
 					"enable": 1,
@@ -584,7 +600,7 @@
 						"Dark Bar"
 					]
 				},
-				"15": {
+				"16": {
 					"title": "Dividers",
 					"type": 5,
 					"enable": 1,
@@ -596,12 +612,12 @@
 						}
 					]
 				},
-				"16": {
+				"17": {
 					"title": "Colour",
 					"enable": 1,
 					"type": 0
 				},
-				"17": {
+				"18": {
 					"title": "Use HUD Colour",
 					"type": 5,
 					"enable": 1,
@@ -613,7 +629,7 @@
 						}
 					]
 				},
-				"18": {
+				"19": {
 					"title": "Red",
 					"type": 2,
 					"enable": 1,
@@ -631,7 +647,7 @@
 						"valueMax": 255
 					}
 				},
-				"19": {
+				"20": {
 					"title": "Green",
 					"type": 2,
 					"enable": 1,
@@ -649,7 +665,7 @@
 						"valueMax": 255
 					}
 				},
-				"20": {
+				"21": {
 					"title": "Blue",
 					"type": 2,
 					"enable": 1,

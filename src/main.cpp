@@ -2726,6 +2726,7 @@ namespace
         talkLog.x = g_config.talkLogX;
         talkLog.y = g_config.talkLogY;
         talkLog.width = g_config.talkLogWidth;
+        talkLog.alignRight = g_config.talkLogAlign == 1;
         talkLog.lines = g_config.talkLogLines;
         talkLog.seconds = g_config.talkLogSeconds;
         talkLog.gap = g_config.talkLogGap;

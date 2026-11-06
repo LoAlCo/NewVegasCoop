@@ -29,7 +29,7 @@ namespace game
             int size = 65, lines = 4, seconds = 15, gap = 6, range = 1500;
             int x = 2, y = 25, width = 600;
             int style = 1;
-            bool dividers = true, hudColor = true, preview = false;
+            bool dividers = true, hudColor = true, preview = false, alignRight = false;
             uint8_t red = 255, green = 255, blue = 255;
         };
         void SetTalkLog(const TalkLogSettings& settings) { m_talkLogSettings = settings; }

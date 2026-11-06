@@ -24,6 +24,7 @@ struct Config
     int talkLogSize = 65;
     int talkLogX = 2, talkLogY = 25;
     int talkLogWidth = 600;
+    int talkLogAlign = 0;
     int talkLogLines = 4;
     int talkLogSeconds = 15;
     int talkLogGap = 6;

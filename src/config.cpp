@@ -82,6 +82,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iTalkLogX", talkLogX);
         Write(path, "iTalkLogY", talkLogY);
         Write(path, "iTalkLogWidth", talkLogWidth);
+        Write(path, "iTalkLogAlign", talkLogAlign);
         Write(path, "iTalkLogLines", talkLogLines);
         Write(path, "iTalkLogSeconds", talkLogSeconds);
         Write(path, "iTalkLogGap", talkLogGap);
@@ -135,6 +136,7 @@ void Config::LoadPlayer(const std::string& path)
     talkLogX = number("iTalkLogX", talkLogX, 0, 100);
     talkLogY = number("iTalkLogY", talkLogY, 0, 100);
     talkLogWidth = number("iTalkLogWidth", talkLogWidth, 200, 1200);
+    talkLogAlign = number("iTalkLogAlign", talkLogAlign, 0, 1);
     talkLogLines = number("iTalkLogLines", talkLogLines, 1, 10);
     talkLogSeconds = number("iTalkLogSeconds", talkLogSeconds, 3, 60);
     talkLogGap = number("iTalkLogGap", talkLogGap, 0, 40);
