@@ -27,6 +27,7 @@
 
 #include "coop/attack_versions.h"
 #include "coop/clock.h"
+#include "coop/made_copies.h"
 #include "coop/shot_counter.h"
 #include "game/addresses.h"
 #include "game/mover.h"
@@ -45,6 +46,11 @@ extern const _FormHeap_Free FormHeap_Free = reinterpret_cast<_FormHeap_Free>(gam
 
 namespace game
 {
+    namespace
+    {
+        coop::MadeCopies g_madeCopies;
+    }
+
     TESObjectREFR* Player()
     {
         return *reinterpret_cast<TESObjectREFR**>(addr::kThePlayer);
@@ -242,6 +248,7 @@ namespace game
         if (g_standInBases.size() >= kMaxStandInBases)
             g_standInBases.erase(g_standInBases.begin());
         g_standInBases.push_back(copy->refID);
+        g_madeCopies.Note(copy->refID, copy);
         LOG_DEBUG("Character type %08X for %s", copy->refID, name);
         int shared = 0;
         if (looks && LooksOntoBase(copy, *looks, shared))
@@ -492,6 +499,7 @@ namespace game
                 e->ISradius = 0;
             }
             made[explosion->refID] = e;
+            g_madeCopies.Note(e->refID, e);
             return e;
         }
 
@@ -513,6 +521,7 @@ namespace game
             p->SetFlag(BGSProjectile::kFlags_CanBePicked, false);
             p->SetFlag(BGSProjectile::kFlags_CanBeDisabled, false);
             g_harmlessProjectiles[projectile->refID] = p;
+            g_madeCopies.Note(p->refID, p);
             LOG_DEBUG("Harmless copy %08X of projectile %08X (explosion %08X)", p->refID, projectile->refID,
                 explosion ? explosion->refID : 0);
             return p;
@@ -558,6 +567,7 @@ namespace game
                         w->projectile->refID);
             }
             g_harmless[weapon->refID] = copy;
+            g_madeCopies.Note(copy->refID, copy);
             LOG_DEBUG("Harmless copy %08X of weapon %08X", copy->refID, weapon->refID);
             return copy;
         }
@@ -3682,6 +3692,25 @@ namespace game
             g_scripts->CallFunctionAlt(g_showMap, Player(), 1, marker);
     }
 
+    void ForgetMadeCopies()
+    {
+        g_harmless.clear();
+        g_harmlessProjectiles.clear();
+        g_harmlessExplosions.clear();
+        g_quietExplosions.clear();
+        g_standInBases.clear();
+        g_teleporter = nullptr;
+        g_madeCopies.Forget();
+    }
+
+    void ReportForgottenCopies()
+    {
+        coop::MadeCopies::Gone copies = g_madeCopies.TakeGone([](uint32_t id) { return LookupForm(id); });
+        if (copies.forgotten)
+            LOG_INFO("Copies: this load threw away %zu of the %zu temporary copies we had made (made again when needed)",
+                copies.gone, copies.forgotten);
+    }
+
     TESForm* TeleporterItem()
     {
         if (g_teleporter || !g_compiled || !Player())
@@ -3702,6 +3731,7 @@ namespace game
         if (g_questObject)
             g_scripts->CallFunctionAlt(g_questObject, Player(), 1, copy);
         g_teleporter = copy;
+        g_madeCopies.Note(copy->refID, copy);
         LOG_INFO("Teleporter: item %08X made (a copy of %08X)", copy->refID, original->refID);
         return g_teleporter;
     }
