@@ -2291,9 +2291,7 @@ namespace coop
             }
             return;
         }
-        float dx = m_myPose.x - last.x, dy = m_myPose.y - last.y, dz = m_myPose.z - last.z;
-        if (m_myPose.space == last.space && dx * dx + dy * dy + dz * dz <= kTeleportDistance * kTeleportDistance)
-            return;
+        // Before the teleport check: a short trip to the group is too small to look like one, and everyone waits on this.
         if (m_expecting && SamePlace(m_myPose, m_expect))
         {
             m_expecting = false;
@@ -2301,6 +2299,9 @@ namespace coop
             SendArrived();
             return;
         }
+        float dx = m_myPose.x - last.x, dy = m_myPose.y - last.y, dz = m_myPose.z - last.z;
+        if (m_myPose.space == last.space && dx * dx + dy * dy + dz * dz <= kTeleportDistance * kTeleportDistance)
+            return;
         if (m_expecting)
             SendArrived();
         m_expecting = false;
