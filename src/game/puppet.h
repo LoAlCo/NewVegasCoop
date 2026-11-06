@@ -3,7 +3,9 @@
 #pragma once
 
 #include "coop/smoothing.h"
+#include "coop/shot_paths.h"
 #include "coop/steer.h"
+#include "net/protocol.h"
 
 #include <cstdint>
 #include <string>
@@ -21,6 +23,7 @@ namespace game
         void Update(TESObjectREFR* actor, const coop::Pose& want, uint32_t now, const coop::Pose* latest = nullptr);
         void SetGear(TESObjectREFR* actor, const std::vector<uint32_t>& gear);
         void Attack(TESObjectREFR* actor, uint8_t shots, bool release = false);
+        void FireAlong(TESObjectREFR* actor, const net::ShotPath& path);
 
     private:
         void UpdateWeaponOut(TESObjectREFR* actor, bool want, uint32_t now);
@@ -31,6 +34,7 @@ namespace game
         coop::Steer m_steer;
         float m_lastWantX = 0, m_lastWantY = 0, m_wantVx = 0, m_wantVy = 0;
         uint32_t m_lastWantAt = 0;
+        coop::ShotPaths m_shotPaths;
         bool m_jumping = false;
         uint32_t m_putBackAt = 0;
         std::vector<uint32_t> m_worn;
