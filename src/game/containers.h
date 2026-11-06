@@ -19,10 +19,14 @@ namespace game
 
     private:
         void HostApply(coop::Coop& coop);
-        void FriendLook(coop::Coop& coop, const Npcs& npcs);
+        void FriendLook(coop::Coop& coop, const Npcs& npcs, uint32_t now);
         void FriendRead(coop::Coop& coop, TESObjectREFR* ref);
         uint32_t m_nextLook = 0;
         uint32_t m_openRef = 0;
+        uint32_t m_heldRef = 0;
+        uint32_t m_heldUntil = 0;
+        bool m_playerKnown = false;
+        std::vector<net::ItemCount> m_playerBefore;
         bool m_waitedForPrompt = false;
         double m_readMs = 0;
         uint32_t m_reads = 0, m_changes = 0, m_refunds = 0, m_fixes = 0, m_nextLog = 0;

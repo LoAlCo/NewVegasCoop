@@ -14,6 +14,7 @@ namespace game
     namespace
     {
         constexpr uint32_t kLookMs = 250;
+        constexpr uint32_t kHoldViewMs = 30000;
 
         bool Read(TESObjectREFR* ref, std::vector<net::ItemCount>& out, double& ms)
         {
@@ -35,7 +36,8 @@ namespace game
     {
         if (!coop.InGame())
         {
-            m_openRef = 0;
+            m_openRef = m_heldRef = 0;
+            m_playerKnown = false;
             return;
         }
         if (QuantityPromptOpen())
@@ -64,7 +66,12 @@ namespace game
             if (!refunds.empty())
                 RefreshItemList();
             if (TESObjectREFR* open = OpenContainer())
+            {
+                if (m_openRef != RefId(open))
+                    LOG_DEBUG("Containers: menu open on %08X (%s, the host's %08X)", RefId(open),
+                        IsLootable(open) ? "lootable" : "not lootable", npcs.HostRefOf(RefId(open)));
                 m_openRef = RefId(open);
+            }
         }
 
         if (!coop::IsDue(now, m_nextLook))
@@ -84,7 +91,7 @@ namespace game
             }
         }
         else
-            FriendLook(coop, npcs);
+            FriendLook(coop, npcs, now);
 
         if (coop::IsDue(now, m_nextLog))
         {
@@ -150,9 +157,10 @@ namespace game
         }
         if (changedMine)
             RefreshItemList();
+        RefreshLootWindows();
     }
 
-    void Containers::FriendLook(coop::Coop& coop, const Npcs& npcs)
+    void Containers::FriendLook(coop::Coop& coop, const Npcs& npcs, uint32_t now)
     {
         TESObjectREFR* open = OpenContainer();
         uint32_t openRef = open ? RefId(open) : 0;
@@ -163,6 +171,7 @@ namespace game
             // may have opened and shut between two looks, so it's told it was open first.
             TESObjectREFR* closed = LookupRef(m_openRef);
             uint32_t closedHostRef = closed && IsLootable(closed) ? npcs.HostRefOf(m_openRef) : 0;
+            LOG_DEBUG("Containers: menu on %08X shut (the host's %08X); one more look", m_openRef, closedHostRef);
             m_openRef = openRef;
             if (closedHostRef)
             {
@@ -176,9 +185,29 @@ namespace game
         m_openRef = openRef;
         TESObjectREFR* target = open ? open : CrosshairRef();
         uint32_t hostRef = target && IsLootable(target) ? npcs.HostRefOf(RefId(target)) : 0;
-        coop.ViewContainer(hostRef, open != nullptr);
+        // The crosshair drops off a body now and then (and while a menu is up), and what we know of the body would go
+        // with it. So the last one stays watched for a moment, and gets a last look before we move on to another.
+        TESObjectREFR* held = m_heldRef ? LookupRef(m_heldRef) : nullptr;
+        uint32_t heldHostRef = !open && held && IsLootable(held) ? npcs.HostRefOf(m_heldRef) : 0;
+        if (hostRef)
+        {
+            if (heldHostRef && m_heldRef != RefId(target))
+                FriendRead(coop, held);
+            m_heldRef = RefId(target);
+            m_heldUntil = now + kHoldViewMs;
+        }
+        else if (heldHostRef && !coop::IsDue(now, m_heldUntil))
+        {
+            target = held;
+            hostRef = heldHostRef;
+        }
+        else
+            m_heldRef = 0;
+        coop.ViewContainer(hostRef, open && target == open);
         if (hostRef)
             FriendRead(coop, target);
+        else
+            m_playerKnown = false;
     }
 
     void Containers::FriendRead(coop::Coop& coop, TESObjectREFR* open)
@@ -187,13 +216,20 @@ namespace game
         if (!Read(open, local, m_readMs))
             return;
         ++m_reads;
-        std::vector<net::ItemCount> fixes = coop.LookAtContainer(local);
+        std::vector<net::ItemCount> mine, playerChange;
+        bool mineKnown = Read(Player(), mine, m_readMs);
+        if (mineKnown && m_playerKnown)
+            playerChange = coop::ItemDiff(m_playerBefore, mine);
+        m_playerKnown = mineKnown;
+        m_playerBefore = std::move(mine);
+        std::vector<net::ItemCount> fixes = coop.LookAtContainer(local, playerChange);
         if (fixes.empty())
             return;
         for (const net::ItemCount& f : fixes)
             if (IsItem(f.item))
                 ChangeItem(open, f);
         RefreshItemList();
+        RefreshLootWindows();
         ++m_fixes;
         if (Read(open, local, m_readMs))
             coop.ContainerSettled(local);

@@ -239,7 +239,8 @@ namespace coop
         std::vector<ItemChangeFrom> TakeContainerChanges() { return std::move(m_itemChanges); }
         void ContainerChangeDone(uint8_t playerId, uint32_t seq, const net::ItemCount& refund);
         void ViewContainer(uint32_t hostRef, bool open = true);
-        std::vector<net::ItemCount> LookAtContainer(const std::vector<net::ItemCount>& local);
+        std::vector<net::ItemCount> LookAtContainer(const std::vector<net::ItemCount>& local,
+            const std::vector<net::ItemCount>& playerChange = {});
         void ContainerSettled(const std::vector<net::ItemCount>& local) { m_friendContainer.Settle(local); }
         std::vector<net::ItemCount> TakeItemRefunds() { return std::move(m_refunds); }
         void SetWorldItems(const std::vector<net::ItemState>& items);

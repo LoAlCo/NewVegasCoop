@@ -2,6 +2,7 @@
 
 #include "game/game.h"
 #include "game/level_up.h"
+#include "coop/item_stacks.h"
 #include "coop/chat.h"
 #include "coop/talk_log.h"
 #include "coop/balance.h"
@@ -166,6 +167,7 @@ namespace game
         Script* g_addItem = nullptr;
         Script* g_activate = nullptr;
         Script* g_refreshItems = nullptr;
+        Script* g_refreshLootWindows = nullptr;
         Script* g_loadOrder = nullptr;
         Script* g_objectiveShown = nullptr;
         Script* g_objectiveDone = nullptr;
@@ -1407,6 +1409,10 @@ namespace game
         g_activate = Compile("activate",
             "Begin Function {}\n"
             "  Activate player\n"
+            "End\n");
+        g_refreshLootWindows = Compile("refresh loot windows",
+            "Begin Function {}\n"
+            "  DispatchEventAlt \"JLMUpdate\"\n"
             "End\n");
         g_refreshItems = Compile("refresh items",
             "Begin Function {}\n"
@@ -5487,6 +5493,41 @@ namespace game
         return form ? form->refID : 0;
     }
 
+    int MoveDroppedIntoBody(TESObjectREFR* body)
+    {
+        // What a body dropped as it died lies in the world, tied to the body only in the game that dropped it. Loot
+        // windows and the container menu list it there alone. In its inventory, it's the same for every player.
+        if (!body)
+            return 0;
+        using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
+        const void* extra = reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&body->extraDataList,
+            layout::kExtraDroppedItems);
+        if (!extra)
+            return 0;
+        auto* head = reinterpret_cast<coop::ItemNode*>(
+            const_cast<char*>(static_cast<const char*>(extra)) + layout::kDroppedItemsList);
+        std::vector<TESObjectREFR*> dropped;
+        int seen = 0;
+        for (coop::ItemNode* node = head; node && ++seen <= 64; node = node->next)
+            if (node->item)
+                dropped.push_back(static_cast<TESObjectREFR*>(node->item));
+        int moved = 0;
+        for (TESObjectREFR* ref : dropped)
+        {
+            WorldItem w = ReadWorldItem(ref);
+            if (!IsThere(w) || !IsItem(w.base))
+                continue;
+            Condition c = ItemCondition(ref);
+            coop::RemoveFromList(head, ref);
+            ChangeItem(body, net::ItemCount{w.base, w.count, c.health, c.mods});
+            RemoveWorldItem(ref);
+            ++moved;
+            LOG_DEBUG("Items: %d of %08X that %08X dropped as it died (%08X, condition %d, mods %d) put in its inventory",
+                w.count, w.base, RefId(body), RefId(ref), c.health, c.mods);
+        }
+        return moved;
+    }
+
     void RemoveWorldItem(TESObjectREFR* ref)
     {
         if (!ref)
@@ -5537,6 +5578,14 @@ namespace game
     {
         if (g_refreshItems && Player())
             g_scripts->CallFunctionAlt(g_refreshItems, Player(), 0);
+    }
+
+    void RefreshLootWindows()
+    {
+        // Just Assorted Mods' loot window keeps its own list of what a container holds, and listens for this to read
+        // it again. With no such window, nothing listens and nothing happens.
+        if (g_refreshLootWindows && Player())
+            g_scripts->CallFunctionAlt(g_refreshLootWindows, Player(), 0);
     }
 
     DoorInfo ReadDoor(TESObjectREFR* ref)

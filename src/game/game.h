@@ -289,6 +289,7 @@ namespace game
     void ChangeItem(TESObjectREFR* ref, const net::ItemCount& kind);
     void Activate(TESObjectREFR* ref);
     void RefreshItemList();
+    void RefreshLootWindows();
     bool IsItem(uint32_t formId);
     bool IsLootable(TESObjectREFR* ref);
 
@@ -394,6 +395,7 @@ namespace game
     TESObjectREFR* TopEnableParent(TESObjectREFR* ref);
     struct Condition { uint8_t health = net::kNoCondition; uint8_t mods = 0; };
     Condition ItemCondition(TESObjectREFR* ref);
+    int MoveDroppedIntoBody(TESObjectREFR* body);
     TESObjectREFR* PlaceItem(uint32_t base, int count, float x, float y, float z, uint8_t health = net::kNoCondition,
         uint8_t mods = 0);
     void MoveItem(TESObjectREFR* ref, float x, float y, float z, float rx, float ry, float rz);
