@@ -20,6 +20,7 @@ struct Config
     bool borderless = true;
     bool desyncNotices = true;
     bool shotPaths = true;
+    bool companionsBoth = true;
     int fieldOfView = 0;
     bool friendMarkers = true;
     bool talkLog = true;

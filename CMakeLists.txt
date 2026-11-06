@@ -40,6 +40,7 @@ add_library(nvcoop_core STATIC
     src/coop/smoothing.cpp
     src/coop/world_items.cpp
     src/coop/desync.cpp
+    src/coop/visitor_companions.cpp
     src/coop/chat.cpp
     src/coop/voice.cpp
     src/coop/game_mode.cpp
@@ -73,6 +74,7 @@ add_library(NVCoop SHARED
     src/game/doors.cpp
     src/game/mines.cpp
     src/game/companions.cpp
+    src/game/visitor_companions.cpp
     src/game/dialogue.cpp
     src/game/steam.cpp
     src/game/sleepwait.cpp
