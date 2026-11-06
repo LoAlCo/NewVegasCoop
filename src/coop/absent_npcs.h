@@ -50,12 +50,14 @@ namespace coop
                     continue;
                 m_since.erase(ref);
                 Hidden& h = m_hidden[ref];
+                if (h.gaveUp)
+                    continue;
                 if (h.times < kMaxHides)
                 {
                     ++h.times;
                     out.hide.push_back(ref);
                 }
-                else if (!h.gaveUp)
+                else
                 {
                     h.gaveUp = true;
                     out.gaveUp.push_back(ref);
@@ -74,6 +76,9 @@ namespace coop
             return it != m_hidden.end() && !it->second.gaveUp;
         }
 
+        // We can't hide this one: stop trying until the host lists it again.
+        void GiveUp(uint32_t ref) { m_hidden[ref].gaveUp = true; }
+
         std::vector<uint32_t> TakeHidden()
         {
             std::vector<uint32_t> refs;
@@ -84,7 +89,13 @@ namespace coop
             return refs;
         }
 
-        size_t HiddenCount() const { return m_hidden.size(); }
+        size_t HiddenCount() const
+        {
+            size_t count = 0;
+            for (const auto& [ref, h] : m_hidden)
+                count += h.gaveUp ? 0 : 1;
+            return count;
+        }
 
         void Clear()
         {
