@@ -756,6 +756,7 @@ namespace game
         for (int slot = 0; slot < coop::kPingSlots; ++slot)
         {
             std::string path = "HUDMainMenu/NVCoopPing" + std::to_string(slot);
+            std::string icon = "HUDMainMenu/NVCoopPingIcon" + std::to_string(slot);
             g_pingLabel[slot] = Compile("ping label",
                 "string_var sText\n"
                 "float fX\n"
@@ -768,8 +769,11 @@ namespace game
                 "  if iShow\n"
                 "    SetUIFloat \"" + path + "/user0\" fX\n"
                 "    SetUIFloat \"" + path + "/user1\" fY\n"
+                "    SetUIFloat \"" + icon + "/user0\" fX\n"
+                "    SetUIFloat \"" + icon + "/user1\" fY\n"
                 "  endif\n"
                 "  SetUIFloat \"" + path + "/visible\" iShow\n"
+                "  SetUIFloat \"" + icon + "/visible\" iShow\n"
                 "End\n");
         }
         for (int slot = 0; slot < kMarkSlots; ++slot)
