@@ -3,11 +3,13 @@
 #pragma once
 
 #include "coop/smoothing.h"
+#include "net/protocol.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cctype>
 #include <cstdint>
 #include <string>
 
@@ -56,13 +58,15 @@ namespace coop
         std::string who, name;
         float x = 0, y = 0, z = 0;
         uint32_t until = 0;
+        uint8_t kind = 0;
     };
 
     // One ping per player. Each game runs the 15 seconds on its own clock.
     class PingBoard
     {
     public:
-        void Add(uint8_t player, const std::string& who, const std::string& name, float x, float y, float z, uint32_t now)
+        void Add(uint8_t player, const std::string& who, const std::string& name, float x, float y, float z, uint32_t now,
+            uint8_t kind = 0)
         {
             ActivePing* slot = nullptr;
             for (ActivePing& p : m_slots)
@@ -78,7 +82,7 @@ namespace coop
                     if (static_cast<int32_t>(p.until - slot->until) < 0)
                         slot = &p;
             }
-            *slot = ActivePing{true, player, who, name, x, y, z, now + kPingLifeMs};
+            *slot = ActivePing{true, player, who, name, x, y, z, now + kPingLifeMs, kind};
         }
         void Expire(uint32_t now)
         {
@@ -98,6 +102,55 @@ namespace coop
     private:
         std::array<ActivePing, kPingSlots> m_slots;
     };
+
+    enum class PingThing : uint8_t
+    {
+        Nothing,
+        Scenery,
+        Actor,
+        Loot,
+        Device,
+        Door
+    };
+    constexpr size_t kMaxPingThingName = 48;
+
+    // Workbenches and the like are ordinary activators in the game's data, so their names are what sets them apart. This
+    // catches the DLCs' and other mods' too; in a translated game they just show as a marked spot.
+    inline bool IsUtilityName(std::string name)
+    {
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        for (const char* word : {"workbench", "work bench", "reloading bench", "campfire", "vending"})
+            if (name.find(word) != std::string::npos)
+                return true;
+        return false;
+    }
+
+    struct PingLook
+    {
+        net::PingKind kind = net::PingKind::Spot;
+        std::string name;
+    };
+
+    // Actors stay plain spots until pings can follow them.
+    inline PingLook ClassifyPing(PingThing thing, const std::string& name)
+    {
+        std::string shown = name.substr(0, kMaxPingThingName);
+        switch (thing)
+        {
+        case PingThing::Nothing:
+            return {net::PingKind::Spot, "Over here"};
+        case PingThing::Loot:
+            return {net::PingKind::Loot, shown.empty() ? "Loot" : shown};
+        case PingThing::Device:
+            if (IsUtilityName(shown))
+                return {net::PingKind::Utility, shown};
+            [[fallthrough]];
+        case PingThing::Door:
+            return {net::PingKind::Spot, shown.empty() ? "Marked spot" : shown};
+        default:
+            return {net::PingKind::Spot, "Marked spot"};
+        }
+    }
 
     // dx and dy run from the viewer to the spot, +Y being north.
     inline std::string PingLine(const std::string& who, const std::string& name, float dx, float dy)

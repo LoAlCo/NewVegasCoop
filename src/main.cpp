@@ -1712,19 +1712,22 @@ namespace
         {
             game::CrosshairPick aim;
             bool hit = game::CrosshairPoint(aim) && aim.hit;
+            coop::PingLook look = coop::ClassifyPing(hit ? aim.thing : coop::PingThing::Nothing, aim.name);
             net::Ping ping;
+            ping.kind = look.kind;
             ping.space = me.space;
             ping.x = hit ? aim.at[0] : me.x;
             ping.y = hit ? aim.at[1] : me.y;
             ping.z = hit ? aim.at[2] : me.z;
-            ping.name = hit ? "Marked spot" : "Over here";
+            ping.name = look.name;
             float at[3] = {ping.x, ping.y, ping.z}, sx = 0, sy = 0;
             bool inView = false;
             game::SpotOnScreen(at, sx, sy, inView);
-            LOG_INFO("Pings: we mark %.0f %.0f %.0f in place %08X (%s, %.0f away on \"%s\"), %.3f %.3f on screen", ping.x, ping.y,
-                ping.z, ping.space, ping.name.c_str(), aim.distance, aim.what, sx, sy);
+            LOG_INFO("Pings: we mark %.0f %.0f %.0f in place %08X (%s, kind %u, ref %08X thing %u, %.0f away on \"%s\"), %.3f %.3f on screen",
+                ping.x, ping.y, ping.z, ping.space, ping.name.c_str(), static_cast<unsigned>(ping.kind), aim.ref,
+                static_cast<unsigned>(aim.thing), aim.distance, aim.what, sx, sy);
             g_coop.SendPing(ping);
-            s_board.Add(g_coop.MyPlayerId(), "You", ping.name, ping.x, ping.y, ping.z, now);
+            s_board.Add(g_coop.MyPlayerId(), "You", ping.name, ping.x, ping.y, ping.z, now, static_cast<uint8_t>(ping.kind));
             game::PlayPingSound(g_config.pingSound);
         }
         s_keyWas = key;
@@ -1739,7 +1742,7 @@ namespace
                 h.ping.space, h.ping.name.c_str(), inRange ? "shown" : "out of range");
             if (!inRange)
                 continue;
-            s_board.Add(h.ping.player, h.who, h.ping.name, h.ping.x, h.ping.y, h.ping.z, now);
+            s_board.Add(h.ping.player, h.who, h.ping.name, h.ping.x, h.ping.y, h.ping.z, now, static_cast<uint8_t>(h.ping.kind));
             game::PlayPingSound(g_config.pingSound);
         }
         s_board.Expire(now);
@@ -1759,6 +1762,7 @@ namespace
             marks[slot].at[0] = p.x;
             marks[slot].at[1] = p.y;
             marks[slot].at[2] = p.z;
+            marks[slot].kind = p.kind;
         }
         game::ShowPings(marks);
     }

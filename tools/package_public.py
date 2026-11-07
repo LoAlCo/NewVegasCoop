@@ -90,6 +90,10 @@ files = {
     'MCM/NVCoop.json': open(os.path.join(ROOT, 'data', 'MCM', 'NVCoop.json'), 'rb').read(),
     'Textures/interface/nvcoop/ping_spot.dds':
         open(os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'ping_spot.dds'), 'rb').read(),
+    'Textures/interface/nvcoop/ping_loot.dds':
+        open(os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'ping_loot.dds'), 'rb').read(),
+    'Textures/interface/nvcoop/ping_tool.dds':
+        open(os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'ping_tool.dds'), 'rb').read(),
     'README - New Vegas Co-op.txt': README.replace('\n', '\r\n').encode('utf-8'),
     'LICENSE.txt': open(os.path.join(ROOT, 'LICENSE'), 'rb').read(),
 }

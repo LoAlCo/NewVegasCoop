@@ -290,6 +290,9 @@ namespace game
         float at[3] = {};
         float distance = 0;
         char what[64] = {};
+        coop::PingThing thing = coop::PingThing::Nothing;
+        uint32_t ref = 0;
+        std::string name;
     };
     bool CrosshairPoint(CrosshairPick& out);
     bool SpotOnScreen(const float (&at)[3], float& x, float& y, bool& inView);
@@ -298,6 +301,7 @@ namespace game
         bool active = false;
         std::string text;
         float at[3] = {};
+        uint8_t kind = 0;
     };
     void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks);
     void PlayPingSound(int choice);
