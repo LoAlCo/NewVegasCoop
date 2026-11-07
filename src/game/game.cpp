@@ -3816,8 +3816,11 @@ namespace game
         return true;
     }
 
-    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks)
+    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks, coop::PingIcons icons)
     {
+        static coop::PingIcons s_icons = coop::PingIcons::HudColour;
+        bool iconsChanged = icons != s_icons;
+        s_icons = icons;
         static std::string s_text[coop::kPingSlots];
         static bool s_shown[coop::kPingSlots] = {};
         std::array<coop::PingLabelSpot, coop::kPingSlots> spots;
@@ -3839,10 +3842,10 @@ namespace game
                 continue;
             MakeChatHud();
             coop::PingLabelSpot spot = spots[slot];
-            bool changed = show && (!s_shown[slot] || s_text[slot] != m.text);
-            g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 5, m.text.empty() ? " " : m.text.c_str(),
+            bool changed = show && (iconsChanged || !s_shown[slot] || s_text[slot] != m.text);
+            g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 6, m.text.empty() ? " " : m.text.c_str(),
                 *reinterpret_cast<uint32_t*>(&spot.x), *reinterpret_cast<uint32_t*>(&spot.y),
-                static_cast<uint32_t>(!show ? 0 : changed ? 2 : 1), static_cast<uint32_t>(m.kind));
+                static_cast<uint32_t>(!show ? 0 : changed ? 2 : 1), static_cast<uint32_t>(m.kind), static_cast<uint32_t>(icons));
             s_text[slot] = show ? m.text : std::string();
             s_shown[slot] = show;
         }
