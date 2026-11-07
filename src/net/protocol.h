@@ -15,7 +15,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 95;
+    constexpr uint32_t kProtocolVersion = 96;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -663,6 +663,7 @@ namespace net
         uint16_t year = 2281;
     };
     constexpr uint8_t kWeatherPopped = 1;
+    constexpr uint8_t kWeatherHostOff = 2; // the host stopped sharing its weather; weather is 0
     struct WeatherState
     {
         uint32_t weather = 0;
