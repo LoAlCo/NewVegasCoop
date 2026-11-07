@@ -6552,10 +6552,17 @@ TEST(chat_history_scroll_stays_in_range_and_holds_when_lines_arrive)
     auto shown = history.View();
     CHECK(shown.older == 0 && shown.lines.size() == coop::ChatHistory::kMostShown);
 
-    CHECK(coop::HistoryPanelText(shown).find("older") == std::string::npos);
-    CHECK(coop::HistoryPanelText(shown).find("v 188 newer (PgDn)") != std::string::npos);
+    auto rows = coop::HistoryPanelRows(shown);
+    CHECK(rows.size() == coop::ChatHistory::kMostShown + 1);
+    CHECK(rows.back().text == "v 188 newer (PgDn)");
     history.ResetScroll();
-    CHECK(coop::HistoryPanelText(history.View()).rfind("^ 188 older (PgUp)\n", 0) == 0);
+    rows = coop::HistoryPanelRows(history.View());
+    CHECK(rows.size() == coop::ChatHistory::kMostShown + 1);
+    CHECK(rows.front().text == "^ 188 older (PgUp)");
+    history.Scroll(20);
+    rows = coop::HistoryPanelRows(history.View());
+    CHECK(rows.size() == coop::kChatPanelMostRows);
+    CHECK(rows.front().alpha == 1.0f && rows.back().alpha == 1.0f);
 }
 
 TEST(chat_history_view_fits_wrapped_lines_in_its_rows)
@@ -6578,7 +6585,7 @@ TEST(chat_history_view_fits_wrapped_lines_in_its_rows)
     for (int i = 0; i < 200; ++i)
         longest.Add(std::string(32, 'n') + ": " + std::string(160, 't'));
     longest.Scroll(50);
-    CHECK(coop::HistoryPanelText(longest.View()).size() < 2000);
+    CHECK(coop::HistoryPanelRows(longest.View()).size() <= coop::kChatPanelMostRows);
 }
 
 TEST(event_feed_drops_old_lines_and_waits_in_menus)
@@ -6586,21 +6593,24 @@ TEST(event_feed_drops_old_lines_and_waits_in_menus)
     coop::EventFeed feed;
     feed.SetLineMs(8000);
     CHECK(feed.Update(1000, false).empty());
-    CHECK(feed.Alpha() == 0);
     feed.Add("a");
-    CHECK(feed.Update(1000, false).size() == 1);
-    CHECK(feed.Alpha() == 1.0f);
+    auto one = feed.Update(1000, false);
+    CHECK(one.size() == 1 && one[0].alpha == 1.0f);
     CHECK(feed.Update(5000, false).size() == 1);
     CHECK(feed.Update(60000, true).size() == 1);
-    CHECK(feed.Update(63000, false).size() == 1);
-    CHECK(feed.Alpha() > 0 && feed.Alpha() < 1);
+    feed.Add("b");
+    auto two = feed.Update(63000, false);
+    CHECK(two.size() == 2 && two[0].alpha > 0 && two[0].alpha < 1 && two[1].alpha == 1.0f);
+    two = feed.Update(65000, false);
+    CHECK(two.size() == 1 && two[0].text == "b");
+    feed.Clear();
     CHECK(feed.Update(65000, false).empty());
 
     for (const char* line : {"1", "2", "3", "4", "5"})
         feed.Add(line);
     auto lines = feed.Update(65100, false);
     CHECK(lines.size() == coop::EventFeed::kMostLines);
-    CHECK(lines.front() == "2" && lines.back() == "5");
+    CHECK(lines.front().text == "2" && lines.back().text == "5");
 
     feed.Clear();
     uint32_t aboutToWrap = 0xFFFFFF00u;
@@ -6776,7 +6786,7 @@ TEST(feed_names_cant_start_tags)
     CHECK(history.View().lines[0] == "(Sam): (hi)");
     coop::EventFeed feed;
     feed.Add("* <Sam> is down");
-    CHECK(feed.Update(1, false)[0] == "* (Sam) is down");
+    CHECK(feed.Update(1, false)[0].text == "* (Sam) is down");
 }
 
 TEST(chat_panel_stays_on_the_screen)
@@ -6819,9 +6829,9 @@ TEST(chat_panel_fits_its_history_to_its_size_and_width)
 
 TEST(chat_panel_preview_is_as_big_as_the_panel_gets)
 {
-    std::string preview = coop::ChatPanelPreview();
-    size_t lines = 1 + static_cast<size_t>(std::count(preview.begin(), preview.end(), '\n'));
-    CHECK(lines == coop::ChatHistory::kMostShown);
-    CHECK(coop::CleanFeedText(preview).find('\n') == std::string::npos);
-    CHECK(preview.find('<') == std::string::npos && preview.find('{') == std::string::npos);
+    auto preview = coop::ChatPanelPreview();
+    CHECK(preview.size() == coop::ChatHistory::kMostShown);
+    CHECK(preview.size() <= coop::kChatPanelMostRows);
+    for (const coop::ChatPanelRow& row : preview)
+        CHECK(row.text == coop::CleanFeedText(row.text) && row.alpha == 1.0f);
 }

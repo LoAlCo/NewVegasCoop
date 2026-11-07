@@ -7,6 +7,7 @@
 #include "log.h"
 #include "coop/attack_versions.h"
 #include "coop/shot_counter.h"
+#include "coop/chat_history.h"
 #include "coop/talk_log.h"
 #include "coop/gear_lockers.h"
 #include "nvse/PluginAPI.h"
@@ -29,6 +30,8 @@ namespace game
     constexpr int kMarkSlots = 4;
     constexpr int kTalkSlots = static_cast<int>(coop::TalkLog::kMostLines);
     constexpr int kTalkEdges = 4;
+    constexpr int kFeedSlots = static_cast<int>(coop::kChatPanelMostRows);
+    constexpr int kFeedEdges = 4;
     constexpr int kMaxWholeArgs[2] = {3, 5};
     struct PendingHit { uint32_t refId; uint32_t attackerId; float healthAtHit; };
     constexpr float kRadToDeg = 57.2957795f;
@@ -162,9 +165,10 @@ namespace game
     extern Script* g_talkPlace[kTalkSlots];
     extern Script* g_talkBack[kTalkSlots];
     extern Script* g_talkSide[kTalkSlots];
-    extern Script* g_feedText;
-    extern Script* g_feedPlace;
-    extern Script* g_feedBar;
+    extern Script* g_feedText[kFeedSlots];
+    extern Script* g_feedPlace[kFeedSlots];
+    extern Script* g_feedBack[kFeedSlots];
+    extern Script* g_feedSide[kFeedSlots];
     extern Script* g_speedMult;
     extern Script* g_actorAlpha;
     extern Script* g_collision;

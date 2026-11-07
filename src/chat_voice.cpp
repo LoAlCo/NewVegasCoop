@@ -103,30 +103,29 @@ namespace
 
         bool on = inGame && g_worldLoaded;
         g_eventFeed.SetLineMs(static_cast<uint32_t>(g_config.feedSeconds) * 1000);
-        std::vector<std::string> feed = g_eventFeed.Update(now, on && game::InMenu());
+        std::vector<coop::ChatPanelRow> feed = g_eventFeed.Update(now, on && game::InMenu());
         g_chatHistory.SetShape(coop::ChatPanelRows(g_config.feedSize),
             coop::ChatPanelCharsPerRow(g_config.feedWidth, g_config.feedSize));
-        std::string text;
-        float alpha = 1;
+        std::vector<coop::ChatPanelRow> rows;
         if (g_config.feedPreview)
-            text = coop::ChatPanelPreview();
+            rows = coop::ChatPanelPreview();
         else if (on && typing && g_config.chatHistory)
         {
             g_chatHistory.Scroll(scroll);
-            text = coop::HistoryPanelText(g_chatHistory.View());
+            rows = coop::HistoryPanelRows(g_chatHistory.View());
         }
         else if (on)
-        {
-            text = coop::JoinLines(feed);
-            alpha = g_eventFeed.Alpha();
-        }
+            rows = std::move(feed);
         game::ChatPanelLook look;
         look.xPercent = g_config.feedX;
         look.yPercent = g_config.feedY;
         look.width = static_cast<float>(g_config.feedWidth);
         look.scale = g_config.feedSize / 100.0f;
         look.alignRight = g_config.feedAlign == 1;
-        game::ShowChatPanel(text, look, alpha);
+        look.gap = static_cast<float>(g_config.feedGap);
+        look.style = g_config.feedStyle;
+        look.dividers = g_config.feedDividers;
+        game::ShowChatPanel(rows, look);
     }
 }
 

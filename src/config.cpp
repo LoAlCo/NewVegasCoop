@@ -107,6 +107,9 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iFeedWidth", feedWidth);
         Write(path, "iFeedAlign", feedAlign);
         Write(path, "iFeedSize", feedSize);
+        Write(path, "iFeedGap", feedGap);
+        Write(path, "iFeedStyle", feedStyle);
+        Write(path, "bFeedDividers", feedDividers);
         Write(path, "bFeedPreview", feedPreview);
         Write(path, "iFeedSeconds", feedSeconds);
         Write(path, "bShowAddress", showAddress);
@@ -172,6 +175,9 @@ void Config::LoadPlayer(const std::string& path)
     feedWidth = number("iFeedWidth", feedWidth, 200, 1200);
     feedAlign = number("iFeedAlign", feedAlign, 0, 1);
     feedSize = number("iFeedSize", feedSize, 40, 150);
+    feedGap = number("iFeedGap", feedGap, 0, 40);
+    feedStyle = number("iFeedStyle", feedStyle, 0, 3);
+    feedDividers = flag("bFeedDividers", feedDividers);
     feedPreview = flag("bFeedPreview", feedPreview);
     feedSeconds = number("iFeedSeconds", feedSeconds, 3, 60);
     showAddress = flag("bShowAddress", showAddress);
