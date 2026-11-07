@@ -393,6 +393,18 @@
 					"type": 0
 				},
 				"33": {
+					"title": "Send And Receive Gifts",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Lets you send caps through the Co-op Teleporter and receive them from friends. Off: no Send caps button, and anything sent to you goes back to the sender",
+					"vars": [
+						{
+							"configINI": "Settings:bGifts",
+							"default": 1
+						}
+					]
+				},
+				"34": {
 					"title": "Save After A Gift",
 					"type": 5,
 					"enable": 1,
