@@ -737,6 +737,7 @@ namespace game
         for (int slot = 0; slot < coop::kPingSlots; ++slot)
         {
             std::string path = "HUDMainMenu/NVCoopPing" + std::to_string(slot);
+            std::string icon = "HUDMainMenu/NVCoopPingIcon" + std::to_string(slot);
             g_pingLabel[slot] = Compile("ping label",
                 "string_var sText\n"
                 "float fX\n"
@@ -749,8 +750,11 @@ namespace game
                 "  if iShow\n"
                 "    SetUIFloat \"" + path + "/user0\" fX\n"
                 "    SetUIFloat \"" + path + "/user1\" fY\n"
+                "    SetUIFloat \"" + icon + "/user0\" fX\n"
+                "    SetUIFloat \"" + icon + "/user1\" fY\n"
                 "  endif\n"
                 "  SetUIFloat \"" + path + "/visible\" iShow\n"
+                "  SetUIFloat \"" + icon + "/visible\" iShow\n"
                 "End\n");
         }
         for (int slot = 0; slot < kMarkSlots; ++slot)
@@ -6069,9 +6073,16 @@ namespace game
                 std::string xml = "<text name=\"NVCoopPing" + std::to_string(slot) + "\"><visible>0</visible>"
                     "<user0>0.5</user0><user1>0.5</user1>"
                     "<x><copy src=\"screen()\" trait=\"width\"/><mul src=\"me()\" trait=\"user0\"/></x>"
-                    "<y><copy src=\"screen()\" trait=\"height\"/><mul src=\"me()\" trait=\"user1\"/></y>"
+                    "<y><copy src=\"screen()\" trait=\"height\"/><mul src=\"me()\" trait=\"user1\"/><add>16</add></y>"
                     "<font>2</font><justify>&center;</justify><wrapwidth>500</wrapwidth>"
                     "<systemcolor>1</systemcolor><string> </string></text>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                xml = "<image name=\"NVCoopPingIcon" + std::to_string(slot) + "\"><visible>0</visible>"
+                    "<filename>interface\\nvcoop\\ping_spot.dds</filename>"
+                    "<user0>0.5</user0><user1>0.5</user1>"
+                    "<x><copy src=\"screen()\" trait=\"width\"/><mul src=\"me()\" trait=\"user0\"/><sub>16</sub></x>"
+                    "<y><copy src=\"screen()\" trait=\"height\"/><mul src=\"me()\" trait=\"user1\"/><sub>16</sub></y>"
+                    "<width>32</width><height>32</height><zoom>-1</zoom><systemcolor>1</systemcolor></image>";
                 g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
             }
             g_chatHudMade = true;
@@ -6922,16 +6933,25 @@ namespace game
     {
         static std::string s_text[coop::kPingSlots];
         static bool s_shown[coop::kPingSlots] = {};
+        std::array<coop::PingLabelSpot, coop::kPingSlots> spots;
+        std::array<bool, coop::kPingSlots> shown = {};
+        for (int slot = 0; slot < coop::kPingSlots; ++slot)
+        {
+            float x = 0, y = 0;
+            bool inView = false;
+            shown[slot] = marks[slot].active && SpotOnScreen(marks[slot].at, x, y, inView);
+            if (shown[slot])
+                spots[slot] = coop::PlacePingLabel(x, y);
+        }
+        coop::SpreadPingLabels(spots, shown);
         for (int slot = 0; slot < coop::kPingSlots; ++slot)
         {
             const PingMark& m = marks[slot];
-            float x = 0, y = 0;
-            bool inView = false;
-            bool show = m.active && SpotOnScreen(m.at, x, y, inView);
+            bool show = shown[slot];
             if ((!show && !s_shown[slot]) || !g_pingLabel[slot] || !Player())
                 continue;
             MakeChatHud();
-            coop::PingLabelSpot spot = coop::PlacePingLabel(x, y, slot);
+            coop::PingLabelSpot spot = spots[slot];
             bool changed = show && (!s_shown[slot] || s_text[slot] != m.text);
             g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 4, m.text.empty() ? " " : m.text.c_str(),
                 *reinterpret_cast<uint32_t*>(&spot.x), *reinterpret_cast<uint32_t*>(&spot.y),

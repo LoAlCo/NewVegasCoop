@@ -2825,15 +2825,31 @@ TEST(ping_line_gives_distance_and_direction)
 
 TEST(ping_labels_stay_on_screen)
 {
-    coop::PingLabelSpot middle = coop::PlacePingLabel(0.5f, 0.5f, 0);
+    coop::PingLabelSpot middle = coop::PlacePingLabel(0.5f, 0.5f);
     CHECK(middle.x == 0.5f && middle.y == 0.5f);
-    coop::PingLabelSpot right = coop::PlacePingLabel(1.0f, 0.5f, 0);
+    coop::PingLabelSpot right = coop::PlacePingLabel(1.0f, 0.5f);
     CHECK(right.x < 1.0f && right.x > 0.5f);
-    coop::PingLabelSpot left = coop::PlacePingLabel(0.0f, 0.5f, 0);
+    coop::PingLabelSpot left = coop::PlacePingLabel(0.0f, 0.5f);
     CHECK(left.x > 0 && left.x < 0.5f);
-    coop::PingLabelSpot huge = coop::PlacePingLabel(42332.75f, -9000.0f, 0);
+    coop::PingLabelSpot huge = coop::PlacePingLabel(42332.75f, -9000.0f);
     CHECK(huge.x == right.x && huge.y > 0 && huge.y < 0.5f);
-    CHECK(coop::PlacePingLabel(0.5f, 0.5f, 2).y < middle.y);
+    CHECK(coop::PlacePingLabel(0.5f, 2.0f).y < 1.0f);
+}
+
+TEST(ping_icons_stay_on_their_spots_unless_they_would_overlap)
+{
+    std::array<coop::PingLabelSpot, coop::kPingSlots> spots;
+    std::array<bool, coop::kPingSlots> shown = {};
+    spots[0] = {0.5f, 0.5f};
+    spots[1] = {0.9f, 0.5f};
+    spots[2] = {0.5f, 0.5f};
+    spots[3] = {0.5f, 0.5f};
+    shown[0] = shown[1] = true;
+    coop::SpreadPingLabels(spots, shown);
+    CHECK(spots[0].y == 0.5f && spots[1].y == 0.5f);
+    shown[2] = shown[3] = true;
+    coop::SpreadPingLabels(spots, shown);
+    CHECK(spots[0].y == 0.5f && spots[2].y < 0.5f && spots[3].y < spots[2].y);
 }
 
 TEST(ping_goes_to_everyone_through_the_host)
