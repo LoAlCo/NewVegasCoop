@@ -119,10 +119,34 @@ namespace coop
         float x = 0.5f, y = 0.5f;
     };
 
-    // Keeps a label wholly on screen, and stops labels at the same spot covering each other.
-    inline PingLabelSpot PlacePingLabel(float x, float y, int slot)
+    // Keeps an icon and the line under it wholly on screen.
+    inline PingLabelSpot PlacePingLabel(float x, float y)
     {
-        constexpr float kEdgeX = 0.14f, kEdgeY = 0.05f, kLineHeight = 0.035f;
-        return {std::clamp(x, kEdgeX, 1.0f - kEdgeX), std::clamp(y - kLineHeight * static_cast<float>(slot), kEdgeY, 1.0f - kEdgeY)};
+        constexpr float kEdgeX = 0.14f, kEdgeTop = 0.04f, kEdgeBottom = 0.1f;
+        return {std::clamp(x, kEdgeX, 1.0f - kEdgeX), std::clamp(y, kEdgeTop, 1.0f - kEdgeBottom)};
+    }
+
+    // Icons sit exactly on their spots unless two would cover each other: then the later one moves up.
+    inline void SpreadPingLabels(std::array<PingLabelSpot, kPingSlots>& spots, const std::array<bool, kPingSlots>& shown)
+    {
+        constexpr float kWidth = 0.2f, kHeight = 0.09f;
+        for (int slot = 1; slot < kPingSlots; ++slot)
+        {
+            if (!shown[slot])
+                continue;
+            for (int tries = 0; tries < kPingSlots; ++tries)
+            {
+                bool clear = true;
+                for (int other = 0; other < slot; ++other)
+                    if (shown[other] && std::abs(spots[slot].x - spots[other].x) < kWidth &&
+                        std::abs(spots[slot].y - spots[other].y) < kHeight)
+                    {
+                        spots[slot].y = spots[other].y - kHeight;
+                        clear = false;
+                    }
+                if (clear)
+                    break;
+            }
+        }
     }
 }

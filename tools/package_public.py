@@ -22,7 +22,6 @@ AllowSecondCopy=1
 '''
 
 README = f'''New Vegas Co-op {version}
-==========================
 
 Play Fallout: New Vegas with 1-3 friends. One player hosts their world; friends join with their own characters.
 
@@ -92,6 +91,8 @@ files = {
     'MCM/NVCoop.json': open(os.path.join(ROOT, 'data', 'MCM', 'NVCoop.json'), 'rb').read(),
     'Textures/interface/nvcoop/talk_divider_right.dds':
         open(os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'talk_divider_right.dds'), 'rb').read(),
+    'Textures/interface/nvcoop/ping_spot.dds':
+        open(os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'ping_spot.dds'), 'rb').read(),
     'README - New Vegas Co-op.txt': README.replace('\n', '\r\n').encode('utf-8'),
     'LICENSE.txt': open(os.path.join(ROOT, 'LICENSE'), 'rb').read(),
 }
