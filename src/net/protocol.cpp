@@ -1001,6 +1001,41 @@ namespace net
         return r.U8(m.mover) && r.U8(m.target) && m.mover != m.target && r.AtEnd();
     }
 
+    Bytes Encode(const Give& m)
+    {
+        Writer w(MsgType::Give);
+        w.U8(static_cast<uint8_t>(m.stage));
+        w.U32(m.id);
+        w.U8(m.other);
+        if (m.stage == GiveStage::Ask || m.stage == GiveStage::Deliver)
+        {
+            WriteItem(w, m.item);
+            w.U8(m.itemType);
+        }
+        else
+            w.U8(static_cast<uint8_t>(m.reason));
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, Give& m)
+    {
+        uint8_t stage;
+        if (!r.U8(stage) || stage > static_cast<uint8_t>(GiveStage::Result) || !r.U32(m.id) || m.id == 0 ||
+            !r.U8(m.other))
+            return false;
+        m.stage = static_cast<GiveStage>(stage);
+        m.item = ItemCount{};
+        m.itemType = 0;
+        m.reason = GiveReason::Ok;
+        if (m.stage == GiveStage::Ask || m.stage == GiveStage::Deliver)
+            return ReadItem(r, m.item, false) && !IsMadeWhilePlaying(m.item.item) && r.U8(m.itemType) && r.AtEnd();
+        uint8_t reason;
+        if (!r.U8(reason) || reason > static_cast<uint8_t>(GiveReason::Busy))
+            return false;
+        m.reason = static_cast<GiveReason>(reason);
+        return r.AtEnd();
+    }
+
     Bytes Encode(const Drag& m)
     {
         Writer w(MsgType::Drag);

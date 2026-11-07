@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 70;
+    constexpr uint32_t kProtocolVersion = 71;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -90,6 +90,7 @@ namespace net
         PlayerModAnims = 69,
         Drag = 70,
         Mode = 71,
+        Give = 78,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -550,6 +551,21 @@ namespace net
     };
     Bytes Encode(const Teleport& m);
     bool Decode(Reader& r, Teleport& m);
+    // A gift goes sender -> host (Ask) -> receiver (Deliver) -> host (Got) -> sender (Result). `id` is the sender's own
+    // on Ask and Result, the host's on Deliver and Got. `other` is the receiver on Ask and Result, the sender on Deliver.
+    enum class GiveStage : uint8_t { Ask, Deliver, Got, Result };
+    enum class GiveReason : uint8_t { Ok, NoSuchPlayer, PlayerLeft, BadItem, Busy };
+    struct Give
+    {
+        GiveStage stage = GiveStage::Ask;
+        uint32_t id = 0;
+        uint8_t other = 0;
+        ItemCount item;
+        uint8_t itemType = 0;
+        GiveReason reason = GiveReason::Ok;
+    };
+    Bytes Encode(const Give& m);
+    bool Decode(Reader& r, Give& m);
     struct Drag
     {
         uint8_t dragger = 0, target = 0;

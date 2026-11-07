@@ -4972,3 +4972,355 @@ TEST(a_stack_merged_away_is_seen_gone)
     broken.next = &broken;
     CHECK(coop::HoldsStack(&broken, &a));
 }
+
+TEST(give_round_trip_and_limits)
+{
+    net::Give ask;
+    ask.stage = net::GiveStage::Ask;
+    ask.id = 7;
+    ask.other = 2;
+    ask.item.item = 0x0000000Fu;
+    ask.item.count = 40000;
+    ask.itemType = 31;
+    Bytes b = Encode(ask);
+    Reader r(b);
+    MsgType t;
+    net::Give m;
+    CHECK(r.Type(t) && t == MsgType::Give && Decode(r, m));
+    CHECK(m.stage == net::GiveStage::Ask && m.id == 7 && m.other == 2 && m.item == ask.item && m.itemType == 31);
+
+    net::Give result;
+    result.stage = net::GiveStage::Result;
+    result.id = 7;
+    result.other = 2;
+    result.reason = net::GiveReason::PlayerLeft;
+    Bytes rb = Encode(result);
+    Reader rr(rb);
+    CHECK(rr.Type(t) && Decode(rr, m));
+    CHECK(m.stage == net::GiveStage::Result && m.reason == net::GiveReason::PlayerLeft && m.item.item == 0);
+
+    ask.item.count = net::kMaxItemCount + 1;
+    Bytes big = Encode(ask);
+    Reader rbig(big);
+    CHECK(rbig.Type(t) && !Decode(rbig, m));
+}
+
+TEST(give_rejects_zero_and_made_while_playing)
+{
+    net::Give ask;
+    ask.stage = net::GiveStage::Deliver;
+    ask.id = 1;
+    ask.item.item = 0x0000000Fu;
+    ask.item.count = 0;
+    MsgType t;
+    net::Give m;
+    Bytes zero = Encode(ask);
+    Reader rz(zero);
+    CHECK(rz.Type(t) && !Decode(rz, m));
+
+    ask.item.count = 1;
+    ask.item.item = 0xFF000123;
+    Bytes made = Encode(ask);
+    Reader rm(made);
+    CHECK(rm.Type(t) && !Decode(rm, m));
+
+    ask.item.item = 0x0000000Fu;
+    ask.id = 0;
+    Bytes noId = Encode(ask);
+    Reader rn(noId);
+    CHECK(rn.Type(t) && !Decode(rn, m));
+}
+
+TEST(truncated_give_is_rejected)
+{
+    net::Give ask;
+    ask.stage = net::GiveStage::Ask;
+    ask.id = 3;
+    ask.item.item = 0x0000000Fu;
+    ask.item.count = 5;
+    Bytes full = Encode(ask);
+    for (size_t size = 1; size < full.size(); ++size)
+    {
+        Bytes part(full.begin(), full.begin() + size);
+        Reader r(part);
+        MsgType t;
+        net::Give m;
+        CHECK(!r.Type(t) || !Decode(r, m));
+    }
+    Bytes extra = full;
+    extra.push_back(0);
+    Reader r(extra);
+    MsgType t;
+    net::Give m;
+    CHECK(r.Type(t) && !Decode(r, m));
+}
+
+TEST(amount_rejects_letters_zero_and_over_balance)
+{
+    int32_t out = -1;
+    CHECK(coop::ParseAmount("42", 100, out) == coop::Amount::Ok && out == 42);
+    CHECK(coop::ParseAmount(" 100 ", 100, out) == coop::Amount::Ok && out == 100);
+    CHECK(coop::ParseAmount("101", 100, out) == coop::Amount::TooMany && out == 0);
+    CHECK(coop::ParseAmount("0", 100, out) == coop::Amount::Zero);
+    CHECK(coop::ParseAmount("000", 100, out) == coop::Amount::Zero);
+    CHECK(coop::ParseAmount("", 100, out) == coop::Amount::NotANumber);
+    CHECK(coop::ParseAmount("   ", 100, out) == coop::Amount::NotANumber);
+    CHECK(coop::ParseAmount("12a", 100, out) == coop::Amount::NotANumber);
+    CHECK(coop::ParseAmount("-5", 100, out) == coop::Amount::NotANumber);
+    CHECK(coop::ParseAmount("1.5", 100, out) == coop::Amount::NotANumber);
+    CHECK(coop::ParseAmount("99999999999999999999999", 2000000000, out) == coop::Amount::TooMany);
+    CHECK(coop::ParseAmount("1000001", 2000000000, out) == coop::Amount::TooMany);
+}
+
+TEST(sender_book_finish_clears_and_refund_all_once)
+{
+    coop::SenderBook book;
+    net::ItemCount item;
+    item.item = 0x0000000Fu;
+    item.count = 5;
+    uint32_t a = book.Add(1, item), b = book.Add(2, item);
+    CHECK(a != 0 && a != b && book.Open() == 2);
+    coop::SenderBook::Entry e;
+    CHECK(book.Finish(a, e) && e.to == 1 && e.item == item);
+    CHECK(!book.Finish(a, e));
+    auto all = book.TakeAll();
+    CHECK(all.size() == 1 && all[0].id == b);
+    CHECK(book.TakeAll().empty());
+}
+
+TEST(sender_book_forget_means_no_refund)
+{
+    coop::SenderBook book;
+    net::ItemCount item;
+    item.item = 0x0000000Fu;
+    item.count = 5;
+    uint32_t a = book.Add(1, item);
+    book.Forget();
+    coop::SenderBook::Entry e;
+    CHECK(!book.Finish(a, e) && book.TakeAll().empty());
+    CHECK(book.Add(1, item) != a);
+}
+
+TEST(sender_ignores_result_with_unknown_id)
+{
+    coop::SenderBook book;
+    coop::SenderBook::Entry e;
+    CHECK(!book.Finish(1234, e));
+}
+
+TEST(ledger_refunds_when_receiver_leaves)
+{
+    coop::HostLedger ledger;
+    uint32_t a = ledger.Open(1, 10, 2);
+    ledger.Open(1, 11, 3);
+    auto gone = ledger.ReceiverLeft(2);
+    CHECK(gone.size() == 1 && gone[0].id == a && gone[0].senderGift == 10 && gone[0].sender == 1);
+    CHECK(ledger.Open() == 1);
+    CHECK(ledger.ReceiverLeft(2).empty());
+}
+
+TEST(ledger_refuses_sender_mismatch_and_self)
+{
+    coop::HostLedger ledger;
+    CHECK(ledger.Check(1, 1, true, false) == net::GiveReason::NoSuchPlayer);
+    CHECK(ledger.Check(1, 2, false, false) == net::GiveReason::NoSuchPlayer);
+    CHECK(ledger.Check(1, 2, true, true) == net::GiveReason::Busy);
+    CHECK(ledger.Check(1, 2, true, false) == net::GiveReason::Ok);
+    uint32_t id = ledger.Open(1, 10, 2);
+    coop::HostLedger::Gift g;
+    CHECK(!ledger.Close(id, 1, g));
+    CHECK(!ledger.Close(id, 3, g));
+    CHECK(ledger.Close(id, 2, g) && g.senderGift == 10);
+}
+
+TEST(ledger_rate_limits)
+{
+    coop::HostLedger ledger;
+    for (size_t i = 0; i < coop::kMaxOpenGifts; ++i)
+        ledger.Open(1, static_cast<uint32_t>(i + 1), 2);
+    CHECK(ledger.Check(1, 2, true, false) == net::GiveReason::Busy);
+}
+
+TEST(ledger_ignores_late_got_after_clear)
+{
+    coop::HostLedger ledger;
+    uint32_t a = ledger.Open(1, 10, 2);
+    ledger.Clear();
+    coop::HostLedger::Gift g;
+    CHECK(!ledger.Close(a, 2, g));
+    CHECK(ledger.Open(1, 11, 2) != a);
+}
+
+TEST(ledger_stays_quiet_when_sender_left)
+{
+    coop::HostLedger ledger;
+    uint32_t a = ledger.Open(1, 10, 2);
+    ledger.SenderLeft(1);
+    coop::HostLedger::Gift g;
+    CHECK(ledger.Close(a, 2, g) && !g.senderHere);
+}
+
+TEST(receiver_queue_ignores_repeat_id)
+{
+    coop::ReceiverQueue queue;
+    CHECK(queue.Accept(1) && queue.Accept(2));
+    CHECK(!queue.Accept(1) && !queue.Accept(2));
+    for (uint32_t i = 3; i < 1000; ++i)
+        CHECK(queue.Accept(i));
+    CHECK(!queue.Accept(999));
+}
+
+TEST(gift_save_timer_batches_deliveries)
+{
+    coop::GiftSaveTimer timer;
+    CHECK(!timer.TakeDue(100));
+    timer.Delivered(100);
+    CHECK(!timer.TakeDue(100 + coop::kGiftSaveDelayMs - 1));
+    timer.Delivered(3000);
+    CHECK(!timer.TakeDue(100 + coop::kGiftSaveDelayMs));
+    CHECK(timer.TakeDue(3000 + coop::kGiftSaveDelayMs));
+    CHECK(!timer.TakeDue(3000 + coop::kGiftSaveDelayMs));
+    timer.Delivered(10);
+    timer.Forget();
+    CHECK(!timer.TakeDue(100000));
+}
+
+TEST(gift_save_names_pass_the_save_filters)
+{
+    std::string f = coop::GiftSaveForFriend("Zed the Host"), h = coop::GiftSaveForHost("Zed the Host");
+    CHECK(!f.empty() && !h.empty() && f != h);
+    CHECK(coop::IsGiftSave(f) && coop::IsGiftSave(h));
+    CHECK(f.compare(0, 8, "Co-op - ") != 0 && !coop::IsAutosave(f));
+    CHECK(!coop::IsGiftSave("Co-op Bob 2026-11-07") && !coop::IsGiftSave("Co-op"));
+    CHECK(coop::SaveNameOf(coop::LinkedSaveName("Zed the Host", h)) == coop::LinkedSaveName("Zed the Host", h));
+}
+
+TEST(friend_gift_reaches_other_friend)
+{
+    coop::Coop host, a, b;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(b.Join("127.0.0.1", kTestPort, "Bob"));
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        return a.GetFriendState() == coop::FriendState::Joined && b.GetFriendState() == coop::FriendState::Joined &&
+            a.Remotes().count(b.MyPlayerId()) && b.Remotes().count(a.MyPlayerId());
+    }));
+    net::ItemCount caps;
+    caps.item = 0x0000000Fu;
+    caps.count = 25;
+
+    // Friend to friend, through the host.
+    CHECK(a.SendGift(b.MyPlayerId(), caps, 31) != 0);
+    std::vector<coop::Coop::GiftDelivery> got;
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        for (const auto& d : b.TakeGiftDeliveries())
+            got.push_back(d);
+        return !got.empty();
+    }));
+    CHECK(got.size() == 1 && got[0].from == a.MyPlayerId() && got[0].item == caps && got[0].itemType == 31);
+    CHECK(a.TakeGiftOutcomes().empty());
+    b.FinishGiftDelivery(got[0].id, net::GiveReason::Ok);
+    std::vector<coop::Coop::GiftOutcome> ended;
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        for (const auto& o : a.TakeGiftOutcomes())
+            ended.push_back(o);
+        return !ended.empty();
+    }));
+    CHECK(ended.size() == 1 && ended[0].reason == net::GiveReason::Ok && ended[0].to == b.MyPlayerId());
+
+    // Host to friend, and the friend refuses: the host's own record says what to give back.
+    CHECK(host.SendGift(a.MyPlayerId(), caps, 31) != 0);
+    got.clear();
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        for (const auto& d : a.TakeGiftDeliveries())
+            got.push_back(d);
+        return !got.empty();
+    }));
+    a.FinishGiftDelivery(got[0].id, net::GiveReason::BadItem);
+    ended.clear();
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        for (const auto& o : host.TakeGiftOutcomes())
+            ended.push_back(o);
+        return !ended.empty();
+    }));
+    CHECK(ended[0].reason == net::GiveReason::BadItem && ended[0].item == caps);
+
+    // Friend to host, which delivers in its own game.
+    CHECK(b.SendGift(coop::kHostPlayerId, caps, 31) != 0);
+    got.clear();
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        for (const auto& d : host.TakeGiftDeliveries())
+            got.push_back(d);
+        return !got.empty();
+    }));
+    CHECK(got[0].from == b.MyPlayerId());
+    host.FinishGiftDelivery(got[0].id, net::GiveReason::Ok);
+    ended.clear();
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        for (const auto& o : b.TakeGiftOutcomes())
+            ended.push_back(o);
+        return !ended.empty();
+    }));
+    CHECK(ended[0].reason == net::GiveReason::Ok);
+
+    // Nobody can send to themselves or to a player who isn't there.
+    CHECK(a.SendGift(a.MyPlayerId(), caps, 31) == 0);
+    CHECK(a.SendGift(99, caps, 31) == 0);
+
+    // A receiver who leaves before answering: the sender gets it back once.
+    CHECK(a.SendGift(b.MyPlayerId(), caps, 31) != 0);
+    got.clear();
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        for (const auto& d : b.TakeGiftDeliveries())
+            got.push_back(d);
+        return !got.empty();
+    }));
+    b.Stop();
+    ended.clear();
+    CHECK(RunUntil({&host, &a}, [&] {
+        for (const auto& o : a.TakeGiftOutcomes())
+            ended.push_back(o);
+        return !ended.empty();
+    }, 8000));
+    CHECK(ended.size() == 1 && ended[0].reason == net::GiveReason::PlayerLeft && ended[0].item == caps);
+
+    // The host going away gives back everything still on its way.
+    b.Join("127.0.0.1", kTestPort, "Bob");
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        return b.GetFriendState() == coop::FriendState::Joined && a.Remotes().count(b.MyPlayerId());
+    }));
+    CHECK(a.SendGift(b.MyPlayerId(), caps, 31) != 0);
+    CHECK(RunUntil({&host, &a, &b}, [&] { return !b.TakeGiftDeliveries().empty(); }));
+    host.Stop();
+    ended.clear();
+    CHECK(RunUntil({&a}, [&] {
+        for (const auto& o : a.TakeGiftOutcomes())
+            ended.push_back(o);
+        return !ended.empty();
+    }, 8000));
+    CHECK(ended.size() == 1 && ended[0].item == caps);
+
+    // Loading a save undoes the gift on both sides: nothing to give back.
+    a.Stop();
+    b.Stop();
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    CHECK(a.SendGift(coop::kHostPlayerId, caps, 31) != 0);
+    got.clear();
+    CHECK(RunUntil({&host, &a}, [&] {
+        for (const auto& d : host.TakeGiftDeliveries())
+            got.push_back(d);
+        return !got.empty();
+    }));
+    host.ForgetGifts();
+    a.ForgetGifts();
+    host.FinishGiftDelivery(got[0].id, net::GiveReason::Ok);
+    ended.clear();
+    RunUntil({&host, &a}, [&] {
+        for (const auto& o : a.TakeGiftOutcomes())
+            ended.push_back(o);
+        return false;
+    }, 300);
+    CHECK(ended.empty());
+}

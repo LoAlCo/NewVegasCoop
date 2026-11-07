@@ -79,6 +79,10 @@ namespace coop
     {
         if (m_role != Role::None)
             LOG_INFO("Leaving co-op");
+        RefundPendingGifts(GiveReason::PlayerLeft);
+        m_giftLedger.Clear();
+        m_giftInbox.clear();
+        m_giftSeen.Reset();
         m_net->Stop();
         m_net = &m_enet;
         m_other.reset();
@@ -211,6 +215,9 @@ namespace coop
                     m_looks.clear();
                     ++m_looksChanges;
                     m_friendContainer.Reset();
+                    m_giftInbox.clear();
+                    m_giftSeen.Reset();
+                    RefundPendingGifts(GiveReason::PlayerLeft);
                 }
                 break;
 
@@ -531,6 +538,23 @@ namespace coop
                 LOG_INFO("Teleporter: %s asks for %s to go to %s", player.name.c_str(), NameOf(m.mover).c_str(),
                     NameOf(m.target).c_str());
                 AskTeleport(m.mover, m.target);
+            }
+            return;
+        }
+
+        if (type == MsgType::Give)
+        {
+            Give m;
+            if (!Decode(r, m))
+                return;
+            if (m.stage == GiveStage::Got)
+                HostGiftGot(player.id, m.id, m.reason);
+            else if (m.stage == GiveStage::Ask)
+            {
+                if (WithinLimit(player.giftsSince, player.gifts, kMaxGiftsPerSecond))
+                    HostGiftAsk(player.id, m.id, m.other, m.item, m.itemType);
+                else
+                    SendGiftResult(player.id, m.id, m.other, GiveReason::Busy);
             }
             return;
         }
@@ -1172,6 +1196,16 @@ namespace coop
             Teleport m;
             if (Decode(r, m) && m.mover == m_myId && IsPlayer(m.target) && m_teleports.size() < 8)
                 m_teleports.push_back(m.target);
+        }
+        else if (type == MsgType::Give)
+        {
+            Give m;
+            if (!Decode(r, m))
+                return;
+            if (m.stage == GiveStage::Deliver)
+                HeardGiftDelivery(m.id, m.other, m.item, m.itemType);
+            else if (m.stage == GiveStage::Result)
+                HeardGiftResult(m.id, m.reason);
         }
         else if (type == MsgType::TravelMarkers)
         {
@@ -2181,6 +2215,10 @@ namespace coop
         m_players.erase(it);
         if (wasJoined)
         {
+            m_giftLedger.SenderLeft(id);
+            for (const HostLedger::Gift& gift : m_giftLedger.ReceiverLeft(id))
+                if (gift.senderHere)
+                    SendGiftResult(gift.sender, gift.senderGift, gift.receiver, GiveReason::PlayerLeft);
             m_remotes.erase(id);
             m_looks.erase(id);
             HeardAnim(id, "");
@@ -2864,6 +2902,125 @@ namespace coop
         for (const auto& [peer, p] : m_players)
             if (p.joined && p.id == mover)
                 m_net->Send(peer, Encode(Teleport{mover, target}), true);
+    }
+
+    uint32_t Coop::SendGift(uint8_t to, const ItemCount& item, uint8_t itemType)
+    {
+        if (!InGame() || to == m_myId || !IsPlayer(to) || item.count < 1)
+            return 0;
+        uint32_t id = m_giftBook.Add(to, item);
+        LOG_INFO("Gifts: sending %s %d of %08X (condition %d, mods %d, gift %u)", NameOf(to).c_str(), item.count,
+            item.item, item.health, item.mods, id);
+        if (m_role == Role::Host)
+            HostGiftAsk(m_myId, id, to, item, itemType);
+        else
+        {
+            Give m;
+            m.stage = GiveStage::Ask;
+            m.id = id;
+            m.other = to;
+            m.item = item;
+            m.itemType = itemType;
+            m_net->Send(1, Encode(m), true);
+        }
+        return id;
+    }
+
+    void Coop::HostGiftAsk(uint8_t sender, uint32_t senderGift, uint8_t receiver, const ItemCount& item,
+        uint8_t itemType)
+    {
+        GiveReason reason = m_giftLedger.Check(sender, receiver, IsPlayer(receiver), m_loads.Busy());
+        if (reason != GiveReason::Ok)
+        {
+            LOG_INFO("Gifts: %s can't send to %s now (reason %d)", NameOf(sender).c_str(), NameOf(receiver).c_str(),
+                static_cast<int>(reason));
+            SendGiftResult(sender, senderGift, receiver, reason);
+            return;
+        }
+        uint32_t id = m_giftLedger.Open(sender, senderGift, receiver);
+        if (receiver == m_myId)
+        {
+            HeardGiftDelivery(id, sender, item, itemType);
+            return;
+        }
+        Give m;
+        m.stage = GiveStage::Deliver;
+        m.id = id;
+        m.other = sender;
+        m.item = item;
+        m.itemType = itemType;
+        for (const auto& [peer, p] : m_players)
+            if (p.joined && p.id == receiver)
+                m_net->Send(peer, Encode(m), true);
+    }
+
+    void Coop::HeardGiftDelivery(uint32_t id, uint8_t from, const ItemCount& item, uint8_t itemType)
+    {
+        if (!m_giftSeen.Accept(id))
+            return;
+        if (m_giftInbox.size() < kMaxOpenGifts)
+            m_giftInbox.push_back(GiftDelivery{id, from, item, itemType});
+        else
+            FinishGiftDelivery(id, GiveReason::Busy);
+    }
+
+    void Coop::FinishGiftDelivery(uint32_t id, GiveReason reason)
+    {
+        if (m_role == Role::Host)
+            HostGiftGot(m_myId, id, reason);
+        else if (m_role == Role::Friend)
+        {
+            Give m;
+            m.stage = GiveStage::Got;
+            m.id = id;
+            m.reason = reason;
+            m_net->Send(1, Encode(m), true);
+        }
+    }
+
+    void Coop::HostGiftGot(uint8_t from, uint32_t id, GiveReason reason)
+    {
+        HostLedger::Gift gift;
+        if (m_giftLedger.Close(id, from, gift) && gift.senderHere)
+            SendGiftResult(gift.sender, gift.senderGift, gift.receiver, reason);
+    }
+
+    void Coop::SendGiftResult(uint8_t sender, uint32_t senderGift, uint8_t receiver, GiveReason reason)
+    {
+        if (sender == m_myId)
+        {
+            HeardGiftResult(senderGift, reason);
+            return;
+        }
+        Give m;
+        m.stage = GiveStage::Result;
+        m.id = senderGift;
+        m.other = receiver;
+        m.reason = reason;
+        for (const auto& [peer, p] : m_players)
+            if (p.joined && p.id == sender)
+                m_net->Send(peer, Encode(m), true);
+    }
+
+    void Coop::HeardGiftResult(uint32_t senderGift, GiveReason reason)
+    {
+        SenderBook::Entry entry;
+        if (m_giftBook.Finish(senderGift, entry))
+            m_giftOutcomes.push_back(GiftOutcome{entry.item, entry.to, reason});
+    }
+
+    void Coop::RefundPendingGifts(GiveReason reason)
+    {
+        for (const SenderBook::Entry& entry : m_giftBook.TakeAll())
+            m_giftOutcomes.push_back(GiftOutcome{entry.item, entry.to, reason});
+    }
+
+    void Coop::ForgetGifts()
+    {
+        m_giftBook.Forget();
+        m_giftLedger.Clear();
+        m_giftInbox.clear();
+        m_giftOutcomes.clear();
     }
 
     void Coop::ShareTravelMarkers(const std::vector<uint32_t>& refs)

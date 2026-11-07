@@ -11,6 +11,7 @@
 #include "coop/voice.h"
 #include "coop/desync.h"
 #include "coop/game_mode.h"
+#include "coop/gifts.h"
 #include "coop/doors.h"
 #include "coop/saves.h"
 #include "coop/smoothing.h"
@@ -94,6 +95,7 @@ namespace coop
         uint32_t askedAt = 0;
         uint32_t explosionsSince = 0, explosions = 0;
         uint32_t itemMovesSince = 0, itemMoves = 0;
+        uint32_t giftsSince = 0, gifts = 0;
         net::DesyncReport desyncs;
         ChatLimiter chatLimit;
         VoiceLimiter voiceLimit;
@@ -274,6 +276,17 @@ namespace coop
         void ShareTravelMarkers(const std::vector<uint32_t>& refs);
         void AskTeleport(uint8_t mover, uint8_t target);
         std::vector<uint8_t> TakeTeleports() { return std::move(m_teleports); }
+        // Sends what the caller has already taken out of its inventory. 0 means it wasn't sent: put it back.
+        uint32_t SendGift(uint8_t to, const net::ItemCount& item, uint8_t itemType);
+        struct GiftDelivery { uint32_t id; uint8_t from; net::ItemCount item; uint8_t itemType; };
+        std::vector<GiftDelivery> TakeGiftDeliveries() { return std::move(m_giftInbox); }
+        void FinishGiftDelivery(uint32_t id, net::GiveReason reason);
+        // How gifts we sent ended. Any reason but Ok means put the item back.
+        struct GiftOutcome { net::ItemCount item; uint8_t to; net::GiveReason reason; };
+        std::vector<GiftOutcome> TakeGiftOutcomes() { return std::move(m_giftOutcomes); }
+        void RefundPendingGifts(net::GiveReason reason);
+        // A save is loading, which undoes everything on the way: nothing to put back, and late answers count for nothing.
+        void ForgetGifts();
         std::vector<uint32_t> TakeTravelMarkers() { return std::move(m_travelMarkers); }
         void ShareProgressFor(uint8_t playerId, int32_t xp, int32_t karma);
         void SetMyConversation(bool talking, uint32_t npc);
@@ -519,6 +532,17 @@ namespace coop
         std::vector<net::Reputation> m_reputations;
         std::vector<uint32_t> m_travelMarkers;
         std::vector<uint8_t> m_teleports;
+        SenderBook m_giftBook;
+        HostLedger m_giftLedger;
+        ReceiverQueue m_giftSeen;
+        std::vector<GiftDelivery> m_giftInbox;
+        std::vector<GiftOutcome> m_giftOutcomes;
+        void HostGiftAsk(uint8_t sender, uint32_t senderGift, uint8_t receiver, const net::ItemCount& item,
+            uint8_t itemType);
+        void HostGiftGot(uint8_t from, uint32_t id, net::GiveReason reason);
+        void SendGiftResult(uint8_t sender, uint32_t senderGift, uint8_t receiver, net::GiveReason reason);
+        void HeardGiftResult(uint32_t senderGift, net::GiveReason reason);
+        void HeardGiftDelivery(uint32_t id, uint8_t from, const net::ItemCount& item, uint8_t itemType);
         bool IsPlayer(uint8_t id) const;
         std::vector<std::pair<uint8_t, net::ReputationGain>> m_repGains;
         TalkLock m_talk;
