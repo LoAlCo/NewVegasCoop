@@ -757,6 +757,35 @@ namespace net
         return r.U32(m.ref) && IsSharedRef(m.ref) && r.U16(m.limbs) && m.limbs != 0 && m.limbs < 0x8000 && r.AtEnd();
     }
 
+    Bytes Encode(const BodyPose& m)
+    {
+        Writer w(MsgType::BodyPose);
+        w.U32(m.ref);
+        w.U16(m.bones);
+        for (size_t bone = 0; bone < kBodyPoseBones; ++bone)
+            if (m.bones & (1u << bone))
+                for (int axis = 0; axis < 3; ++axis)
+                    w.U16(static_cast<uint16_t>(m.offsets[bone][axis]));
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, BodyPose& m)
+    {
+        if (!r.U32(m.ref) || !IsSharedRef(m.ref) || !r.U16(m.bones) || m.bones == 0 || m.bones >= (1u << kBodyPoseBones))
+            return false;
+        for (size_t bone = 0; bone < kBodyPoseBones; ++bone)
+        {
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                uint16_t value = 0;
+                if ((m.bones & (1u << bone)) && !r.U16(value))
+                    return false;
+                m.offsets[bone][axis] = static_cast<int16_t>(value);
+            }
+        }
+        return r.AtEnd();
+    }
+
     Bytes Encode(const ItemMoves& m)
     {
         Writer w(MsgType::ItemMoves);

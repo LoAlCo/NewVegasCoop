@@ -283,6 +283,18 @@
 					]
 				},
 				"22": {
+					"title": "Sync Body Limbs",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Arms and legs of bodies lie the same way in every game. Uses more network and CPU. The host and the visitor both need it on",
+					"vars": [
+						{
+							"configINI": "Settings:bSyncBodyLimbs",
+							"default": 0
+						}
+					]
+				},
+				"23": {
 					"title": "Desync Notices",
 					"type": 5,
 					"enable": 1,
@@ -294,7 +306,7 @@
 						}
 					]
 				},
-				"23": {
+				"24": {
 					"title": "Display",
 					"enable": 1,
 					"type": 0
@@ -311,7 +323,7 @@
 						}
 					]
 				},
-				"24": {
+				"26": {
 					"title": "Field of View",
 					"type": 2,
 					"enable": 1,
@@ -329,12 +341,12 @@
 						"valueMax": 120
 					}
 				},
-				"26": {
+				"27": {
 					"title": "Joining by IP",
 					"enable": 1,
 					"type": 0
 				},
-				"27": {
+				"28": {
 					"title": "Show My Address",
 					"type": 5,
 					"enable": 1,
@@ -346,12 +358,12 @@
 						}
 					]
 				},
-				"28": {
+				"29": {
 					"title": "Co-op Settings (the host's count for everyone)",
 					"enable": 1,
 					"type": 0
 				},
-				"29": {
+				"30": {
 					"title": "Co-op Balanced",
 					"type": 5,
 					"enable": 1,
@@ -363,7 +375,7 @@
 						}
 					]
 				},
-				"30": {
+				"31": {
 					"title": "Friendly Fire",
 					"type": 5,
 					"enable": 1,

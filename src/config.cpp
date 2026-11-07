@@ -75,6 +75,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bSkipDlcPopups", skipDlcPopups);
         Write(path, "bSyncRadio", syncRadio);
         Write(path, "bDesyncNotices", desyncNotices);
+        Write(path, "bSyncBodyLimbs", syncBodyLimbs);
         Write(path, "iFieldOfView", fieldOfView);
         Write(path, "bFriendMarkers", friendMarkers);
         Write(path, "bTalkLog", talkLog);
@@ -124,6 +125,7 @@ void Config::LoadPlayer(const std::string& path)
     skipDlcPopups = flag("bSkipDlcPopups", skipDlcPopups);
     syncRadio = flag("bSyncRadio", syncRadio);
     desyncNotices = flag("bDesyncNotices", desyncNotices);
+    syncBodyLimbs = flag("bSyncBodyLimbs", syncBodyLimbs);
     fieldOfView = number("iFieldOfView", fieldOfView, 0, 120);
     friendMarkers = flag("bFriendMarkers", friendMarkers);
     talkLog = flag("bTalkLog", talkLog);

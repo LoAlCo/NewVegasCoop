@@ -3,6 +3,7 @@
 #include "coop/coop.h"
 #include "coop/attack_versions.h"
 #include "coop/body_place.h"
+#include "coop/body_pose.h"
 #include "coop/balance.h"
 #include "coop/game_mode.h"
 #include "coop/frame_parts.h"
@@ -5344,4 +5345,96 @@ TEST(a_body_that_moved_while_we_werent_looking_is_not_followed)
         CHECK(!f.Look(t, host));
     host.x += 100;
     CHECK(f.Look(t, host));
+}
+
+TEST(a_body_pose_survives_the_wire_and_bad_ones_are_rejected)
+{
+    using namespace net;
+    BodyPose sent;
+    sent.ref = 0x00146338;
+    sent.bones = (1u << 0) | (1u << 11);
+    sent.offsets[0][0] = -12; sent.offsets[0][1] = 34; sent.offsets[0][2] = -32000;
+    sent.offsets[11][2] = 32000;
+    sent.offsets[5][1] = 77; // not in the mask, so it isn't sent
+    Bytes b = Encode(sent);
+    CHECK(b.size() == 1 + 4 + 2 + 2 * 3 * 2);
+    Reader r(b);
+    MsgType t;
+    BodyPose got;
+    CHECK(r.Type(t) && t == MsgType::BodyPose && Decode(r, got));
+    CHECK(got.ref == sent.ref && got.bones == sent.bones);
+    CHECK(got.offsets[0][0] == -12 && got.offsets[0][1] == 34 && got.offsets[0][2] == -32000);
+    CHECK(got.offsets[11][2] == 32000 && got.offsets[5][1] == 0);
+
+    const auto rejected = [](Bytes bytes) {
+        Reader reader(bytes);
+        MsgType type;
+        BodyPose out;
+        return reader.Type(type) && !Decode(reader, out);
+    };
+    BodyPose none = sent;
+    none.bones = 0;
+    CHECK(rejected(Encode(none)));
+    BodyPose wild = sent;
+    wild.bones = 1u << kBodyPoseBones;
+    CHECK(rejected(Encode(wild)));
+    Bytes cut = b;
+    cut.pop_back();
+    CHECK(rejected(cut));
+    Bytes extra = b;
+    extra.push_back(0);
+    CHECK(rejected(extra));
+}
+
+TEST(a_body_pose_is_sent_while_moving_then_once_at_rest_then_rarely)
+{
+    using Send = coop::BodyPoseSharer::Send;
+    net::BodyPose pose;
+    pose.bones = 1;
+    coop::BodyPoseSharer s;
+    uint32_t now = 5000;
+    CHECK(s.Look(now, pose) == Send::Moving);
+    CHECK(s.Look(now + 200, pose) == Send::None);
+
+    pose.offsets[0][0] = coop::kBodyPoseMoved; // too small a change to send
+    CHECK(s.Look(now + 400, pose) == Send::None);
+    pose.offsets[0][0] = coop::kBodyPoseMoved + 1;
+    now += 600;
+    CHECK(s.Look(now, pose) == Send::Moving);
+
+    CHECK(s.Look(now + coop::kBodyPoseStillMs - 1, pose) == Send::None);
+    now += coop::kBodyPoseStillMs;
+    CHECK(s.Look(now, pose) == Send::Rest);
+    CHECK(s.Look(now + 1, pose) == Send::None);
+    CHECK(s.Look(now + coop::kBodyPoseRepeatMs - 1, pose) == Send::None);
+    now += coop::kBodyPoseRepeatMs;
+    CHECK(s.Look(now, pose) == Send::Moving);
+    CHECK(s.Look(now + 1, pose) == Send::None);
+
+    pose.bones = 3; // a limb came or went
+    CHECK(s.Look(now + 2, pose) == Send::Moving);
+}
+
+TEST(a_visitor_steers_limbs_for_a_while_and_a_repeat_doesnt_start_it_again)
+{
+    net::BodyPose pose;
+    pose.bones = 1;
+    pose.offsets[0][2] = 40;
+    coop::BodyPoseFollower f;
+    uint32_t now = 9000;
+    CHECK(!f.Steering(now));
+    CHECK(f.Heard(now, pose));
+    CHECK(f.Steering(now + coop::kBodyPoseSteerMs - 1));
+    CHECK(f.Target().offsets[0][2] == 40);
+    CHECK(!f.Steering(now + coop::kBodyPoseSteerMs));
+
+    now += coop::kBodyPoseRepeatMs;
+    CHECK(!f.Heard(now, pose));
+    CHECK(!f.Steering(now));
+
+    pose.offsets[0][2] = 40 + coop::kBodyPoseMoved + 1;
+    CHECK(f.Heard(now, pose));
+    CHECK(f.Steering(now));
+    f.Finish();
+    CHECK(!f.Steering(now));
 }

@@ -19,6 +19,7 @@ struct Config
     bool blockDiscordOverlay = true;
     bool borderless = true;
     bool desyncNotices = true;
+    bool syncBodyLimbs = false;
     int fieldOfView = 0;
     bool friendMarkers = true;
     bool talkLog = true;

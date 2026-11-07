@@ -384,6 +384,10 @@ namespace game
     void MoveBody(TESObjectREFR* actor, float dx, float dy, float dz, bool reload3D);
     // On success, detail is the bone it pulled; otherwise, which step failed.
     bool PullBody(TESObjectREFR* actor, float vx, float vy, float vz, std::string& detail);
+    // Optional limb syncing: read where a body's limbs are from its torso, and steer them to a pose. The steering returns
+    // how many limbs it pulled; 0 means they're all close enough or none can be steered.
+    bool ReadBodyPose(TESObjectREFR* actor, net::BodyPose& out);
+    int PullBodyPose(TESObjectREFR* actor, const net::BodyPose& target);
     struct WorldItem
     {
         uint32_t base = 0;

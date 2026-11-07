@@ -159,6 +159,18 @@ namespace game
                     BodyPosition(actor, w.bodyX, w.bodyY, w.bodyZ);
                 }
                 at.x = w.bodyX, at.y = w.bodyY, at.z = w.bodyZ, at.heading = w.bodyHeading;
+                if (s_syncLimbs && !w.pile && !w.limbs && coop::IsDue(now, w.nextPoseLook))
+                {
+                    w.nextPoseLook = now + coop::kBodyPoseEveryMs;
+                    net::BodyPose pose;
+                    pose.ref = ref;
+                    if (ReadBodyPose(actor, pose))
+                    {
+                        auto send = w.poseSharer.Look(now, pose);
+                        if (send != coop::BodyPoseSharer::Send::None)
+                            m_bodyPoses.push_back({pose, send == coop::BodyPoseSharer::Send::Rest});
+                    }
+                }
             }
             else
                 w.nextBodyLook = 0;
@@ -317,6 +329,7 @@ namespace game
     {
         const auto& shared = coop.Npcs();
         m_bodiesPulled = 0;
+        m_bodiesPosed = 0;
 
         for (auto it = m_made.begin(); it != m_made.end();)
         {
@@ -748,6 +761,15 @@ namespace game
         b.followMs += MsSince(start);
     }
 
+    void Npcs::HearBodyPoses(const std::vector<net::BodyPose>& poses, uint32_t now)
+    {
+        if (!s_syncLimbs)
+            return;
+        for (const net::BodyPose& pose : poses)
+            if (LookupRef(pose.ref))
+                m_bodies[pose.ref].pose.Heard(now, pose);
+    }
+
     void Npcs::FollowFriendsBodies(coop::Coop& coop, uint32_t now)
     {
         for (const net::BodyLimbs& m : coop.TakeBodyLimbs())
@@ -805,6 +827,23 @@ namespace game
             return;
         Body& b = m_bodies[ref];
         FollowBody(ref, actor, npc, b, now);
+        if (s_syncLimbs && !npc.limbs && b.pose.Steering(now) && m_bodiesPosed < coop::kMaxBodiesPosed && !InMenu() &&
+            GrabbedItem() != RefId(actor))
+        {
+            coop::Pose here;
+            if (GetPose(actor, here) && here.space == host.space)
+            {
+                ++m_bodiesPosed;
+                int pulled = PullBodyPose(actor, b.pose.Target());
+                if (pulled && !b.posing)
+                    LOG_INFO("NPCs: steering the limbs of %s (%08X) to the host's pose (%d limbs)", Name(actor), ref, pulled);
+                else if (!pulled && b.posing)
+                    LOG_INFO("NPCs: the limbs of %s (%08X) match the host's pose", Name(actor), ref);
+                b.posing = pulled != 0;
+                if (!pulled)
+                    b.pose.Finish();
+            }
+        }
         if (!coop::IsDue(now, b.nextLook))
             return;
         b.nextLook = now + coop::kBodyLookEveryMs;

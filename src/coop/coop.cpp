@@ -104,6 +104,7 @@ namespace coop
         m_npcGear.clear();
         m_bodyMoves.clear();
         m_bodyLimbs.clear();
+        m_bodyPoses.clear();
         m_npcAttacks.clear();
         m_npcs.clear();
         m_myDoors.clear();
@@ -1422,6 +1423,18 @@ namespace coop
             m_revived = true;
             LOG_INFO("We were revived");
         }
+        else if (type == MsgType::BodyPose)
+        {
+            BodyPose m;
+            if (!Decode(r, m))
+                return;
+            auto same = std::find_if(m_bodyPoses.begin(), m_bodyPoses.end(),
+                [&](const BodyPose& b) { return b.ref == m.ref; });
+            if (same != m_bodyPoses.end())
+                *same = m;
+            else if (m_bodyPoses.size() < kMaxQueuedItemMoves)
+                m_bodyPoses.push_back(m);
+        }
         else if (type == MsgType::Drag)
         {
             net::Drag m;
@@ -2406,6 +2419,15 @@ namespace coop
     {
         if (m_role == Role::Friend && InGame())
             m_net->Send(1, Encode(m), true);
+    }
+
+    void Coop::ShareBodyPose(const BodyPose& m, bool reliable)
+    {
+        if (m_role != Role::Host)
+            return;
+        for (auto& [peer, p] : m_players)
+            if (p.joined)
+                m_net->Send(peer, Encode(m), reliable);
     }
 
     void Coop::SetNpcs(uint32_t space, std::vector<NpcState> npcs)

@@ -1484,6 +1484,7 @@ namespace
             return;
         bool showedAddress = g_config.showAddress;
         g_config.LoadPlayer(PlayerSettingsPath());
+        game::Npcs::SetSyncLimbs(g_config.syncBodyLimbs);
         if (g_config.showAddress && !showedAddress)
             ShowAddresses();
         coop::SaveMode switches = coop::ModeFromSwitches(g_config.coopBalanced, g_config.friendlyFire);
@@ -2694,10 +2695,13 @@ namespace
         if (g_coop.GetRole() == coop::Role::Host)
         {
             g_npcs.Share(g_coop, now, me, g_standIns);
+            for (const auto& send : g_npcs.TakeBodyPoses())
+                g_coop.ShareBodyPose(send.pose, send.reliable);
             g_npcs.FollowFriendsBodies(g_coop, now);
         }
         else if (g_coop.InGame())
         {
+            g_npcs.HearBodyPoses(g_coop.TakeBodyPoses(), now);
             g_npcs.Update(g_coop, now, me, g_standIns);
             for (const net::BodyMove& move : g_npcs.TakeBodyReports())
                 g_coop.ReportBodyMove(move);
@@ -3190,6 +3194,7 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
     if (g_config.allowSecondCopy)
         AllowSecondCopy(g_config.secondCopyWaits);
     game::Npcs::SetSmoothBodies(g_config.smoothBodies);
+    game::Npcs::SetSyncLimbs(g_config.syncBodyLimbs);
     if (g_config.borderless)
         display::Install();
     if (g_config.blockDiscordOverlay)

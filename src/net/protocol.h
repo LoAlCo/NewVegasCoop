@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 71;
+    constexpr uint32_t kProtocolVersion = 72;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -92,6 +92,7 @@ namespace net
         Mode = 71,
         BodyMove = 74,
         BodyLimbs = 75,
+        BodyPose = 83,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -473,6 +474,16 @@ namespace net
     };
     Bytes Encode(const BodyLimbs& m);
     bool Decode(Reader& r, BodyLimbs& m);
+    // Optional limb syncing: where a body's limbs are, in game units from its torso. Only the bones in the mask are sent.
+    constexpr size_t kBodyPoseBones = 12;
+    struct BodyPose
+    {
+        uint32_t ref = 0;
+        uint16_t bones = 0;
+        int16_t offsets[kBodyPoseBones][3] = {};
+    };
+    Bytes Encode(const BodyPose& m);
+    bool Decode(Reader& r, BodyPose& m);
     bool Decode(Reader& r, BodyMove& m);
 
     struct ItemMoves

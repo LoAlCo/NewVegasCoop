@@ -5,6 +5,7 @@
 #include "coop/chat.h"
 #include "coop/talk_log.h"
 #include "coop/balance.h"
+#include "coop/body_place.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -3630,6 +3631,80 @@ namespace game
         using SetVelocity = void(__thiscall*)(void*, const float*);
         reinterpret_cast<SetVelocity>(addr::kRigidBodySetLinearVelocity)(body, speed);
         return true;
+    }
+
+    namespace
+    {
+        // The ragdoll's limbs, in the order of BodyPose's mask. Creatures and modded skeletons simply have fewer of them.
+        const char* const kPoseBoneNames[net::kBodyPoseBones] = {"Bip01 NonAccum", "Bip01 Head", "Bip01 L UpperArm",
+            "Bip01 L Forearm", "Bip01 R UpperArm", "Bip01 R Forearm", "Bip01 L Thigh", "Bip01 L Calf", "Bip01 R Thigh",
+            "Bip01 R Calf", "Bip01 L Foot", "Bip01 R Foot"};
+        constexpr int kPoseBoneDepth = 24;
+
+        void* HavokBodyOf(const char* bone)
+        {
+            const char* collision = At<const char*>(bone, layout::kNiCollisionObject);
+            const char* worldObject = collision ? At<const char*>(collision, layout::kCollisionWorldObject) : nullptr;
+            return worldObject && IsRigidBody(worldObject) ? At<void*>(worldObject, layout::kWorldObjectHavok) : nullptr;
+        }
+
+        int16_t ToPoseOffset(float value)
+        {
+            return static_cast<int16_t>(std::lround((std::max)(-32000.0f, (std::min)(32000.0f, value))));
+        }
+    }
+
+    bool ReadBodyPose(TESObjectREFR* actor, net::BodyPose& out)
+    {
+        const char* root = actor ? reinterpret_cast<const char*>(actor->GetNiNode()) : nullptr;
+        const char* torso = root ? BoneWithBody(root) : nullptr;
+        if (!torso)
+            return false;
+        const auto* center = reinterpret_cast<const float*>(torso + layout::kNodeWorldTranslate);
+        out.bones = 0;
+        for (size_t i = 0; i < net::kBodyPoseBones; ++i)
+        {
+            const char* bone = FindNode(root, kPoseBoneNames[i], kPoseBoneDepth);
+            if (!bone || bone == torso || !HavokBodyOf(bone))
+                continue;
+            const auto* p = reinterpret_cast<const float*>(bone + layout::kNodeWorldTranslate);
+            for (int axis = 0; axis < 3; ++axis)
+                out.offsets[i][axis] = ToPoseOffset(p[axis] - center[axis]);
+            out.bones = static_cast<uint16_t>(out.bones | (1u << i));
+        }
+        return out.bones != 0;
+    }
+
+    int PullBodyPose(TESObjectREFR* actor, const net::BodyPose& target)
+    {
+        constexpr float kGameUnitsPerHavok = 7;
+        const char* root = actor ? reinterpret_cast<const char*>(actor->GetNiNode()) : nullptr;
+        const char* torso = root ? BoneWithBody(root) : nullptr;
+        if (!torso)
+            return 0;
+        const auto* center = reinterpret_cast<const float*>(torso + layout::kNodeWorldTranslate);
+        int pulled = 0;
+        for (size_t i = 0; i < net::kBodyPoseBones; ++i)
+        {
+            if (!(target.bones & (1u << i)))
+                continue;
+            const char* bone = FindNode(root, kPoseBoneNames[i], kPoseBoneDepth);
+            void* body = bone && bone != torso ? HavokBodyOf(bone) : nullptr;
+            if (!body)
+                continue;
+            const auto* p = reinterpret_cast<const float*>(bone + layout::kNodeWorldTranslate);
+            coop::BodySpot ours{p[0], p[1], p[2]}, speed;
+            coop::BodySpot wanted{center[0] + target.offsets[i][0], center[1] + target.offsets[i][1],
+                center[2] + target.offsets[i][2]};
+            if (!coop::BodyPull(wanted, ours, speed))
+                continue;
+            alignas(16) float havok[4] = {speed.x / kGameUnitsPerHavok, speed.y / kGameUnitsPerHavok,
+                speed.z / kGameUnitsPerHavok, 0};
+            using SetVelocity = void(__thiscall*)(void*, const float*);
+            reinterpret_cast<SetVelocity>(addr::kRigidBodySetLinearVelocity)(body, havok);
+            ++pulled;
+        }
+        return pulled;
     }
 
     bool BodyPosition(TESObjectREFR* actor, float& x, float& y, float& z)

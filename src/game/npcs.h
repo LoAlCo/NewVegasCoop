@@ -3,6 +3,7 @@
 #pragma once
 
 #include "coop/body_place.h"
+#include "coop/body_pose.h"
 #include "coop/coop.h"
 #include "coop/shot_counter.h"
 #include "game/game.h"
@@ -48,6 +49,20 @@ namespace game
             out.swap(m_bodyReports);
             return out;
         }
+        // Optional limb syncing: on the host, poses to send; on a visitor, poses heard.
+        struct PoseToSend
+        {
+            net::BodyPose pose;
+            bool reliable = false;
+        };
+        std::vector<PoseToSend> TakeBodyPoses()
+        {
+            std::vector<PoseToSend> out;
+            out.swap(m_bodyPoses);
+            return out;
+        }
+        void HearBodyPoses(const std::vector<net::BodyPose>& poses, uint32_t now);
+        static void SetSyncLimbs(bool on) { s_syncLimbs = on; }
         TESObjectREFR* OurRefOf(uint32_t hostRef) const { return Find(hostRef); }
 
     private:
@@ -97,6 +112,8 @@ namespace game
             uint8_t pile = 0;
             uint32_t nextBodyLook = 0;
             float bodyX = 0, bodyY = 0, bodyZ = 0, bodyHeading = 0;
+            coop::BodyPoseSharer poseSharer;
+            uint32_t nextPoseLook = 0;
         };
         struct Body
         {
@@ -119,14 +136,19 @@ namespace game
             uint32_t judgeAt = 0;
             float offBefore = 0;
             bool saidGaveUp = false;
+            coop::BodyPoseFollower pose;
+            bool posing = false;
         };
         std::map<uint32_t, Body> m_bodies;
         uint32_t m_bodiesMoved = 0;
         uint32_t m_bodiesPulled = 0;
+        uint32_t m_bodiesPosed = 0;
+        std::vector<PoseToSend> m_bodyPoses;
         std::vector<net::BodyMove> m_bodyReports;
         std::vector<net::BodyLimbs> m_bodyLimbs;
         std::map<uint32_t, coop::BodyChase> m_friendsBodies;
         static inline bool s_smoothBodies = true;
+        static inline bool s_syncLimbs = false;
         struct Made
         {
             uint32_t localId = 0;
