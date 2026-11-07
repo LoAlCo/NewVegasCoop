@@ -2756,6 +2756,20 @@ TEST(a_ping_says_what_kind_of_thing_it_marks)
     CHECK(board.Slots()[0].kind == static_cast<uint8_t>(PingKind::Loot));
 }
 
+TEST(recognising_objects_can_be_turned_off)
+{
+    using coop::ChosenPingThing;
+    using coop::PingThing;
+    CHECK(ChosenPingThing(PingThing::Loot, true) == PingThing::Loot);
+    CHECK(ChosenPingThing(PingThing::Device, true) == PingThing::Device);
+    CHECK(ChosenPingThing(PingThing::Loot, false) == PingThing::Scenery);
+    CHECK(ChosenPingThing(PingThing::Device, false) == PingThing::Scenery);
+    CHECK(ChosenPingThing(PingThing::Door, false) == PingThing::Scenery);
+    CHECK(ChosenPingThing(PingThing::Nothing, false) == PingThing::Nothing);
+    CHECK(coop::ClassifyPing(ChosenPingThing(PingThing::Loot, false), "Ammo Box").kind == net::PingKind::Spot);
+    CHECK(coop::ClassifyPing(ChosenPingThing(PingThing::Loot, false), "Ammo Box").name == "Marked spot");
+}
+
 TEST(ping_gate_allows_one_a_second)
 {
     coop::PingGate gate(coop::kPingSendGapMs);

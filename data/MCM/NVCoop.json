@@ -445,6 +445,35 @@
 						"valueMax": 20000,
 						"suffix": ""
 					}
+				},
+				"36": {
+					"title": "Ping Icons",
+					"type": 1,
+					"enable": 1,
+					"mouse": "The icon on each ping: off, in your HUD's colour, or each kind in its own colour",
+					"vars": [
+						{
+							"configINI": "Settings:iPingIcons",
+							"default": 1
+						}
+					],
+					"strings": [
+						"Off",
+						"HUD colour",
+						"Own colours"
+					]
+				},
+				"37": {
+					"title": "Recognise Objects",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Your pings name what you aim at and use its icon, such as loot or a workbench. Off: every ping you send is a plain marked spot",
+					"vars": [
+						{
+							"configINI": "Settings:bPingObjects",
+							"default": 1
+						}
+					]
 				}
 			}
 		},

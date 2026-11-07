@@ -741,11 +741,23 @@ namespace game
             for (int kind = 0; kind < static_cast<int>(net::PingKind::Count); ++kind)
             {
                 std::string icon = "HUDMainMenu/NVCoopPingIcon" + std::to_string(slot) + "x" + std::to_string(kind);
-                icons += "  if iShow\n"
+                static const int kOwnColours[][3] = {{255, 182, 66}, {217, 165, 255}, {108, 198, 255}};
+                static_assert(std::size(kOwnColours) == static_cast<size_t>(net::PingKind::Count));
+                icons += "  if iShow == 2\n"
+                    "    if iIcons == 2\n"
+                    "      SetUIFloat \"" + icon + "/systemcolor\" 0\n"
+                    "      SetUIFloat \"" + icon + "/red\" " + std::to_string(kOwnColours[kind][0]) + "\n"
+                    "      SetUIFloat \"" + icon + "/green\" " + std::to_string(kOwnColours[kind][1]) + "\n"
+                    "      SetUIFloat \"" + icon + "/blue\" " + std::to_string(kOwnColours[kind][2]) + "\n"
+                    "    else\n"
+                    "      SetUIFloat \"" + icon + "/systemcolor\" 1\n"
+                    "    endif\n"
+                    "  endif\n"
+                    "  if iShow\n"
                     "    SetUIFloat \"" + icon + "/user0\" fX\n"
                     "    SetUIFloat \"" + icon + "/user1\" fY\n"
                     "  endif\n"
-                    "  if iKind == " + std::to_string(kind) + "\n"
+                    "  if iKind == " + std::to_string(kind) + " && iIcons != 0\n"
                     "    SetUIFloat \"" + icon + "/visible\" iShow\n"
                     "  else\n"
                     "    SetUIFloat \"" + icon + "/visible\" 0\n"
@@ -757,7 +769,8 @@ namespace game
                 "float fY\n"
                 "int iShow\n"
                 "int iKind\n"
-                "Begin Function {sText, fX, fY, iShow, iKind}\n"
+                "int iIcons\n"
+                "Begin Function {sText, fX, fY, iShow, iKind, iIcons}\n"
                 "  if iShow == 2\n"
                 "    SetUIStringEx \"" + path + "/string\" \"%z\" sText\n"
                 "  endif\n"
@@ -7030,8 +7043,11 @@ namespace game
         return true;
     }
 
-    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks)
+    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks, coop::PingIcons icons)
     {
+        static coop::PingIcons s_icons = coop::PingIcons::HudColour;
+        bool iconsChanged = icons != s_icons;
+        s_icons = icons;
         static std::string s_text[coop::kPingSlots];
         static bool s_shown[coop::kPingSlots] = {};
         std::array<coop::PingLabelSpot, coop::kPingSlots> spots;
@@ -7053,10 +7069,10 @@ namespace game
                 continue;
             MakeChatHud();
             coop::PingLabelSpot spot = spots[slot];
-            bool changed = show && (!s_shown[slot] || s_text[slot] != m.text);
-            g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 5, m.text.empty() ? " " : m.text.c_str(),
+            bool changed = show && (iconsChanged || !s_shown[slot] || s_text[slot] != m.text);
+            g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 6, m.text.empty() ? " " : m.text.c_str(),
                 *reinterpret_cast<uint32_t*>(&spot.x), *reinterpret_cast<uint32_t*>(&spot.y),
-                static_cast<uint32_t>(!show ? 0 : changed ? 2 : 1), static_cast<uint32_t>(m.kind));
+                static_cast<uint32_t>(!show ? 0 : changed ? 2 : 1), static_cast<uint32_t>(m.kind), static_cast<uint32_t>(icons));
             s_text[slot] = show ? m.text : std::string();
             s_shown[slot] = show;
         }
