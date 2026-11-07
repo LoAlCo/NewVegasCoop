@@ -15,7 +15,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 91;
+    constexpr uint32_t kProtocolVersion = 92;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -750,10 +750,12 @@ namespace net
         std::string text;
         coop::VoiceStyle style;
     };
-    // Only spots for now. Another kind of target can use target for its ID without changing the format.
+    // Each kind has its own icon. None sends a target yet: a later kind can use it for an ID without changing the format.
     enum class PingKind : uint8_t
     {
         Spot,
+        Loot,
+        Utility,
         Count
     };
     constexpr size_t kMaxPingName = 48;
