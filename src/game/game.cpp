@@ -2792,7 +2792,7 @@ namespace game
 
     namespace
     {
-        constexpr int kQuestions = 16;
+        constexpr int kQuestions = 21;
         struct Question
         {
             bool open = false;
@@ -3001,6 +3001,16 @@ namespace game
             return false;
         SetTileText(tile, label);
         return true;
+    }
+
+    void SetQuestionText(int id, const std::string& text)
+    {
+        if (id < 0 || id >= kQuestions || !g_questions[id].open)
+            return;
+        bool shown = MessageShows(g_questions[id].text);
+        std::snprintf(g_questions[id].text, sizeof(g_questions[id].text), "%s", text.c_str());
+        if (shown)
+            SetMessageText(g_questions[id].text);
     }
 
     int TakeChoice(int id)
@@ -3622,6 +3632,12 @@ namespace game
             if (n > 0)
                 used += static_cast<size_t>(n) < size - used ? static_cast<size_t>(n) : size - used - 1;
         }
+    }
+
+    bool TradeMenuOpen()
+    {
+        return *reinterpret_cast<const void* const*>(addr::kContainerMenu) ||
+            *reinterpret_cast<const void* const*>(addr::kBarterMenu);
     }
 
     bool QuantityPromptOpen()
@@ -5451,6 +5467,12 @@ namespace game
         return form && reinterpret_cast<IsInventoryTypeFn>(addr::kIsInventoryObjectType)(form->typeID);
     }
 
+    int FormTypeOf(uint32_t formId)
+    {
+        TESForm* form = LookupForm(formId);
+        return form ? form->typeID : -1;
+    }
+
     bool IsLootable(TESObjectREFR* ref)
     {
         if (!ref || !ref->baseForm)
@@ -6751,6 +6773,12 @@ namespace game
     {
         std::lock_guard<std::mutex> lock(g_chatMutex);
         return g_entryDraft.Text().size();
+    }
+
+    std::string TextEntryText()
+    {
+        std::lock_guard<std::mutex> lock(g_chatMutex);
+        return g_entryDraft.Text();
     }
 
     std::string TakeTextEntry()

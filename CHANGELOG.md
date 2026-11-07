@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+- New: send caps to a friend. Use the Co-op Teleporter, choose Send caps, pick who and type how many. They arrive straight
+  in the friend's inventory, with a notice for both of you. If the friend can't take them, you get them back. Everyone's
+  game saves a few seconds after a gift so it can't be lost; there's a switch for that in the Mod Configuration Menu.
+- When the host's game refuses a save a friend asked for, it now tries again, as friends' games already did.
+
 ## 0.1.10
 - Everyone needs 0.1.10 to play together.
 - New: a log of nearby conversations on the left of the screen (by LoAlCo). When a friend near you talks to someone,

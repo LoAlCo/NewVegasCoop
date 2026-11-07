@@ -78,6 +78,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bDesyncNotices", desyncNotices);
         Write(path, "bShotPaths", shotPaths);
         Write(path, "bCompanionsBoth", companionsBoth);
+        Write(path, "bGiftSave", giftSave);
         Write(path, "iFieldOfView", fieldOfView);
         Write(path, "bFriendMarkers", friendMarkers);
         Write(path, "bTalkLog", talkLog);
@@ -140,6 +141,7 @@ void Config::LoadPlayer(const std::string& path)
     desyncNotices = flag("bDesyncNotices", desyncNotices);
     shotPaths = flag("bShotPaths", shotPaths);
     companionsBoth = flag("bCompanionsBoth", companionsBoth);
+    giftSave = flag("bGiftSave", giftSave);
     fieldOfView = number("iFieldOfView", fieldOfView, 0, 120);
     friendMarkers = flag("bFriendMarkers", friendMarkers);
     talkLog = flag("bTalkLog", talkLog);

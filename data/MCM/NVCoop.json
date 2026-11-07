@@ -404,7 +404,7 @@
 						}
 					]
 				},
-				"31": {
+				"32": {
 					"title": "Same Companion, One Each",
 					"type": 5,
 					"enable": 1,
@@ -412,6 +412,23 @@
 					"vars": [
 						{
 							"configINI": "Settings:bCompanionsBoth",
+							"default": 1
+						}
+					]
+				},
+				"33": {
+					"title": "Gifts",
+					"enable": 1,
+					"type": 0
+				},
+				"34": {
+					"title": "Save After A Gift",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Saves everyone's game a few seconds after you receive a gift, so it can't be lost. Causes a short hitch. If you turn it off, loading an older save could lose a gift",
+					"vars": [
+						{
+							"configINI": "Settings:bGiftSave",
 							"default": 1
 						}
 					]
