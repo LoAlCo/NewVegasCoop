@@ -807,7 +807,7 @@ namespace
 
     void AskCoopMenu()
     {
-        if (g_coop.Remotes().empty())
+        if (g_coop.Remotes().empty() || !g_config.gifts)
         {
             AskTeleportTargets();
             return;
@@ -1004,7 +1004,8 @@ namespace
             if (me)
                 game::ChangeItem(me, o.item);
             changed = true;
-            game::Notify(("Co-op: " + name + " didn't get the " + what + ", so you have them back").c_str());
+            game::Notify(("Co-op: " + name + (o.reason == net::GiveReason::TurnedOff ? " has gifts turned off" :
+                " didn't get the " + what) + ", so you have them back").c_str());
         }
         if (changed)
             game::RefreshItemList();
@@ -1012,6 +1013,15 @@ namespace
 
     void ApplyGiftDeliveries(uint32_t now, TESObjectREFR* me)
     {
+        if (!g_config.gifts && g_coop.InGame())
+        {
+            for (const coop::Coop::GiftDelivery& d : g_coop.TakeGiftDeliveries())
+            {
+                LOG_INFO("Gifts: refused gift %u from %s (gifts are turned off here)", d.id, g_coop.NameOf(d.from).c_str());
+                g_coop.FinishGiftDelivery(d.id, net::GiveReason::TurnedOff);
+            }
+            return;
+        }
         if (!me || !g_coop.InGame() || game::TradeMenuOpen() || game::QuantityPromptOpen())
             return;
         bool changed = false;

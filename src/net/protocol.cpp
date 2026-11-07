@@ -1030,7 +1030,7 @@ namespace net
         if (m.stage == GiveStage::Ask || m.stage == GiveStage::Deliver)
             return ReadItem(r, m.item, false) && !IsMadeWhilePlaying(m.item.item) && r.U8(m.itemType) && r.AtEnd();
         uint8_t reason;
-        if (!r.U8(reason) || reason > static_cast<uint8_t>(GiveReason::Busy))
+        if (!r.U8(reason) || reason > static_cast<uint8_t>(GiveReason::TurnedOff))
             return false;
         m.reason = static_cast<GiveReason>(reason);
         return r.AtEnd();

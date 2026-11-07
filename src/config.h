@@ -18,6 +18,7 @@ struct Config
     bool blockDiscordOverlay = true;
     bool borderless = true;
     bool desyncNotices = true;
+    bool gifts = true;
     bool giftSave = true;
     int fieldOfView = 0;
     bool friendMarkers = true;

@@ -554,7 +554,7 @@ namespace net
     // A gift goes sender -> host (Ask) -> receiver (Deliver) -> host (Got) -> sender (Result). `id` is the sender's own
     // on Ask and Result, the host's on Deliver and Got. `other` is the receiver on Ask and Result, the sender on Deliver.
     enum class GiveStage : uint8_t { Ask, Deliver, Got, Result };
-    enum class GiveReason : uint8_t { Ok, NoSuchPlayer, PlayerLeft, BadItem, Busy };
+    enum class GiveReason : uint8_t { Ok, NoSuchPlayer, PlayerLeft, BadItem, Busy, TurnedOff };
     struct Give
     {
         GiveStage stage = GiveStage::Ask;

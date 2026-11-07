@@ -4999,6 +4999,14 @@ TEST(give_round_trip_and_limits)
     CHECK(rr.Type(t) && Decode(rr, m));
     CHECK(m.stage == net::GiveStage::Result && m.reason == net::GiveReason::PlayerLeft && m.item.item == 0);
 
+    result.reason = net::GiveReason::TurnedOff;
+    Bytes off = Encode(result);
+    Reader roff(off);
+    CHECK(roff.Type(t) && Decode(roff, m) && m.reason == net::GiveReason::TurnedOff);
+    off.back() = static_cast<uint8_t>(net::GiveReason::TurnedOff) + 1;
+    Reader rbad(off);
+    CHECK(rbad.Type(t) && !Decode(rbad, m));
+
     ask.item.count = net::kMaxItemCount + 1;
     Bytes big = Encode(ask);
     Reader rbig(big);
