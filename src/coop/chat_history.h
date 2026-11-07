@@ -30,17 +30,11 @@ namespace coop
         return out;
     }
 
-    inline std::string JoinLines(const std::vector<std::string>& lines)
+    struct ChatPanelRow
     {
-        std::string out;
-        for (const std::string& line : lines)
-        {
-            if (!out.empty())
-                out += '\n';
-            out += line;
-        }
-        return out;
-    }
+        std::string text;
+        float alpha = 1;
+    };
 
     class ChatHistory
     {
@@ -126,15 +120,19 @@ namespace coop
         size_t m_maxRows, m_charsPerRow;
     };
 
-    inline std::string HistoryPanelText(const ChatHistory::Shown& shown)
+    // The history's most lines, and a row each saying there's more above and below
+    constexpr size_t kChatPanelMostRows = ChatHistory::kMostShown + 2;
+
+    inline std::vector<ChatPanelRow> HistoryPanelRows(const ChatHistory::Shown& shown)
     {
-        std::vector<std::string> rows;
+        std::vector<ChatPanelRow> rows;
         if (shown.older)
-            rows.push_back("^ " + std::to_string(shown.older) + " older (PgUp)");
-        rows.insert(rows.end(), shown.lines.begin(), shown.lines.end());
+            rows.push_back({"^ " + std::to_string(shown.older) + " older (PgUp)"});
+        for (const std::string& line : shown.lines)
+            rows.push_back({line});
         if (shown.newer)
-            rows.push_back("v " + std::to_string(shown.newer) + " newer (PgDn)");
-        return JoinLines(rows);
+            rows.push_back({"v " + std::to_string(shown.newer) + " newer (PgDn)"});
+        return rows;
     }
 
     class EventFeed
@@ -153,7 +151,7 @@ namespace coop
         }
 
         // Paused lines wait, so a friend going down while the Pip-Boy is open isn't missed
-        std::vector<std::string> Update(uint32_t now, bool paused)
+        std::vector<ChatPanelRow> Update(uint32_t now, bool paused)
         {
             uint32_t step = m_started ? now - m_last : 0;
             m_started = true;
@@ -165,19 +163,10 @@ namespace coop
                 m_lines.erase(std::remove_if(m_lines.begin(), m_lines.end(), [](const Line& l) { return l.left == 0; }),
                     m_lines.end());
             }
-            std::vector<std::string> shown;
+            std::vector<ChatPanelRow> shown;
             for (const Line& l : m_lines)
-                shown.push_back(l.text);
+                shown.push_back({l.text, l.left >= kFadeMs ? 1.0f : static_cast<float>(l.left) / kFadeMs});
             return shown;
-        }
-
-        // The panel is one piece of text, so it fades as one, led by its newest line
-        float Alpha() const
-        {
-            if (m_lines.empty())
-                return 0;
-            uint32_t left = m_lines.back().left;
-            return left >= kFadeMs ? 1.0f : static_cast<float>(left) / kFadeMs;
         }
 
         void Clear() { m_lines.clear(); }
@@ -360,14 +349,13 @@ namespace coop
     }
 
     // As many lines as the panel can show, some of them long, so what it's moved clear of stays clear
-    inline std::string ChatPanelPreview()
+    inline std::vector<ChatPanelRow> ChatPanelPreview()
     {
-        std::vector<std::string> lines = {"Preview: chat and party events show here.", "--- Joined a session ---",
-            "* Sam joined", "Sam: Anyone know the way to the Strip?",
-            "You: Follow the road north, past the old gas station and the bridge, and keep the river on your right.",
-            "* Sam is down", "* Sam was revived", "Sam: Thanks, that one nearly had me.", "You: Stay close this time.",
-            "* Alex joined", "Alex: Where are you two?", "* Alex left"};
-        return JoinLines(lines);
+        return {{"Preview: chat and party events show here."}, {"--- Joined a session ---"}, {"* Sam joined"},
+            {"Sam: Anyone know the way to the Strip?"},
+            {"You: Follow the road north, past the old gas station and the bridge, and keep the river on your right."},
+            {"* Sam is down"}, {"* Sam was revived"}, {"Sam: Thanks, that one nearly had me."},
+            {"You: Stay close this time."}, {"* Alex joined"}, {"Alex: Where are you two?"}, {"* Alex left"}};
     }
 
     struct FeedCorner

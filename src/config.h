@@ -37,6 +37,9 @@ struct Config
     int feedWidth = 500;
     int feedAlign = 1;
     int feedSize = 65;
+    int feedGap = 6;
+    int feedStyle = 1;
+    bool feedDividers = true;
     bool feedPreview = false;
     int feedSeconds = 8;
     bool coopBalanced = false;

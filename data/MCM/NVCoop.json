@@ -764,6 +764,54 @@
 						"valueMax": 150,
 						"suffix": "%"
 					}
+				},
+				"13": {
+					"title": "Spacing",
+					"type": 2,
+					"enable": 1,
+					"mouse": "The gap between lines",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedGap",
+							"default": 6
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 0,
+						"valueMax": 40
+					}
+				},
+				"14": {
+					"title": "Readability",
+					"type": 1,
+					"enable": 1,
+					"mouse": "What helps the text read over bright places: a thin dark outline, a drop shadow or a dark bar behind it",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedStyle",
+							"default": 1
+						}
+					],
+					"strings": [
+						"None",
+						"Outline",
+						"Shadow",
+						"Dark Bar"
+					]
+				},
+				"15": {
+					"title": "Dividers",
+					"type": 5,
+					"enable": 1,
+					"mouse": "A thin line under each line",
+					"vars": [
+						{
+							"configINI": "Settings:bFeedDividers",
+							"default": 1
+						}
+					]
 				}
 			}
 		}

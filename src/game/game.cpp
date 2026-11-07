@@ -145,9 +145,12 @@ namespace game
         Script* g_talkText[kTalkSlots] = {};
         Script* g_talkPlace[kTalkSlots] = {};
         Script* g_talkBack[kTalkSlots] = {};
-        Script* g_feedText = nullptr;
-        Script* g_feedPlace = nullptr;
-        Script* g_feedBar = nullptr;
+        constexpr int kFeedSlots = static_cast<int>(coop::kChatPanelMostRows);
+        constexpr int kFeedEdges = 4;
+        Script* g_feedText[kFeedSlots] = {};
+        Script* g_feedPlace[kFeedSlots] = {};
+        Script* g_feedBack[kFeedSlots] = {};
+        Script* g_feedSide[kFeedSlots] = {};
         Script* g_speedMult = nullptr;
         Script* g_actorAlpha = nullptr;
         Script* g_collision = nullptr;
@@ -905,43 +908,96 @@ namespace game
             "  endif\n"
             "  SetUIFloat \"HUDMainMenu/NVCoopRevive/visible\" iShow\n"
             "End\n");
-        g_feedText = Compile("chat panel text",
-            "string_var sText\n"
-            "Begin Function {sText}\n"
-            "  SetUIStringEx \"HUDMainMenu/NVCoopFeedText/string\" \"%z\" sText\n"
-            "End\n");
-        g_feedPlace = Compile("chat panel place",
-            "float fX\n"
-            "float fY\n"
-            "float fAlpha\n"
-            "float fWrap\n"
-            "float fJustify\n"
-            "int iShow\n"
-            "Begin Function {fX, fY, fAlpha, fWrap, fJustify}\n"
-            "  set iShow to fAlpha > 0\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/justify\" fJustify\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/wrapwidth\" fWrap\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/x\" fX\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/y\" fY\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/alpha\" fAlpha\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/visible\" iShow\n"
-            "End\n");
-        g_feedBar = Compile("chat panel bar",
-            "float fX\n"
-            "float fY\n"
-            "float fHeight\n"
-            "float fAlpha\n"
-            "float fWidth\n"
-            "int iShow\n"
-            "Begin Function {fX, fY, fHeight, fAlpha, fWidth}\n"
-            "  set iShow to fAlpha > 0\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/width\" fWidth\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/x\" fX\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/y\" fY\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/height\" fHeight\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/alpha\" fAlpha\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/visible\" iShow\n"
-            "End\n");
+        for (int slot = 0; slot < kFeedSlots; ++slot)
+        {
+            std::string n = std::to_string(slot);
+            std::string text = "HUDMainMenu/NVCoopFeed" + n;
+            std::string edge = "HUDMainMenu/NVCoopFeedEdge" + n + "x";
+            std::string line = "HUDMainMenu/NVCoopFeedLine" + n;
+            std::string bar = "HUDMainMenu/NVCoopFeedBar" + n;
+            std::string setText = "  SetUIStringEx \"" + text + "/string\" \"%z\" sText\n"
+                "  SetUIFloat \"" + text + "/justify\" fJustify\n"
+                "  SetUIStringEx \"" + line + "/filename\" \"%z\" sLine\n";
+            std::string placeEdges;
+            for (int e = 0; e < kFeedEdges; ++e)
+            {
+                std::string path = edge + std::to_string(e);
+                setText += "  SetUIStringEx \"" + path + "/string\" \"%z\" sText\n"
+                    "  SetUIFloat \"" + path + "/justify\" fJustify\n";
+                placeEdges += std::string("  set fEdgeX to ") + (e % 2 ? "fX + fOff" : "fX - fOff") + "\n"
+                    "  set fEdgeY to fY " + (e / 2 ? "+" : "-") + " fOff\n"
+                    "  SetUIFloat \"" + path + "/x\" fEdgeX\n"
+                    "  SetUIFloat \"" + path + "/y\" fEdgeY\n"
+                    "  SetUIFloat \"" + path + "/wrapwidth\" fWrap\n"
+                    "  SetUIFloat \"" + path + "/alpha\" fEdge\n"
+                    "  SetUIFloat \"" + path + "/visible\" " + (e == 3 ? "iLast" : "iShow") + "\n";
+            }
+            g_feedText[slot] = Compile("chat panel text",
+                "string_var sText\n"
+                "float fJustify\n"
+                "string_var sLine\n"
+                "Begin Function {sText, fJustify, sLine}\n" + setText +
+                "End\n");
+            g_feedPlace[slot] = Compile("chat panel place",
+                "float fY\n"
+                "float fWrap\n"
+                "float fAlpha\n"
+                "float fEdge\n"
+                "float fOff\n"
+                "int iEdges\n"
+                "float fX\n"
+                "float fEdgeX\n"
+                "float fEdgeY\n"
+                "int iShow\n"
+                "int iLast\n"
+                "Begin Function {fY, fWrap, fAlpha, fEdge, fOff, iEdges, fX}\n"
+                "  set iShow to fAlpha > 0\n"
+                "  SetUIFloat \"" + text + "/x\" fX\n"
+                "  SetUIFloat \"" + text + "/y\" fY\n"
+                "  SetUIFloat \"" + text + "/wrapwidth\" fWrap\n"
+                "  SetUIFloat \"" + text + "/alpha\" fAlpha\n"
+                "  SetUIFloat \"" + text + "/visible\" iShow\n"
+                "  set iShow to 0\n"
+                "  if fEdge > 0\n"
+                "    if iEdges > 0\n"
+                "      set iShow to 1\n"
+                "    endif\n"
+                "  endif\n"
+                "  set iLast to iShow\n"
+                "  if iEdges == 2\n"
+                "    set iShow to 0\n"
+                "  endif\n" + placeEdges +
+                "End\n");
+            g_feedSide[slot] = Compile("chat panel side",
+                "float fLineX\n"
+                "float fBarX\n"
+                "Begin Function {fLineX, fBarX}\n"
+                "  SetUIFloat \"" + line + "/x\" fLineX\n"
+                "  SetUIFloat \"" + bar + "/x\" fBarX\n"
+                "End\n");
+            g_feedBack[slot] = Compile("chat panel back",
+                "float fLineY\n"
+                "float fLineWidth\n"
+                "float fLine\n"
+                "float fBarY\n"
+                "float fBarHeight\n"
+                "float fBarWidth\n"
+                "float fBar\n"
+                "int iShow\n"
+                "Begin Function {fLineY, fLineWidth, fLine, fBarY, fBarHeight, fBarWidth, fBar}\n"
+                "  set iShow to fLine > 0\n"
+                "  SetUIFloat \"" + line + "/y\" fLineY\n"
+                "  SetUIFloat \"" + line + "/width\" fLineWidth\n"
+                "  SetUIFloat \"" + line + "/alpha\" fLine\n"
+                "  SetUIFloat \"" + line + "/visible\" iShow\n"
+                "  set iShow to fBar > 0\n"
+                "  SetUIFloat \"" + bar + "/y\" fBarY\n"
+                "  SetUIFloat \"" + bar + "/height\" fBarHeight\n"
+                "  SetUIFloat \"" + bar + "/width\" fBarWidth\n"
+                "  SetUIFloat \"" + bar + "/alpha\" fBar\n"
+                "  SetUIFloat \"" + bar + "/visible\" iShow\n"
+                "End\n");
+        }
         for (int slot = 0; slot < kTalkSlots; ++slot)
         {
             std::string n = std::to_string(slot);
@@ -6070,17 +6126,31 @@ namespace game
                     "<systemcolor>1</systemcolor><string> </string></text>";
                 g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
             }
-            static const char kFeedBar[] =
-                "<image name=\"NVCoopFeedBar\"><visible>0</visible>"
-                "<filename>interface\\shared\\solid_black.dds</filename>"
-                "<x>0</x><y>0</y><depth>1</depth><width>516</width><height>20</height><zoom>-1</zoom>"
-                "<alpha>0</alpha></image>";
-            g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, kFeedBar);
-            static const char kFeedText[] =
-                "<text name=\"NVCoopFeedText\"><visible>0</visible><locus>1</locus><x>0</x><y>0</y><depth>3</depth>"
-                "<alpha>0</alpha><font>3</font><justify>4</justify><wrapwidth>769</wrapwidth>"
-                "<systemcolor>1</systemcolor><string> </string></text>";
-            g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, kFeedText);
+            for (int slot = 0; slot < kFeedSlots; ++slot)
+            {
+                std::string n = std::to_string(slot);
+                std::string text = "<locus>1</locus><x>0</x><y>0</y><alpha>0</alpha><font>3</font><justify>4</justify>"
+                    "<wrapwidth>769</wrapwidth><string> </string>";
+                std::string xml = "<image name=\"NVCoopFeedBar" + n + "\"><visible>0</visible>"
+                    "<filename>interface\\shared\\solid_black.dds</filename>"
+                    "<x>0</x><y>0</y><depth>1</depth><width>516</width><height>20</height><zoom>-1</zoom>"
+                    "<alpha>0</alpha></image>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                for (int e = 0; e < kFeedEdges; ++e)
+                {
+                    xml = "<text name=\"NVCoopFeedEdge" + n + "x" + std::to_string(e) + "\"><visible>0</visible>"
+                        "<depth>2</depth>" + text + "<brightness>-1</brightness><red>0</red><green>0</green><blue>0</blue></text>";
+                    g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                }
+                xml = "<text name=\"NVCoopFeed" + n + "\"><visible>0</visible><depth>3</depth>" + text +
+                    "<systemcolor>1</systemcolor></text>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                xml = "<image name=\"NVCoopFeedLine" + n + "\"><visible>0</visible>"
+                    "<filename>interface\\shared\\line\\glow_tip_line_horizontal.dds</filename>"
+                    "<x>0</x><y>0</y><depth>4</depth><width>616</width><height>8</height><zoom>-1</zoom><alpha>0</alpha>"
+                    "<brightness>-1</brightness><red>255</red><green>255</green><blue>255</blue></image>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+            }
             g_chatHudMade = true;
         }
 
@@ -7171,71 +7241,145 @@ namespace game
         s_showing = !lines.empty();
     }
 
-    void ShowChatPanel(const std::string& text, const ChatPanelLook& look, float alpha)
+    namespace
     {
-        constexpr float kAlpha = 235, kBarAlpha = 120, kBarPad = 6, kBarSide = 8, kTextLine = 32;
+        struct FeedSlot
+        {
+            const void* tile = nullptr;
+            bool filled = false;
+            std::string text;
+            bool alignRight = false;
+            float place[7] = {-1, -1, -1, -1, -1, -1, -1};
+            float back[7] = {-1, -1, -1, -1, -1, -1, -1};
+            float side[2] = {-1, -1};
+        };
+        FeedSlot g_feedSlots[kFeedSlots];
+
+        void PlaceFeedSlot(int slot, const float (&place)[7], const float (&back)[7], const float (&side)[2])
+        {
+            FeedSlot& s = g_feedSlots[slot];
+            if (g_feedSide[slot] && Changed(s.side, side))
+                g_scripts->CallFunction(g_feedSide[slot], Player(), nullptr, nullptr, 2, FloatArg(side[0]), FloatArg(side[1]));
+            if (g_feedPlace[slot] && Changed(s.place, place))
+                g_scripts->CallFunction(g_feedPlace[slot], Player(), nullptr, nullptr, 7, FloatArg(place[0]),
+                    FloatArg(place[1]), FloatArg(place[2]), FloatArg(place[3]), FloatArg(place[4]),
+                    static_cast<uint32_t>(place[5]), FloatArg(place[6]));
+            if (g_feedBack[slot] && Changed(s.back, back))
+                g_scripts->CallFunction(g_feedBack[slot], Player(), nullptr, nullptr, 7, FloatArg(back[0]),
+                    FloatArg(back[1]), FloatArg(back[2]), FloatArg(back[3]), FloatArg(back[4]), FloatArg(back[5]),
+                    FloatArg(back[6]));
+        }
+    }
+
+    void ShowChatPanel(const std::vector<coop::ChatPanelRow>& rows, const ChatPanelLook& look)
+    {
+        constexpr float kAlpha = 235, kLineAlpha = 150, kBarAlpha = 120, kBarPad = 6, kBarSide = 8;
+        constexpr float kDividerPerWidth = 740.0f / 600, kDividerHeight = 8, kTextLine = 32, kUnderLetters = 0.2f;
         constexpr uint32_t kHeight = 0xFB0, kWidthTrait = 0xFB1;
         // The game's values for the justify trait
         constexpr float kJustifyLeft = 1, kJustifyRight = 4;
+        // The line is solid at the text's side and fades out away from it. The game can't mirror a texture, so the right
+        // aligned one is the mod's own (tools/make_talk_divider.py).
+        static const char kLeftLine[] = "interface\\shared\\line\\glow_tip_line_horizontal.dds";
+        static const char kRightLine[] = "interface\\nvcoop\\talk_divider_right.dds";
         static bool s_showing = false;
-        static const void* s_tile = nullptr;
-        static std::string s_text;
-        static float s_place[5] = {-1, -1, -1, -1, -1};
-        static float s_bar[5] = {-1, -1, -1, -1, -1};
-        bool show = !text.empty() && alpha > 0;
-        if (!Player() || !g_feedText || !g_feedPlace || !g_feedBar || !g_chatHud || (!show && !s_showing))
+        const int count = std::min<int>(static_cast<int>(rows.size()), kFeedSlots);
+        if (!Player() || !g_feedText[0] || !g_feedPlace[0] || !g_feedBack[0] || !g_feedSide[0] || !g_chatHud ||
+            (count == 0 && !s_showing))
             return;
         MakeChatHud();
         auto* manager = *reinterpret_cast<const uint8_t* const*>(addr::kInterfaceManager);
         const void* root = manager ? At<const void*>(manager, layout::kInterfaceMenuRoot) : nullptr;
-        const void* tile = ChildTile(ChildTile(root, "HUDMainMenu"), "NVCoopFeedText");
-        if (!tile)
+        const void* hud = ChildTile(root, "HUDMainMenu");
+        if (!hud)
             return;
-        if (tile != s_tile)
+        const void* text[kFeedSlots] = {};
+        const void* edges[kFeedSlots][kFeedEdges] = {};
+        int guard = 0;
+        for (const void* node = At<const void*>(hud, layout::kTileFirstChild); node && guard < 4096;
+             node = At<const void*>(node, layout::kChildNodeNext), ++guard)
         {
-            s_tile = tile;
-            s_text.clear();
-            std::fill(std::begin(s_place), std::end(s_place), -1.0f);
-            std::fill(std::begin(s_bar), std::end(s_bar), -1.0f);
+            const void* child = At<const void*>(node, layout::kChildNodeTile);
+            const char* name = child ? At<const char*>(child, layout::kTileName) : nullptr;
+            if (!name || std::strncmp(name, "NVCoopFeed", 10) != 0)
+                continue;
+            bool isEdge = std::strncmp(name + 10, "Edge", 4) == 0;
+            char* end = nullptr;
+            const char* digits = name + (isEdge ? 14 : 10);
+            if (*digits < '0' || *digits > '9')
+                continue;
+            long slot = std::strtol(digits, &end, 10);
+            if (slot < 0 || slot >= kFeedSlots)
+                continue;
+            if (!isEdge)
+                text[slot] = child;
+            else if (*end == 'x' && end[1] >= '0' && end[1] < '0' + kFeedEdges)
+                edges[slot][end[1] - '0'] = child;
         }
+
         const float scale = std::clamp(look.scale, 0.2f, 3.0f);
         const float width = std::clamp(look.width, 200.0f, 1200.0f);
-        float height = kTextLine * scale;
-        if (show)
+        const int style = std::clamp(look.style, 0, 3);
+        float heights[kFeedSlots] = {};
+        float total = 0;
+        for (int slot = 0; slot < count; ++slot)
         {
-            if (text != s_text)
+            FeedSlot& s = g_feedSlots[slot];
+            if (s.tile != text[slot])
+                s = FeedSlot{text[slot]};
+            if (!text[slot])
+                continue;
+            const std::string& line = rows[slot].text;
+            if (!s.filled || s.text != line || s.alignRight != look.alignRight)
             {
-                g_scripts->CallFunction(g_feedText, Player(), nullptr, nullptr, 1, text.c_str());
-                s_text = text;
+                g_scripts->CallFunction(g_feedText[slot], Player(), nullptr, nullptr, 3, line.empty() ? " " : line.c_str(),
+                    FloatArg(look.alignRight ? kJustifyRight : kJustifyLeft), look.alignRight ? kRightLine : kLeftLine);
+                s.filled = true;
+                s.text = line;
+                s.alignRight = look.alignRight;
             }
-            ScaleTile(tile, scale);
-            float measured = TileValue(tile, kHeight);
-            if (measured > 0)
-                height = measured * scale;
+            ScaleTile(text[slot], scale);
+            for (const void* edge : edges[slot])
+                ScaleTile(edge, scale);
+            float measured = TileValue(text[slot], kHeight);
+            heights[slot] = (measured > 0 ? measured : kTextLine) * scale;
+            total += heights[slot] + look.gap;
         }
-        else
-            s_text.clear();
         float screenHeight = TileValue(root, kHeight), screenWidth = TileValue(root, kWidthTrait);
         if (screenHeight < 200)
             screenHeight = static_cast<float>(*reinterpret_cast<const int32_t*>(addr::kDisplayHeightSetting + 4)) *
                 *reinterpret_cast<const float*>(addr::kMenuUnitsPerPixel);
         if (screenWidth < 200)
             screenWidth = screenHeight * 16 / 9;
-        coop::FeedCorner corner = coop::PlaceFeed(look.xPercent, look.yPercent, screenWidth, screenHeight, width, height,
+        coop::FeedCorner corner = coop::PlaceFeed(look.xPercent, look.yPercent, screenWidth, screenHeight, width, total,
             look.alignRight);
-        float shown = show ? std::clamp(alpha, 0.0f, 1.0f) : 0;
         // Right justified text is drawn leftward from its x
-        const float place[5] = {look.alignRight ? corner.left + width : corner.left, corner.top, kAlpha * shown, width / scale,
-            look.alignRight ? kJustifyRight : kJustifyLeft};
-        const float bar[5] = {corner.left - kBarSide, corner.top - kBarPad / 2, height + kBarPad, kBarAlpha * shown,
-            width + 2 * kBarSide};
-        if (Changed(s_place, place))
-            g_scripts->CallFunction(g_feedPlace, Player(), nullptr, nullptr, 5, FloatArg(place[0]), FloatArg(place[1]),
-                FloatArg(place[2]), FloatArg(place[3]), FloatArg(place[4]));
-        if (Changed(s_bar, bar))
-            g_scripts->CallFunction(g_feedBar, Player(), nullptr, nullptr, 5, FloatArg(bar[0]), FloatArg(bar[1]),
-                FloatArg(bar[2]), FloatArg(bar[3]), FloatArg(bar[4]));
-        s_showing = show;
+        const float textX = look.alignRight ? corner.left + width : corner.left;
+        const float lineWidth = width * kDividerPerWidth;
+        const float side[2] = {look.alignRight ? corner.left + width - lineWidth : corner.left, corner.left - kBarSide};
+        float y = corner.top;
+        for (int slot = 0; slot < kFeedSlots; ++slot)
+        {
+            if (slot >= count || !text[slot])
+            {
+                g_feedSlots[slot].filled = false;
+                const float hidden[7] = {corner.top, width / scale, 0, 0, 1, 0, textX};
+                const float hiddenBack[7] = {corner.top, lineWidth, 0, corner.top, 1, width + 2 * kBarSide, 0};
+                PlaceFeedSlot(slot, hidden, hiddenBack, side);
+                continue;
+            }
+            const float fade = std::clamp(rows[slot].alpha, 0.0f, 1.0f);
+            const float alpha = kAlpha * fade;
+            const float height = heights[slot];
+            const float place[7] = {y, width / scale, alpha, style == 1 || style == 2 ? alpha : 0, style == 2 ? 2.0f : 1.0f,
+                style == 1 ? 1.0f : style == 2 ? 2.0f : 0.0f, textX};
+            const float divider = y + height + look.gap / 2 - kTextLine * kUnderLetters * scale;
+            const float back[7] = {divider - kDividerHeight / 2, lineWidth, look.dividers ? kLineAlpha * fade : 0,
+                y - kBarPad / 2, height + kBarPad, width + 2 * kBarSide, style == 3 ? kBarAlpha * fade : 0};
+            PlaceFeedSlot(slot, place, back, side);
+            y += height + look.gap;
+        }
+        s_showing = count > 0;
     }
 
     int TakeChatScroll()

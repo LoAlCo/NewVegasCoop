@@ -88,6 +88,8 @@ files = {
     'NVSE/Plugins/NVCoop.dll': open(os.path.join(ROOT, 'build', 'Release', 'NVCoop.dll'), 'rb').read(),
     'NVSE/Plugins/NVCoop.ini': INI.replace('\n', '\r\n').encode(),
     'MCM/NVCoop.json': open(os.path.join(ROOT, 'data', 'MCM', 'NVCoop.json'), 'rb').read(),
+    'Textures/interface/nvcoop/talk_divider_right.dds':
+        open(os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'talk_divider_right.dds'), 'rb').read(),
     'README - New Vegas Co-op.txt': README.replace('\n', '\r\n').encode('utf-8'),
     'LICENSE.txt': open(os.path.join(ROOT, 'LICENSE'), 'rb').read(),
 }
