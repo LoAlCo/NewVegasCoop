@@ -3,8 +3,10 @@
 #include "display.h"
 
 #include "log.h"
+#include "window_spot.h"
 
 #include <cstring>
+#include <vector>
 #include <windows.h>
 
 namespace display
@@ -95,8 +97,70 @@ namespace display
             GetWindowThreadProcessId(window, &process);
             if (process != GetCurrentProcessId() || !IsWindowVisible(window) || GetWindow(window, GW_OWNER))
                 return TRUE;
+            char type[32] = {};
+            GetClassNameA(window, type, sizeof(type));
+            if (window == GetConsoleWindow() || _stricmp(type, "ConsoleWindowClass") == 0)
+                return TRUE;
             *reinterpret_cast<HWND*>(found) = window;
             return FALSE;
+        }
+
+        Box ToBox(const RECT& r)
+        {
+            return Box{r.left, r.top, r.right, r.bottom};
+        }
+
+        BOOL CALLBACK AddScreen(HMONITOR monitor, HDC, LPRECT, LPARAM list)
+        {
+            MONITORINFO info{sizeof(info)};
+            if (!GetMonitorInfoA(monitor, &info))
+                return TRUE;
+            auto& screens = *reinterpret_cast<std::vector<Box>*>(list);
+            if (info.dwFlags & MONITORINFOF_PRIMARY)
+                screens.insert(screens.begin(), ToBox(info.rcWork));
+            else
+                screens.push_back(ToBox(info.rcWork));
+            return TRUE;
+        }
+
+        struct OtherCopies
+        {
+            char type[64];
+            std::vector<Box> windows;
+        };
+
+        BOOL CALLBACK AddOtherCopy(HWND window, LPARAM list)
+        {
+            auto& copies = *reinterpret_cast<OtherCopies*>(list);
+            DWORD process = 0;
+            GetWindowThreadProcessId(window, &process);
+            if (process == GetCurrentProcessId() || !IsWindowVisible(window))
+                return TRUE;
+            char type[64] = {};
+            GetClassNameA(window, type, sizeof(type));
+            RECT r;
+            if (std::strcmp(type, copies.type) == 0 && GetWindowRect(window, &r))
+                copies.windows.push_back(ToBox(r));
+            return TRUE;
+        }
+
+        void PlaceWindowed(HWND window)
+        {
+            RECT r;
+            if (!GetWindowRect(window, &r))
+                return LOG_WARN("Display: couldn't read the window's position; it stays as it is");
+            std::vector<Box> screens;
+            EnumDisplayMonitors(nullptr, nullptr, AddScreen, reinterpret_cast<LPARAM>(&screens));
+            OtherCopies copies{};
+            GetClassNameA(window, copies.type, sizeof(copies.type));
+            EnumWindows(AddOtherCopy, reinterpret_cast<LPARAM>(&copies));
+            const Box now = ToBox(r);
+            const Box spot = PickWindowSpot(now, screens, copies.windows);
+            if (spot.left == now.left && spot.top == now.top)
+                return LOG_INFO("Display: windowed, as chosen, at %d, %d", now.left, now.top);
+            SetWindowPos(window, nullptr, spot.left, spot.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            LOG_INFO("Display: windowed, as chosen, moved from %d, %d to %d, %d (%zu other copies running)", now.left,
+                now.top, spot.left, spot.top, copies.windows.size());
         }
     }
 
@@ -127,16 +191,13 @@ namespace display
     {
         if (g_done)
             return;
-        if (!g_wantedFullScreen)
-        {
-            g_done = true;
-            return LOG_INFO("Display: windowed, as chosen");
-        }
         HWND window = nullptr;
         EnumWindows(FindWindowOfOurs, reinterpret_cast<LPARAM>(&window));
         if (!window)
             return;
         g_done = true;
+        if (!g_wantedFullScreen)
+            return PlaceWindowed(window);
         MONITORINFO monitor{sizeof(monitor)};
         if (!GetMonitorInfoA(MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY), &monitor))
             return LOG_WARN("Display: couldn't read the screen's size; the window stays as it is");
