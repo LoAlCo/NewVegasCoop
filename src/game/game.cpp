@@ -1225,6 +1225,12 @@ namespace game
         }
     }
 
+    bool TradeMenuOpen()
+    {
+        return *reinterpret_cast<const void* const*>(addr::kContainerMenu) ||
+            *reinterpret_cast<const void* const*>(addr::kBarterMenu);
+    }
+
     bool QuantityPromptOpen()
     {
         uint32_t ids[addr::kMenuStackSlots] = {};
@@ -2086,6 +2092,12 @@ namespace game
         TESForm* form = LookupForm(formId);
         using IsInventoryTypeFn = bool(__cdecl*)(UInt32 formType);
         return form && reinterpret_cast<IsInventoryTypeFn>(addr::kIsInventoryObjectType)(form->typeID);
+    }
+
+    int FormTypeOf(uint32_t formId)
+    {
+        TESForm* form = LookupForm(formId);
+        return form ? form->typeID : -1;
     }
 
     bool IsLootable(TESObjectREFR* ref)
@@ -2953,6 +2965,12 @@ namespace game
     {
         std::lock_guard<std::mutex> lock(g_chatMutex);
         return g_entryDraft.Text().size();
+    }
+
+    std::string TextEntryText()
+    {
+        std::lock_guard<std::mutex> lock(g_chatMutex);
+        return g_entryDraft.Text();
     }
 
     std::string TakeTextEntry()

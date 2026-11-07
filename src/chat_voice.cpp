@@ -71,7 +71,8 @@
         bool on = g_config.chat && g_coop.InGame() && g_worldLoaded;
         if (!on && game::ChatTyping())
             game::CancelChat();
-        bool key = on && !game::ChatTyping() && game::IsKeyPressed(g_config.chatKey);
+        bool key = on && !game::ChatTyping() && game::TextEntryState() != game::EntryState::Typing &&
+            game::IsKeyPressed(g_config.chatKey);
         if (s_keyWas && !key && on && !game::ChatTyping())
             game::OpenChat();
         s_keyWas = key;

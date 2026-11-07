@@ -153,6 +153,50 @@
     }
 
     std::string g_savedForHost;
+    const char* g_saveGiveUpNote = "";
+
+    void BeginSave(const std::string& name, uint32_t now, const char* giveUpNote)
+    {
+        g_checkingSave = name;
+        g_saveGiveUpNote = giveUpNote;
+        g_saveAskedAt = FileTimeNow();
+        g_nextSaveCheck = now + 1500;
+        g_saveGiveUpAt = now + 60000;
+        g_saveTries = 1;
+        game::RunConsoleLine(("save \"" + name + "\"").c_str());
+    }
+
+    void KeepTryingSave(uint32_t now)
+    {
+        if (g_checkingSave.empty() || g_loadingSave || !g_worldLoaded || !coop::IsDue(now, g_nextSaveCheck))
+            return;
+        if (SavedSince(g_checkingSave, g_saveAskedAt))
+        {
+            LOG_INFO("Saves: ours is saved (\"%s\"%s)", g_checkingSave.c_str(),
+                g_saveTries > 1 ? (", try " + std::to_string(g_saveTries)).c_str() : "");
+            g_checkingSave.clear();
+        }
+        else if (coop::IsDue(now, g_saveGiveUpAt))
+        {
+            LOG_WARN("Saves: the game wouldn't save ours (\"%s\") in a minute of trying; loading the host's "
+                "save will keep our character as it is", g_checkingSave.c_str());
+            game::Notify(g_saveGiveUpNote);
+            g_checkingSave.clear();
+        }
+        else if (game::InMenuMode())
+        {
+            g_saveGiveUpAt = now + 60000;
+            g_nextSaveCheck = now + 1000;
+        }
+        else
+        {
+            if (g_saveTries == 1)
+                LOG_INFO("Saves: the game didn't save ours yet (enemies near?); trying again every 3 s");
+            ++g_saveTries;
+            g_nextSaveCheck = now + 3000;
+            game::RunConsoleLine(("save \"" + g_checkingSave + "\"").c_str());
+        }
+    }
 
     void FollowHostSaves(uint32_t now)
     {
@@ -184,6 +228,7 @@
             LOG_INFO("Saves: no \"%s\" here; keeping our character", g_expectedLoad.c_str());
             game::Notify(("No save matching the host's here (" + g_expectedLoad + "): keeping your character").c_str());
             g_expectedLoad.clear();
+            g_coop.RefundPendingGifts(net::GiveReason::PlayerLeft);
             if (g_reportLoad)
             {
                 g_reportLoad = false;
@@ -203,49 +248,15 @@
         if (!g_pendingLinkedSave.empty() && !g_loadingSave && g_worldLoaded)
         {
             LOG_INFO("Saves: the host saved; saving ours as \"%s\"", g_pendingLinkedSave.c_str());
-            g_checkingSave = g_pendingLinkedSave;
-            g_saveAskedAt = FileTimeNow();
-            g_nextSaveCheck = now + 1500;
-            g_saveGiveUpAt = now + 60000;
-            g_saveTries = 1;
-            game::RunConsoleLine(("save \"" + g_pendingLinkedSave + "\"").c_str());
+            BeginSave(g_pendingLinkedSave, now, "Co-op: couldn't save your game to match the host's save");
             g_pendingLinkedSave.clear();
-        }
-        else if (!g_checkingSave.empty() && !g_loadingSave && g_worldLoaded && coop::IsDue(now, g_nextSaveCheck))
-        {
-            if (SavedSince(g_checkingSave, g_saveAskedAt))
-            {
-                LOG_INFO("Saves: ours is saved (\"%s\"%s)", g_checkingSave.c_str(),
-                    g_saveTries > 1 ? (", try " + std::to_string(g_saveTries)).c_str() : "");
-                g_checkingSave.clear();
-            }
-            else if (coop::IsDue(now, g_saveGiveUpAt))
-            {
-                LOG_WARN("Saves: the game wouldn't save ours (\"%s\") in a minute of trying; loading the host's "
-                    "save will keep our character as it is", g_checkingSave.c_str());
-                game::Notify("Co-op: couldn't save your game to match the host's save");
-                g_checkingSave.clear();
-            }
-            else if (game::InMenuMode())
-            {
-                g_saveGiveUpAt = now + 60000;
-                g_nextSaveCheck = now + 1000;
-            }
-            else
-            {
-                if (g_saveTries == 1)
-                    LOG_INFO("Saves: the game didn't save ours yet (enemies near?); trying again every 3 s");
-                ++g_saveTries;
-                g_nextSaveCheck = now + 3000;
-                game::RunConsoleLine(("save \"" + g_checkingSave + "\"").c_str());
-            }
         }
     }
 
     constexpr int kLoadQuestion = 2;
     struct { uint8_t playerId = 0; std::string save; bool open = false; } g_loadAsk;
 
-    void ServeFriendSaves()
+    void ServeFriendSaves(uint32_t now)
     {
         if (g_loadingSave || !g_worldLoaded)
             return;
@@ -259,12 +270,14 @@
                 char when[32];
                 std::snprintf(when, sizeof(when), "%04u-%02u-%02u %02u-%02u-%02u", t.wYear, t.wMonth, t.wDay, t.wHour,
                     t.wMinute, t.wSecond);
-                std::string name = coop::SaveForFriend(who, when);
+                bool gift = coop::IsGiftSave(ask.name);
+                std::string name = gift ? coop::GiftSaveForHost(g_coop.NameOf(0)) : coop::SaveForFriend(who, when);
                 if (name.empty())
                     continue;
                 LOG_INFO("Saves: %s saved; saving for everyone as \"%s\"", who.c_str(), name.c_str());
-                game::RunConsoleLine(("save \"" + name + "\"").c_str());
-                game::Notify(("Saved for everyone (" + who + " saved)").c_str());
+                BeginSave(name, now, "Co-op: couldn't save your game to match your friend's save");
+                if (!gift)
+                    game::Notify(("Saved for everyone (" + who + " saved)").c_str());
                 continue;
             }
             g_loadAsk.playerId = ask.playerId;

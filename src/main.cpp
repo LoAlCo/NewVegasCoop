@@ -92,7 +92,8 @@
     bool g_cutscene = false;
     bool g_waitForHostLoad = false;
     void FollowHostSaves(uint32_t now);
-    void ServeFriendSaves();
+    void ServeFriendSaves(uint32_t now);
+    void KeepTryingSave(uint32_t now);
     bool g_reportLoad = false;
     bool g_loadWatch = false;
     bool g_worldLoaded = false;
@@ -2403,10 +2404,13 @@ namespace
         if (g_coop.GetRole() == coop::Role::Friend)
             FollowHostSaves(now);
         else if (g_coop.GetRole() == coop::Role::Host)
-            ServeFriendSaves();
+            ServeFriendSaves(now);
+        if (g_coop.GetRole() != coop::Role::None)
+            KeepTryingSave(now);
         g_progress.Update(g_coop, now);
         UpdatePartyPerks(now);
         Teleporter(now);
+        UpdateGifts(now);
         ShareFurnitureAnim(now);
         UpdateDowned(now, me, s_health, s_maxHealth, healthFresh);
         UpdateReviveBar(now);
@@ -2519,6 +2523,11 @@ namespace
                 if (g_coop.GetRole() != coop::Role::None)
                     g_coop.Stop();
             }
+            g_coop.ForgetGifts();
+            g_giftSaveTimer.Forget();
+            StopGiftMenus();
+            if (coop::IsGiftSave(g_checkingSave))
+                g_checkingSave.clear();
             g_loadingSave = msg->type == NVSEMessagingInterface::kMessage_PreLoadGame;
             g_worldLoaded = false;
             game::ForgetHolds();
