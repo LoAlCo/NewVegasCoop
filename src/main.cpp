@@ -5,6 +5,7 @@
 #include "config.h"
 #include "net/session.h"
 #include "coop/clock.h"
+#include "coop/chat_history.h"
 #include "coop/coop.h"
 #include "coop/game_mode.h"
 #include "coop/quests.h"
@@ -1076,8 +1077,15 @@ namespace
         StartCoop();
     }
 
+    coop::ChatHistory g_chatHistory;
+    coop::EventFeed g_eventFeed;
+    coop::PartyWatch g_partyWatch;
+
     void OnWorldLoaded()
     {
+        g_partyWatch.Rebaseline(GetTickCount());
+        if (g_coop.InGame())
+            g_chatHistory.Add("--- Game loaded ---");
         if (g_teleportersHad > 0)
             g_teleportersHad = 0;
         if (int dragged = g_coop.Dragging(g_coop.MyPlayerId()); g_coop.InGame() && dragged >= 0)
@@ -1251,7 +1259,10 @@ namespace
         g_downedAt = g_nextBleedNotice = now;
         game::SetPlayerControls(!down);
         if (down)
+        {
+            g_chatHistory.Add("* You are down");
             game::PlayAnimFile(game::Player(), kDownedAnim);
+        }
         else
             game::StopAnimFile(game::Player(), kDownedAnim);
         LOG_INFO("%s", down ? "We're down" : "We're back up");
@@ -1305,6 +1316,10 @@ namespace
                 g_coop.NameOf(over.playerId) + " bled out. Game over!" : over.reason == net::GameOverReason::Killed ?
                 g_coop.NameOf(over.playerId) + " was killed. Game over!" : "Everyone is down. Game over!";
             LOG_INFO("%s", text.c_str());
+            g_partyWatch.Mute();
+            bool named = over.reason == net::GameOverReason::BledOut || over.reason == net::GameOverReason::Killed;
+            if (!named || over.playerId == g_coop.MyPlayerId() || g_coop.Remotes().count(over.playerId))
+                g_chatHistory.Add("* " + text);
             SetDowned(false, now);
             if (g_coop.GetRole() == coop::Role::Host)
             {
@@ -1323,6 +1338,7 @@ namespace
             game::ChangeHealth(player, maxHealth * coop::kReviveHealth - game::Health(player));
             SetDowned(false, now);
             game::Notify("You've been revived!");
+            g_chatHistory.Add("* You were revived");
             return;
         }
 
@@ -1499,6 +1515,54 @@ namespace
             g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.desyncNotices);
     }
 
+    void UpdateChatPanel(uint32_t now)
+    {
+        static bool s_wasTyping = false;
+        bool inGame = g_coop.InGame();
+        if (inGame && !g_partyWatch.InSession())
+            g_chatHistory.Add(g_coop.GetRole() == coop::Role::Host ? "--- Hosting a session ---" : "--- Joined a session ---");
+
+        std::vector<coop::PartyWatch::Member> roster;
+        if (inGame)
+            for (const auto& [id, remote] : g_coop.Remotes())
+                roster.push_back({id, remote.name, remote.maxHealth > 0, remote.Downed()});
+        for (const std::string& line : g_partyWatch.Observe(now, inGame, roster))
+        {
+            LOG_INFO("Event: %s", line.c_str());
+            g_chatHistory.Add(line);
+            if (g_config.eventFeed)
+                g_eventFeed.Add(line);
+        }
+        if (!inGame || !g_config.eventFeed)
+            g_eventFeed.Clear();
+
+        bool typing = game::ChatTyping();
+        int scroll = game::TakeChatScroll();
+        if (typing != s_wasTyping)
+        {
+            g_chatHistory.ResetScroll();
+            scroll = 0;
+        }
+        s_wasTyping = typing;
+
+        bool on = inGame && g_worldLoaded;
+        g_eventFeed.SetLineMs(static_cast<uint32_t>(g_config.feedSeconds) * 1000);
+        std::vector<std::string> feed = g_eventFeed.Update(now, on && game::InMenu());
+        std::string text;
+        float alpha = 1;
+        if (on && typing && g_config.chatHistory)
+        {
+            g_chatHistory.Scroll(scroll);
+            text = coop::HistoryPanelText(g_chatHistory.View());
+        }
+        else if (on)
+        {
+            text = coop::JoinLines(feed);
+            alpha = g_eventFeed.Alpha();
+        }
+        game::ShowChatPanel(text, g_config.feedX, g_config.feedY, alpha);
+    }
+
     void UpdateChat()
     {
         static bool s_keyWas = false;
@@ -1519,6 +1583,7 @@ namespace
             if (!on || line.empty())
                 continue;
             LOG_INFO("Chat: we say \"%s\"", line.c_str());
+            g_chatHistory.Add(g_coop.NameOf(g_coop.MyPlayerId()) + ": " + line);
             coop::VoiceStyle style{static_cast<uint8_t>(g_config.voice), static_cast<uint8_t>(g_config.voiceVariant),
                 static_cast<int8_t>(g_config.voicePitch), static_cast<int8_t>(g_config.voiceSpeed),
                 static_cast<uint8_t>(g_config.voiceEffect)};
@@ -1531,6 +1596,7 @@ namespace
             LOG_INFO("Chat: %s says \"%s\"", h.name.c_str(), h.text.c_str());
             if (!g_config.chat)
                 continue;
+            g_chatHistory.Add(h.name + ": " + h.text);
             TESObjectREFR* who = g_standIns.Character(h.player);
             if (who && game::DistanceToPlayer(who) < 2500)
                 game::ShowChatAbove(h.player, who, h.text);
@@ -1576,6 +1642,7 @@ namespace
         if (!g_coop.InGame())
             s_downedSince.clear();
         game::ShowFriendMarkers(friends);
+        UpdateChatPanel(now);
     }
 
     bool g_labTalking = false;
@@ -3079,6 +3146,7 @@ namespace
             else
             {
                 LOG_INFO("Back to the main menu");
+                g_partyWatch.Forget();
                 if (g_coop.GetRole() != coop::Role::None)
                     g_coop.Stop();
             }
@@ -3091,6 +3159,7 @@ namespace
             g_doors.Forget();
             g_mines.Forget();
             g_progress.Forget();
+            g_partyWatch.Rebaseline(GetTickCount());
             g_quests.Forget();
             g_coop.ForgetMyPlace();
             g_hasTravel = false;

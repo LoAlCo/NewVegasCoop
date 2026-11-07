@@ -3,6 +3,7 @@
 #include "game/game.h"
 #include "game/level_up.h"
 #include "coop/chat.h"
+#include "coop/chat_history.h"
 #include "coop/talk_log.h"
 #include "coop/balance.h"
 
@@ -144,6 +145,9 @@ namespace game
         Script* g_talkText[kTalkSlots] = {};
         Script* g_talkPlace[kTalkSlots] = {};
         Script* g_talkBack[kTalkSlots] = {};
+        Script* g_feedText = nullptr;
+        Script* g_feedPlace = nullptr;
+        Script* g_feedBar = nullptr;
         Script* g_speedMult = nullptr;
         Script* g_actorAlpha = nullptr;
         Script* g_collision = nullptr;
@@ -900,6 +904,37 @@ namespace game
             "    SetUIStringEx \"HUDMainMenu/NVCoopRevive/string\" \"%z\" sText\n"
             "  endif\n"
             "  SetUIFloat \"HUDMainMenu/NVCoopRevive/visible\" iShow\n"
+            "End\n");
+        g_feedText = Compile("chat panel text",
+            "string_var sText\n"
+            "Begin Function {sText}\n"
+            "  SetUIStringEx \"HUDMainMenu/NVCoopFeedText/string\" \"%z\" sText\n"
+            "End\n");
+        g_feedPlace = Compile("chat panel place",
+            "float fX\n"
+            "float fY\n"
+            "float fAlpha\n"
+            "int iShow\n"
+            "Begin Function {fX, fY, fAlpha}\n"
+            "  set iShow to fAlpha > 0\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/x\" fX\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/y\" fY\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/alpha\" fAlpha\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/visible\" iShow\n"
+            "End\n");
+        g_feedBar = Compile("chat panel bar",
+            "float fX\n"
+            "float fY\n"
+            "float fHeight\n"
+            "float fAlpha\n"
+            "int iShow\n"
+            "Begin Function {fX, fY, fHeight, fAlpha}\n"
+            "  set iShow to fAlpha > 0\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/x\" fX\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/y\" fY\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/height\" fHeight\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/alpha\" fAlpha\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/visible\" iShow\n"
             "End\n");
         for (int slot = 0; slot < kTalkSlots; ++slot)
         {
@@ -5888,6 +5923,7 @@ namespace game
         EntryState g_entryState = EntryState::None;
         bool g_chatHudMade = false;
         bool g_chatShown = false;
+        int g_chatScroll = 0;
 
         LRESULT CALLBACK ChatWndProc(HWND window, UINT message, WPARAM w, LPARAM l)
         {
@@ -5909,6 +5945,18 @@ namespace game
                 }
                 if (g_chatTyping)
                 {
+                    if (message == WM_KEYDOWN)
+                    {
+                        constexpr int kPage = 10;
+                        if (w == VK_PRIOR)
+                            g_chatScroll += kPage;
+                        else if (w == VK_NEXT)
+                            g_chatScroll -= kPage;
+                        else if (w == VK_UP)
+                            ++g_chatScroll;
+                        else if (w == VK_DOWN)
+                            --g_chatScroll;
+                    }
                     if (message == WM_CHAR)
                     {
                         coop::ChatDraft::Done done = g_chatDraft.Type(static_cast<unsigned char>(w));
@@ -6016,6 +6064,17 @@ namespace game
                     "<systemcolor>1</systemcolor><string> </string></text>";
                 g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
             }
+            static const char kFeedBar[] =
+                "<image name=\"NVCoopFeedBar\"><visible>0</visible>"
+                "<filename>interface\\shared\\solid_black.dds</filename>"
+                "<x>0</x><y>0</y><depth>1</depth><width>516</width><height>20</height><zoom>-1</zoom>"
+                "<alpha>0</alpha></image>";
+            g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, kFeedBar);
+            static const char kFeedText[] =
+                "<text name=\"NVCoopFeedText\"><visible>0</visible><locus>1</locus><x>0</x><y>0</y><depth>3</depth>"
+                "<alpha>0</alpha><font>3</font><justify>4</justify><wrapwidth>769</wrapwidth>"
+                "<systemcolor>1</systemcolor><string> </string></text>";
+            g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, kFeedText);
             g_chatHudMade = true;
         }
 
@@ -7104,6 +7163,75 @@ namespace game
                 PlaceTalkSlot(slot, hidden, hiddenBack);
             }
         s_showing = !lines.empty();
+    }
+
+    void ShowChatPanel(const std::string& text, int xPercent, int yPercent, float alpha)
+    {
+        // The text is 769 wide at this scale; right justified text is drawn leftward from its x
+        constexpr float kWidth = 500, kScale = 0.65f, kAlpha = 235, kBarAlpha = 120, kBarPad = 6, kBarSide = 8;
+        constexpr float kTextLine = 32;
+        constexpr uint32_t kHeight = 0xFB0, kWidthTrait = 0xFB1;
+        static bool s_showing = false;
+        static const void* s_tile = nullptr;
+        static std::string s_text;
+        static float s_place[3] = {-1, -1, -1};
+        static float s_bar[4] = {-1, -1, -1, -1};
+        bool show = !text.empty() && alpha > 0;
+        if (!Player() || !g_feedText || !g_feedPlace || !g_feedBar || !g_chatHud || (!show && !s_showing))
+            return;
+        MakeChatHud();
+        auto* manager = *reinterpret_cast<const uint8_t* const*>(addr::kInterfaceManager);
+        const void* root = manager ? At<const void*>(manager, layout::kInterfaceMenuRoot) : nullptr;
+        const void* tile = ChildTile(ChildTile(root, "HUDMainMenu"), "NVCoopFeedText");
+        if (!tile)
+            return;
+        if (tile != s_tile)
+        {
+            s_tile = tile;
+            s_text.clear();
+            std::fill(std::begin(s_place), std::end(s_place), -1.0f);
+            std::fill(std::begin(s_bar), std::end(s_bar), -1.0f);
+        }
+        float height = kTextLine * kScale;
+        if (show)
+        {
+            if (text != s_text)
+            {
+                g_scripts->CallFunction(g_feedText, Player(), nullptr, nullptr, 1, text.c_str());
+                s_text = text;
+            }
+            ScaleTile(tile, kScale);
+            float measured = TileValue(tile, kHeight);
+            if (measured > 0)
+                height = measured * kScale;
+        }
+        else
+            s_text.clear();
+        float screenHeight = TileValue(root, kHeight), screenWidth = TileValue(root, kWidthTrait);
+        if (screenHeight < 200)
+            screenHeight = static_cast<float>(*reinterpret_cast<const int32_t*>(addr::kDisplayHeightSetting + 4)) *
+                *reinterpret_cast<const float*>(addr::kMenuUnitsPerPixel);
+        if (screenWidth < 200)
+            screenWidth = screenHeight * 16 / 9;
+        coop::FeedCorner corner = coop::PlaceFeed(xPercent, yPercent, screenWidth, screenHeight, kWidth, height);
+        float shown = show ? std::clamp(alpha, 0.0f, 1.0f) : 0;
+        const float place[3] = {corner.right, corner.top, kAlpha * shown};
+        const float bar[4] = {corner.right - kWidth - kBarSide, corner.top - kBarPad / 2, height + kBarPad, kBarAlpha * shown};
+        if (Changed(s_place, place))
+            g_scripts->CallFunction(g_feedPlace, Player(), nullptr, nullptr, 3, FloatArg(place[0]), FloatArg(place[1]),
+                FloatArg(place[2]));
+        if (Changed(s_bar, bar))
+            g_scripts->CallFunction(g_feedBar, Player(), nullptr, nullptr, 4, FloatArg(bar[0]), FloatArg(bar[1]),
+                FloatArg(bar[2]), FloatArg(bar[3]));
+        s_showing = show;
+    }
+
+    int TakeChatScroll()
+    {
+        std::lock_guard<std::mutex> lock(g_chatMutex);
+        int scroll = g_chatScroll;
+        g_chatScroll = 0;
+        return scroll;
     }
 
     void SetSpeedMult(TESObjectREFR* actor, int mult)
