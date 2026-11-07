@@ -2088,7 +2088,8 @@ namespace
         {
             game::CrosshairPick aim;
             bool hit = game::CrosshairPoint(aim) && aim.hit;
-            coop::PingLook look = coop::ClassifyPing(hit ? aim.thing : coop::PingThing::Nothing, aim.name);
+            coop::PingLook look = coop::ClassifyPing(
+                coop::ChosenPingThing(hit ? aim.thing : coop::PingThing::Nothing, g_config.pingObjects), aim.name);
             net::Ping ping;
             ping.kind = look.kind;
             ping.space = me.space;
@@ -2140,7 +2141,7 @@ namespace
             marks[slot].at[2] = p.z;
             marks[slot].kind = p.kind;
         }
-        game::ShowPings(marks);
+        game::ShowPings(marks, static_cast<coop::PingIcons>(g_config.pingIcons));
     }
 
     void UpdateVoice()
@@ -3801,7 +3802,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
         return false;
 
     Log::Open("");
-    LOG_INFO("NVCoop %s, Combined v24 test build, starting (xNVSE %08X, game %08X)",
+    LOG_INFO("NVCoop %s, Combined v25 test build, starting (xNVSE %08X, game %08X)",
         NVCOOP_VERSION_STRING, nvse->nvseVersion, nvse->runtimeVersion);
 
     if (nvse->runtimeVersion != RUNTIME_VERSION_1_4_0_525)

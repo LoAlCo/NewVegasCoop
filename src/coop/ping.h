@@ -131,6 +131,20 @@ namespace coop
         std::string name;
     };
 
+    // How the menu's Ping Icons option shows them.
+    enum class PingIcons : uint8_t
+    {
+        Off,
+        HudColour,
+        OwnColours
+    };
+
+    // What a ping marks once the player's Recognise Objects choice is applied.
+    inline PingThing ChosenPingThing(PingThing seen, bool recognise)
+    {
+        return recognise || seen == PingThing::Nothing ? seen : PingThing::Scenery;
+    }
+
     // Actors stay plain spots until pings can follow them.
     inline PingLook ClassifyPing(PingThing thing, const std::string& name)
     {
