@@ -386,6 +386,18 @@
 							"default": 1
 						}
 					]
+				},
+				"32": {
+					"title": "Sync Body Limbs",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Arms and legs of bodies lie the same way in every game. Uses more network and CPU. The host and the visitor both need it on",
+					"vars": [
+						{
+							"configINI": "Settings:bSyncBodyLimbs",
+							"default": 0
+						}
+					]
 				}
 			}
 		},

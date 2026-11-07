@@ -253,6 +253,7 @@ namespace coop
         std::vector<ItemMoveFrom> m_itemMoves;
         std::vector<net::BodyMove> m_bodyMoves;
         std::vector<net::BodyLimbs> m_bodyLimbs;
+        std::vector<net::BodyPose> m_bodyPoses;
         std::map<uint32_t, uint32_t> m_lastMoveSent;
         DesyncTracker m_desyncs;
         std::vector<net::CompanionState> m_myCompanions;
@@ -447,6 +448,13 @@ namespace coop
         std::vector<ItemMoveFrom> TakeItemMoves() { return std::move(m_itemMoves); }
         void ReportBodyMove(const net::BodyMove& m);
         void ReportBodyLimbs(const net::BodyLimbs& m);
+        void ShareBodyPose(const net::BodyPose& m, bool reliable);
+        std::vector<net::BodyPose> TakeBodyPoses()
+        {
+            std::vector<net::BodyPose> out;
+            out.swap(m_bodyPoses);
+            return out;
+        }
         std::vector<net::BodyLimbs> TakeBodyLimbs()
         {
             std::vector<net::BodyLimbs> out;
