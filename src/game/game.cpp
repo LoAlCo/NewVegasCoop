@@ -2875,13 +2875,18 @@ namespace game
                     "<font>2</font><justify>&center;</justify><wrapwidth>500</wrapwidth>"
                     "<systemcolor>1</systemcolor><string> </string></text>";
                 g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
-                xml = "<image name=\"NVCoopPingIcon" + std::to_string(slot) + "\"><visible>0</visible>"
-                    "<filename>interface\\nvcoop\\ping_spot.dds</filename>"
-                    "<user0>0.5</user0><user1>0.5</user1>"
-                    "<x><copy src=\"screen()\" trait=\"width\"/><mul src=\"me()\" trait=\"user0\"/><sub>16</sub></x>"
-                    "<y><copy src=\"screen()\" trait=\"height\"/><mul src=\"me()\" trait=\"user1\"/><sub>16</sub></y>"
-                    "<width>32</width><height>32</height><zoom>-1</zoom><systemcolor>1</systemcolor></image>";
-                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                static const char* const kIconFiles[] = {"ping_spot", "ping_loot", "ping_tool"};
+                static_assert(std::size(kIconFiles) == static_cast<size_t>(net::PingKind::Count));
+                for (int kind = 0; kind < static_cast<int>(net::PingKind::Count); ++kind)
+                {
+                    xml = "<image name=\"NVCoopPingIcon" + std::to_string(slot) + "x" + std::to_string(kind) + "\"><visible>0</visible>"
+                        "<filename>interface\\nvcoop\\" + kIconFiles[kind] + ".dds</filename>"
+                        "<user0>0.5</user0><user1>0.5</user1>"
+                        "<x><copy src=\"screen()\" trait=\"width\"/><mul src=\"me()\" trait=\"user0\"/><sub>16</sub></x>"
+                        "<y><copy src=\"screen()\" trait=\"height\"/><mul src=\"me()\" trait=\"user1\"/><sub>16</sub></y>"
+                        "<width>32</width><height>32</height><zoom>-1</zoom><systemcolor>1</systemcolor></image>";
+                    g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                }
             }
             g_chatHudMade = true;
         }
@@ -3638,6 +3643,77 @@ namespace game
             }
         }
 
+        TESObjectREFR* RefFromNode(void* node)
+        {
+            __try
+            {
+                return node ? reinterpret_cast<TESObjectREFR*(__cdecl*)(void*)>(addr::kRefFromNode)(node) : nullptr;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return nullptr;
+            }
+        }
+
+        void RefName(TESObjectREFR* ref, char (&out)[64])
+        {
+            out[0] = 0;
+            __try
+            {
+                const char* name = reinterpret_cast<const char*(__thiscall*)(TESObjectREFR*)>(addr::kRefFullName)(ref);
+                if (name)
+                    strncpy_s(out, name, _TRUNCATE);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                out[0] = 0;
+            }
+        }
+
+        coop::PingThing ThingOf(TESObjectREFR* ref, std::string& name)
+        {
+            name.clear();
+            if (!ref)
+                return coop::PingThing::Scenery;
+            if (IsActor(ref))
+                return coop::PingThing::Actor;
+            TESForm* base = ref->baseForm;
+            if (!base)
+                return coop::PingThing::Scenery;
+            coop::PingThing thing = coop::PingThing::Scenery;
+            switch (base->typeID)
+            {
+            case kFormType_TESObjectCONT:
+            case kFormType_TESObjectARMO:
+            case kFormType_TESObjectBOOK:
+            case kFormType_TESObjectMISC:
+            case kFormType_TESObjectWEAP:
+            case kFormType_TESAmmo:
+            case kFormType_TESKey:
+            case kFormType_AlchemyItem:
+            case kFormType_BGSNote:
+            case kFormType_TESObjectIMOD:
+            case kFormType_TESCaravanCard:
+            case kFormType_TESCaravanMoney:
+                thing = coop::PingThing::Loot;
+                break;
+            case kFormType_TESObjectACTI:
+            case kFormType_BGSTerminal:
+            case kFormType_TESFurniture:
+                thing = coop::PingThing::Device;
+                break;
+            case kFormType_TESObjectDOOR:
+                thing = coop::PingThing::Door;
+                break;
+            default:
+                return thing;
+            }
+            char text[64];
+            RefName(ref, text);
+            name = text;
+            return thing;
+        }
+
         void NodeName(const void* node, char (&out)[64])
         {
             out[0] = 0;
@@ -3704,6 +3780,19 @@ namespace game
         for (int i = 0; i < 3; ++i)
             out.at[i] = from[i] + forward[i] * out.distance;
         NodeName(node, out.what);
+        TESObjectREFR* hitRef = out.hit ? RefFromNode(node) : nullptr;
+        // The game's own highlighted object first: small items can be easy to see and hard for a ray to touch.
+        TESObjectREFR* aimed = CrosshairRef();
+        if (aimed && !IsActor(aimed) && aimed != hitRef)
+        {
+            hitRef = aimed;
+            out.hit = true;
+            out.at[0] = aimed->posX;
+            out.at[1] = aimed->posY;
+            out.at[2] = aimed->posZ;
+        }
+        out.ref = RefId(hitRef);
+        out.thing = out.hit ? ThingOf(hitRef, out.name) : coop::PingThing::Nothing;
         return true;
     }
 
@@ -3751,9 +3840,9 @@ namespace game
             MakeChatHud();
             coop::PingLabelSpot spot = spots[slot];
             bool changed = show && (!s_shown[slot] || s_text[slot] != m.text);
-            g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 4, m.text.empty() ? " " : m.text.c_str(),
+            g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 5, m.text.empty() ? " " : m.text.c_str(),
                 *reinterpret_cast<uint32_t*>(&spot.x), *reinterpret_cast<uint32_t*>(&spot.y),
-                static_cast<uint32_t>(!show ? 0 : changed ? 2 : 1));
+                static_cast<uint32_t>(!show ? 0 : changed ? 2 : 1), static_cast<uint32_t>(m.kind));
             s_text[slot] = show ? m.text : std::string();
             s_shown[slot] = show;
         }

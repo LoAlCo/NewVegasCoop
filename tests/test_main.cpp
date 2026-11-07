@@ -3270,6 +3270,44 @@ TEST(ping_round_trips_and_rejects_bad_values)
     CHECK(r.Type(t) && Decode(r, m) && m.name.size() == net::kMaxPingName);
 }
 
+TEST(a_ping_says_what_kind_of_thing_it_marks)
+{
+    using coop::ClassifyPing;
+    using coop::PingThing;
+    using net::PingKind;
+    auto is = [](const coop::PingLook& look, PingKind kind, const std::string& name) { return look.kind == kind && look.name == name; };
+    CHECK(is(ClassifyPing(PingThing::Nothing, ""), PingKind::Spot, "Over here"));
+    CHECK(is(ClassifyPing(PingThing::Scenery, "Rock"), PingKind::Spot, "Marked spot"));
+    CHECK(is(ClassifyPing(PingThing::Actor, "Raider"), PingKind::Spot, "Marked spot"));
+    CHECK(is(ClassifyPing(PingThing::Loot, "Ammo Box"), PingKind::Loot, "Ammo Box"));
+    CHECK(is(ClassifyPing(PingThing::Loot, ""), PingKind::Loot, "Loot"));
+    CHECK(is(ClassifyPing(PingThing::Door, "Door"), PingKind::Spot, "Door"));
+    CHECK(is(ClassifyPing(PingThing::Door, ""), PingKind::Spot, "Marked spot"));
+    CHECK(is(ClassifyPing(PingThing::Device, "Workbench"), PingKind::Utility, "Workbench"));
+    CHECK(is(ClassifyPing(PingThing::Device, "Reloading Bench"), PingKind::Utility, "Reloading Bench"));
+    CHECK(is(ClassifyPing(PingThing::Device, "Campfire"), PingKind::Utility, "Campfire"));
+    CHECK(is(ClassifyPing(PingThing::Device, "Magazine Vending Machine"), PingKind::Utility, "Magazine Vending Machine"));
+    CHECK(is(ClassifyPing(PingThing::Device, "Radio"), PingKind::Spot, "Radio"));
+    CHECK(is(ClassifyPing(PingThing::Device, ""), PingKind::Spot, "Marked spot"));
+    CHECK(ClassifyPing(PingThing::Loot, std::string(200, 'x')).name.size() == coop::kMaxPingThingName);
+
+    for (PingKind kind : {PingKind::Spot, PingKind::Loot, PingKind::Utility})
+    {
+        net::Ping sent;
+        sent.kind = kind;
+        sent.space = 7;
+        sent.name = "Workbench";
+        Bytes b = Encode(sent);
+        Reader r(b);
+        MsgType t;
+        net::Ping got;
+        CHECK(r.Type(t) && Decode(r, got) && got.kind == kind);
+    }
+    coop::PingBoard board;
+    board.Add(1, "Ann", "Ammo Box", 0, 0, 0, 1000, static_cast<uint8_t>(PingKind::Loot));
+    CHECK(board.Slots()[0].kind == static_cast<uint8_t>(PingKind::Loot));
+}
+
 TEST(ping_gate_allows_one_a_second)
 {
     coop::PingGate gate(coop::kPingSendGapMs);
