@@ -105,6 +105,13 @@ namespace game::addr
     constexpr uintptr_t kLevelUpSkillPointsCall = 0x00784EE3;
     constexpr uintptr_t kMineReactsToTarget = 0x009C3930;
     constexpr uintptr_t kMineReactsCall = 0x009C3BD1;
+    constexpr uintptr_t kSkyInstance = 0x011CCB78;
+    constexpr uintptr_t kSkyForceWeather = 0x0063D0E0;
+    constexpr uintptr_t kSkyHurryFade = 0x0063E860;
+    constexpr uintptr_t kSkySave = 0x0063EB70;
+    constexpr uintptr_t kSkySaveCall = 0x0084BDAE;
+    constexpr uintptr_t kSkySaveChunk = 0x0063E9F0;
+    constexpr uintptr_t kSkySaveChunkCall = 0x008582CF;
     constexpr uintptr_t kProjectileTurnOff = 0x009C43E0;
     constexpr uintptr_t kPlayerCombatCount = 0x00953C20;
     constexpr uintptr_t kLevelUpCombatCalls[] = {0x0077C58C, 0x0077D6BE};
@@ -314,6 +321,12 @@ namespace game::layout
     constexpr uint32_t kWeaponMods = 0x350;
     constexpr uint32_t kDataHandlerWorldSpaces = 0x10;
     constexpr uint32_t kWorldSpaceCell = 0x34;
+    constexpr uint32_t kSkyClimate = 0x0C;
+    constexpr uint32_t kSkyCurrent = 0x10;
+    constexpr uint32_t kSkyPrevious = 0x14;
+    constexpr uint32_t kSkyOverride = 0x1C;
+    constexpr uint32_t kSkyPercent = 0xF4;
+    constexpr uint32_t kSkyMode = 0xF8;
     constexpr uint32_t kCellObjects = 0xAC;
     constexpr uint32_t kPlayerDisabledControls = 0x680;
     constexpr uint8_t kExtraMapMarker = 0x2C;

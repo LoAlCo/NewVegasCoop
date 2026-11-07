@@ -4117,6 +4117,18 @@ namespace game
         reinterpret_cast<Fn>(addr::kSetTimeMultiplier)(reinterpret_cast<void*>(addr::kTimeGlobal), speed, true);
     }
 
+    uintptr_t HookCallSite(uintptr_t site, const void* to) { return HookCall(site, to); }
+
+    void* WrapScriptCommand(const char* name, void* wrapper)
+    {
+        auto* info = g_cmdTable ? const_cast<CommandInfo*>(g_cmdTable->GetByName(name)) : nullptr;
+        if (!info || !info->execute)
+            return nullptr;
+        void* was = reinterpret_cast<void*>(info->execute);
+        info->execute = reinterpret_cast<Cmd_Execute>(wrapper);
+        return was;
+    }
+
     int KeepVatsAtFullSpeed()
     {
         static int skipped = -1;

@@ -76,6 +76,7 @@ add_library(NVCoop SHARED
     src/game/dialogue.cpp
     src/game/steam.cpp
     src/game/sleepwait.cpp
+    src/game/weather.cpp
     src/game/containers.cpp
     src/game/items.cpp
     src/game/quests.cpp

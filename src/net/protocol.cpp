@@ -1247,6 +1247,23 @@ namespace net
             r.U16(m.year) && r.AtEnd();
     }
 
+    Bytes Encode(const WeatherState& m)
+    {
+        Writer w(MsgType::WeatherState);
+        w.U32(m.weather);
+        w.U32(m.climate);
+        w.U32(m.rootSpace);
+        w.F32(m.percent);
+        w.U8(m.flags);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, WeatherState& m)
+    {
+        return r.U32(m.weather) && m.weather != 0 && r.U32(m.climate) && r.U32(m.rootSpace) && r.F32(m.percent) &&
+            m.percent >= 0 && m.percent <= 1 && r.U8(m.flags) && m.flags <= kWeatherPopped && r.AtEnd();
+    }
+
     Bytes Encode(const SaveOrder& m)
     {
         Writer w(MsgType::SaveOrder);

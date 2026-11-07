@@ -304,6 +304,18 @@ namespace coop
             m_hostTimeNew = false;
             return true;
         }
+        void SetMyWeather(const net::WeatherState& w, bool changed)
+        {
+            m_myWeather = w;
+            m_hasMyWeather = true;
+            m_myWeatherChanged = m_myWeatherChanged || changed;
+        }
+        bool HostWeather(net::WeatherState& out) const
+        {
+            if (m_hasHostWeather)
+                out = m_hostWeather;
+            return m_hasHostWeather;
+        }
         bool Frozen() const { return m_frozen && !m_expecting && !m_hasTravel; }
         uint8_t FrozenFor() const { return m_frozenFor; }
         void LoadedHostSave() { SendArrived(); }
@@ -545,5 +557,11 @@ namespace coop
         uint32_t m_lastGameTimeSent = 0;
         net::GameTime m_hostTime;
         bool m_hostTimeNew = false;
+        net::WeatherState m_myWeather;
+        bool m_hasMyWeather = false;
+        bool m_myWeatherChanged = false;
+        uint32_t m_lastWeatherSent = 0;
+        net::WeatherState m_hostWeather;
+        bool m_hasHostWeather = false;
     };
 }

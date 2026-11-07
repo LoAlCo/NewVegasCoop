@@ -74,6 +74,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bMouths", mouths);
         Write(path, "bSkipDlcPopups", skipDlcPopups);
         Write(path, "bSyncRadio", syncRadio);
+        Write(path, "bSyncWeather", syncWeather);
         Write(path, "bDesyncNotices", desyncNotices);
         Write(path, "iFieldOfView", fieldOfView);
         Write(path, "bFriendMarkers", friendMarkers);
@@ -123,6 +124,7 @@ void Config::LoadPlayer(const std::string& path)
     mouths = flag("bMouths", mouths);
     skipDlcPopups = flag("bSkipDlcPopups", skipDlcPopups);
     syncRadio = flag("bSyncRadio", syncRadio);
+    syncWeather = flag("bSyncWeather", syncWeather);
     desyncNotices = flag("bDesyncNotices", desyncNotices);
     fieldOfView = number("iFieldOfView", fieldOfView, 0, 120);
     friendMarkers = flag("bFriendMarkers", friendMarkers);
@@ -210,6 +212,7 @@ Config Config::Load(const std::string& iniPath)
     c.borderless = Read(iniPath, "Borderless", "1") != "0";
     c.desyncNotices = Read(iniPath, "DesyncNotices", "1") != "0";
     c.syncRadio = Read(iniPath, "SyncRadio", "1") != "0";
+    c.syncWeather = Read(iniPath, "SyncWeather", "1") != "0";
     c.chat = Read(iniPath, "Chat", "1") != "0";
     c.chatSpeech = Read(iniPath, "ChatSpeech", "1") != "0";
     c.chatSpeechVolume = Number(Read(iniPath, "ChatSpeechVolume", "80"), 0, 100, 80);

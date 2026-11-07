@@ -37,6 +37,7 @@ struct Config
     std::vector<std::string> patches;
     bool showAddress = false;
     bool syncRadio = true;
+    bool syncWeather = true;
     bool chat = true;
     int chatKey = 21;
     bool chatSpeech = true;

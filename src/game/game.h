@@ -335,6 +335,10 @@ namespace game
     bool IsTalking(const TESObjectREFR* actor);
     bool InstallSayHooks();
     int KeepVatsAtFullSpeed();
+    // Sends the game's call at site to another function, returning where it went (0 if site isn't a call).
+    uintptr_t HookCallSite(uintptr_t site, const void* to);
+    // Puts wrapper (a Cmd_Execute) in front of a script command, returning the original (null if there's no such command).
+    void* WrapScriptCommand(const char* name, void* wrapper);
     void SetWorldSpeed(float speed);
     bool WatchSpeedChanges();
     struct Sound { uint32_t id = 0xFFFFFFFF; uint8_t assumeSuccess = 0; uint32_t state = 0; };

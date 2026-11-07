@@ -39,6 +39,7 @@
 #include "game/progress.h"
 #include "game/dialogue.h"
 #include "game/sleepwait.h"
+#include "game/weather.h"
 #include "game/steam.h"
 #include "game/quests.h"
 #include "game/npcs.h"
@@ -75,6 +76,7 @@ namespace
     game::Quests g_quests;
     game::Progress g_progress;
     game::SleepWait g_sleepWait;
+    game::Weather g_weather;
     game::Dialogue g_dialogue;
     game::Inspector g_inspector;
     game::Mirror g_mirror;
@@ -1493,10 +1495,10 @@ namespace
             LOG_INFO("Mode: %s (changed in the menu)", coop::Describe(g_ourMode).c_str());
         }
         LOG_INFO("Settings: changed in the menu (chat %d, key %d, speech %d at %d%%, voice %d/%d pitch %d speed %d "
-            "effect %d, voice chat %d key %d mode %d at %d%%, radio %d, desync notices %d)", g_config.chat,
+            "effect %d, voice chat %d key %d mode %d at %d%%, radio %d, weather %d, desync notices %d)", g_config.chat,
             g_config.chatKey, g_config.chatSpeech, g_config.chatSpeechVolume, g_config.voice, g_config.voiceVariant,
             g_config.voicePitch, g_config.voiceSpeed, g_config.voiceEffect, g_config.voiceChat, g_config.voiceChatKey,
-            g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.desyncNotices);
+            g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.syncWeather, g_config.desyncNotices);
     }
 
     void UpdateChat()
@@ -2403,6 +2405,7 @@ namespace
         if (g_config.borderless)
             display::Update();
         dev::EveryFrame();
+        g_weather.Update(GetTickCount(), g_config.syncWeather, g_worldLoaded && !g_loadingSave);
         LARGE_INTEGER start, end;
         QueryPerformanceCounter(&start);
         g_partClock.m_last = start;
@@ -3043,6 +3046,7 @@ namespace
                 LOG_WARN("Main menu: couldn't add Host Co-op and Join Co-op (another plugin changed it?)");
             g_dialogue.Install(g_coop, g_npcs, g_progress);
             g_sleepWait.Install(g_coop);
+            g_weather.Install(g_coop);
             LoadOwnSaves();
             if (!game::InstallLoadCheck(&MayLoad))
                 LOG_WARN("Saves: couldn't hook loading (another plugin changed it?); friends' loads won't wait for the host");
@@ -3092,6 +3096,7 @@ namespace
             g_mines.Forget();
             g_progress.Forget();
             g_quests.Forget();
+            g_weather.Forget();
             g_coop.ForgetMyPlace();
             g_hasTravel = false;
             g_inspector.Forget();
@@ -3195,7 +3200,7 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
         return false;
     }
 
-    dev::RegisterCommands(nvse, &g_inspector, &g_mirror);
+    dev::RegisterCommands(nvse, &g_inspector, &g_mirror, &g_weather);
     if (g_config.labChannel && g_lab.Start(L"\\\\.\\pipe\\NVCoopLab"))
         LOG_INFO("Lab channel open (\\\\.\\pipe\\NVCoopLab): tools on this PC, for this Windows user only, can run "
             "console lines in the game");
