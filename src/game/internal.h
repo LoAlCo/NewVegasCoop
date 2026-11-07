@@ -162,6 +162,9 @@ namespace game
     extern Script* g_talkPlace[kTalkSlots];
     extern Script* g_talkBack[kTalkSlots];
     extern Script* g_talkSide[kTalkSlots];
+    extern Script* g_feedText;
+    extern Script* g_feedPlace;
+    extern Script* g_feedBar;
     extern Script* g_speedMult;
     extern Script* g_actorAlpha;
     extern Script* g_collision;

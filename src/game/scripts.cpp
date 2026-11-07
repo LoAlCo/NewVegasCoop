@@ -142,6 +142,9 @@ namespace game
         Script* g_talkPlace[kTalkSlots] = {};
         Script* g_talkBack[kTalkSlots] = {};
         Script* g_talkSide[kTalkSlots] = {};
+        Script* g_feedText = nullptr;
+        Script* g_feedPlace = nullptr;
+        Script* g_feedBar = nullptr;
         Script* g_speedMult = nullptr;
         Script* g_actorAlpha = nullptr;
         Script* g_collision = nullptr;
@@ -919,6 +922,37 @@ namespace game
             "    SetUIStringEx \"HUDMainMenu/NVCoopRevive/string\" \"%z\" sText\n"
             "  endif\n"
             "  SetUIFloat \"HUDMainMenu/NVCoopRevive/visible\" iShow\n"
+            "End\n");
+        g_feedText = Compile("chat panel text",
+            "string_var sText\n"
+            "Begin Function {sText}\n"
+            "  SetUIStringEx \"HUDMainMenu/NVCoopFeedText/string\" \"%z\" sText\n"
+            "End\n");
+        g_feedPlace = Compile("chat panel place",
+            "float fX\n"
+            "float fY\n"
+            "float fAlpha\n"
+            "int iShow\n"
+            "Begin Function {fX, fY, fAlpha}\n"
+            "  set iShow to fAlpha > 0\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/x\" fX\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/y\" fY\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/alpha\" fAlpha\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedText/visible\" iShow\n"
+            "End\n");
+        g_feedBar = Compile("chat panel bar",
+            "float fX\n"
+            "float fY\n"
+            "float fHeight\n"
+            "float fAlpha\n"
+            "int iShow\n"
+            "Begin Function {fX, fY, fHeight, fAlpha}\n"
+            "  set iShow to fAlpha > 0\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/x\" fX\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/y\" fY\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/height\" fHeight\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/alpha\" fAlpha\n"
+            "  SetUIFloat \"HUDMainMenu/NVCoopFeedBar/visible\" iShow\n"
             "End\n");
         for (int slot = 0; slot < kTalkSlots; ++slot)
         {

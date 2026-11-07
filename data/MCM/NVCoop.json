@@ -33,7 +33,7 @@
 					"title": "Chat Key",
 					"type": 3,
 					"enable": 1,
-					"mouse": "The key that opens the chat line (Enter sends, Esc cancels)",
+					"mouse": "The key that opens the chat line and history (Enter sends, Esc cancels, Page Up and Down read back)",
 					"vars": [
 						{
 							"configINI": "Settings:iChatKey",
@@ -709,6 +709,95 @@
 						"valueIncrement": 5,
 						"valueMin": 0,
 						"valueMax": 255
+					}
+				}
+			}
+		},
+		"2": {
+			"listTitle": "Chat History",
+			"pageTitle": "Chat History and Party Events",
+			"columns": 1,
+			"enable": 1,
+			"options": {
+				"1": {
+					"title": "Show Chat History",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Opening chat shows recent chat and party events (Page Up and Down read further back)",
+					"vars": [
+						{
+							"configINI": "Settings:bChatHistory",
+							"default": 1
+						}
+					]
+				},
+				"2": {
+					"title": "Show Party Events",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Short lines such as a friend going down, joining or leaving appear for a few seconds",
+					"vars": [
+						{
+							"configINI": "Settings:bEventFeed",
+							"default": 1
+						}
+					]
+				},
+				"3": {
+					"title": "Event Seconds",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How long party event lines stay on screen",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedSeconds",
+							"default": 8
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 3,
+						"valueMax": 60,
+						"suffix": " s"
+					}
+				},
+				"4": {
+					"title": "Across the Screen",
+					"type": 2,
+					"enable": 1,
+					"mouse": "Where the panel's right edge is, from the left of the screen",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedX",
+							"default": 98
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 0,
+						"valueMax": 100,
+						"suffix": "%"
+					}
+				},
+				"5": {
+					"title": "Down the Screen",
+					"type": 2,
+					"enable": 1,
+					"mouse": "Where the panel's top is, from the top of the screen",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedY",
+							"default": 30
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 0,
+						"valueMax": 100,
+						"suffix": "%"
 					}
 				}
 			}

@@ -206,7 +206,10 @@
         g_downedAt = g_nextBleedNotice = now;
         game::SetPlayerControls(!down);
         if (down)
+        {
+            g_chatHistory.Add("* You are down");
             game::PlayAnimFile(game::Player(), kDownedAnim);
+        }
         else
             game::StopAnimFile(game::Player(), kDownedAnim);
         LOG_INFO("%s", down ? "We're down" : "We're back up");
@@ -268,6 +271,10 @@
                 g_coop.NameOf(over.playerId) + " bled out. Game over!" : over.reason == net::GameOverReason::Killed ?
                 g_coop.NameOf(over.playerId) + " was killed. Game over!" : "Everyone is down. Game over!";
             LOG_INFO("%s", text.c_str());
+            g_partyWatch.Mute();
+            bool named = over.reason == net::GameOverReason::BledOut || over.reason == net::GameOverReason::Killed;
+            if (!named || over.playerId == g_coop.MyPlayerId() || g_coop.Remotes().count(over.playerId))
+                g_chatHistory.Add("* " + text);
             SetDowned(false, now);
             if (g_coop.GetRole() == coop::Role::Host)
             {
@@ -286,6 +293,7 @@
             game::ChangeHealth(player, maxHealth * coop::kReviveHealth - game::Health(player));
             SetDowned(false, now);
             game::Notify("You've been revived!");
+            g_chatHistory.Add("* You were revived");
             return;
         }
         ApplyHeals(player, now);

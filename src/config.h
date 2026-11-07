@@ -37,6 +37,11 @@ struct Config
     int talkLogStyle = 1;
     bool talkLogHudColor = true;
     int talkLogRed = 255, talkLogGreen = 255, talkLogBlue = 255;
+    bool eventFeed = true;
+    bool chatHistory = true;
+    int feedX = 98;
+    int feedY = 30;
+    int feedSeconds = 8;
     bool coopBalanced = false;
     bool friendlyFire = false;
     bool farAreas = true;

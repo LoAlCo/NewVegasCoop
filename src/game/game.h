@@ -306,6 +306,10 @@ namespace game
         uint8_t red = 255, green = 255, blue = 255;
     };
     void ShowTalkLog(const std::vector<coop::TalkLog::Shown>& lines, const TalkLogLook& look);
+    // One panel for the party's event lines and, while chat is open, the chat history. Empty text hides it.
+    void ShowChatPanel(const std::string& text, int xPercent, int yPercent, float alpha);
+    // Lines to move back through the history (negative is forward) since last asked
+    int TakeChatScroll();
     void SetSpeedMult(TESObjectREFR* actor, int mult);
     float CachedRunSpeed(TESObjectREFR* actor);
     std::vector<std::string> ModAnimFiles(TESObjectREFR* actor);

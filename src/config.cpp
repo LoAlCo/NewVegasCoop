@@ -100,6 +100,11 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iTalkLogRed", talkLogRed);
         Write(path, "iTalkLogGreen", talkLogGreen);
         Write(path, "iTalkLogBlue", talkLogBlue);
+        Write(path, "bEventFeed", eventFeed);
+        Write(path, "bChatHistory", chatHistory);
+        Write(path, "iFeedX", feedX);
+        Write(path, "iFeedY", feedY);
+        Write(path, "iFeedSeconds", feedSeconds);
         Write(path, "bShowAddress", showAddress);
         Write(path, "bFarAreas", farAreas);
         WriteSwitches(path);
@@ -156,6 +161,11 @@ void Config::LoadPlayer(const std::string& path)
     talkLogRed = number("iTalkLogRed", talkLogRed, 0, 255);
     talkLogGreen = number("iTalkLogGreen", talkLogGreen, 0, 255);
     talkLogBlue = number("iTalkLogBlue", talkLogBlue, 0, 255);
+    eventFeed = flag("bEventFeed", eventFeed);
+    chatHistory = flag("bChatHistory", chatHistory);
+    feedX = number("iFeedX", feedX, 0, 100);
+    feedY = number("iFeedY", feedY, 0, 100);
+    feedSeconds = number("iFeedSeconds", feedSeconds, 3, 60);
     showAddress = flag("bShowAddress", showAddress);
     coopBalanced = flag("bCoopBalanced", coopBalanced);
     friendlyFire = flag("bFriendlyFire", friendlyFire);
