@@ -890,6 +890,7 @@ namespace
         {
             if (box != -1)
             {
+                LOG_INFO("Gifts: cancelled the amount box with its button");
                 game::StopTextEntry();
                 g_giftStep = GiftStep::None;
                 return;
@@ -906,6 +907,7 @@ namespace
         game::DropQuestion(kGiftAmountQuestion);
         if (state != game::EntryState::Done)
         {
+            LOG_INFO("Gifts: cancelled the amount box with Esc");
             game::StopTextEntry();
             return;
         }
