@@ -21,6 +21,7 @@ struct Config
     bool desyncNotices = true;
     bool shotPaths = true;
     bool companionsBoth = true;
+    bool gifts = true;
     bool giftSave = true;
     int fieldOfView = 0;
     bool friendMarkers = true;

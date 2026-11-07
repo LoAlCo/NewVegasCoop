@@ -405,6 +405,18 @@
 					"type": 0
 				},
 				"34": {
+					"title": "Send And Receive Gifts",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Lets you send caps through the Co-op Teleporter and receive them from friends. Off: no Send caps button, and anything sent to you goes back to the sender",
+					"vars": [
+						{
+							"configINI": "Settings:bGifts",
+							"default": 1
+						}
+					]
+				},
+				"35": {
 					"title": "Save After A Gift",
 					"type": 5,
 					"enable": 1,
@@ -416,12 +428,12 @@
 						}
 					]
 				},
-				"35": {
+				"36": {
 					"title": "Testing",
 					"enable": 1,
 					"type": 0
 				},
-				"36": {
+				"37": {
 					"title": "Your Shots Fly the Same Path for Friends",
 					"type": 5,
 					"enable": 1,
@@ -433,12 +445,12 @@
 						}
 					]
 				},
-				"37": {
+				"38": {
 					"title": "Pings",
 					"enable": 1,
 					"type": 0
 				},
-				"38": {
+				"39": {
 					"title": "Pings",
 					"type": 5,
 					"enable": 1,
@@ -450,7 +462,7 @@
 						}
 					]
 				},
-				"39": {
+				"40": {
 					"title": "Ping Key",
 					"type": 3,
 					"enable": 1,
@@ -465,7 +477,7 @@
 						"type": 0
 					}
 				},
-				"40": {
+				"41": {
 					"title": "Ping Sound",
 					"type": 1,
 					"enable": 1,
@@ -485,7 +497,7 @@
 						"Menu OK"
 					]
 				},
-				"41": {
+				"42": {
 					"title": "Ping Range",
 					"type": 2,
 					"enable": 1,
