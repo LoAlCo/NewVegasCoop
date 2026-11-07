@@ -22,6 +22,7 @@
 #include "net/fake_lag.h"
 #include "net/protocol.h"
 #include "net/steam_session.h"
+#include "window_spot.h"
 
 #include <cmath>
 #include <cstdio>
@@ -4971,4 +4972,37 @@ TEST(a_stack_merged_away_is_seen_gone)
     coop::StackNode broken{&b, nullptr};
     broken.next = &broken;
     CHECK(coop::HoldsStack(&broken, &a));
+}
+
+TEST(a_window_off_screen_comes_back_and_copies_keep_apart)
+{
+    using display::Box;
+    const auto same = [](const Box& a, const Box& b) {
+        return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
+    };
+    const Box mainScreen{0, 0, 1920, 1040}, leftScreen{-1920, 0, 0, 1040};
+    const Box lost{1600, 1600, 2896, 2359};
+    const std::vector<Box> two{mainScreen, leftScreen}, one{mainScreen};
+
+    // Off screen: back to the main screen's corner, keeping its size
+    const Box first = display::PickWindowSpot(lost, two, {});
+    CHECK(same(first, Box{0, 0, 1296, 759}));
+
+    // On a screen with nothing in the way: left where the player put it
+    const Box placed{300, 200, 1596, 959}, onLeft{-1500, 100, -204, 859};
+    CHECK(same(display::PickWindowSpot(placed, two, {}), placed));
+    CHECK(same(display::PickWindowSpot(onLeft, two, {}), onLeft));
+
+    // A second copy goes to the other screen, or the far corner when there's only one
+    CHECK(same(display::PickWindowSpot(lost, two, {first}), Box{-1920, 0, -624, 759}));
+    const Box second = display::PickWindowSpot(lost, one, {first});
+    CHECK(same(second, Box{624, 281, 1920, 1040}));
+
+    // Partly off the edge, or on top of the other copy: moved too
+    CHECK(same(display::PickWindowSpot(Box{1000, 500, 2296, 1259}, one, {}), first));
+    CHECK(same(display::PickWindowSpot(first, two, {first}), Box{-1920, 0, -624, 759}));
+
+    // A window bigger than the screen starts from its corner, and no screen info means no move
+    CHECK(same(display::PickWindowSpot(Box{50, 50, 2610, 1490}, one, {}), Box{0, 0, 2560, 1440}));
+    CHECK(same(display::PickWindowSpot(lost, {}, {}), lost));
 }
