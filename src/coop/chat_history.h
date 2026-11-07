@@ -60,6 +60,14 @@ namespace coop
         explicit ChatHistory(size_t maxRows = kRows, size_t charsPerRow = kCharsPerRow) :
             m_maxRows(std::max<size_t>(maxRows, 1)), m_charsPerRow(std::max<size_t>(charsPerRow, 1)) {}
 
+        // What fits changes with the panel's size and width
+        void SetShape(size_t maxRows, size_t charsPerRow)
+        {
+            m_maxRows = std::max<size_t>(maxRows, 1);
+            m_charsPerRow = std::max<size_t>(charsPerRow, 1);
+            m_back = std::min<size_t>(m_back, MostBack());
+        }
+
         // Reading back through the history stays on the same lines when new ones come in
         void Add(std::string_view line)
         {
@@ -338,20 +346,45 @@ namespace coop
         uint32_t m_rosterQuietUntil = 0, m_healthQuietUntil = 0;
     };
 
+    // The default panel holds 16 rows of 48 characters: a guess on the safe side, which keeps its height about the same
+    // at any text size
+    inline size_t ChatPanelRows(int sizePercent)
+    {
+        return std::clamp<size_t>(16 * 65 / static_cast<size_t>(std::max<int>(sizePercent, 1)), 4, 24);
+    }
+
+    inline size_t ChatPanelCharsPerRow(int width, int sizePercent)
+    {
+        return std::max<size_t>(static_cast<size_t>(std::max<int>(width, 1)) * 48 * 65 /
+            (500 * static_cast<size_t>(std::max<int>(sizePercent, 1))), 10);
+    }
+
+    // As many lines as the panel can show, some of them long, so what it's moved clear of stays clear
+    inline std::string ChatPanelPreview()
+    {
+        std::vector<std::string> lines = {"Preview: chat and party events show here.", "--- Joined a session ---",
+            "* Sam joined", "Sam: Anyone know the way to the Strip?",
+            "You: Follow the road north, past the old gas station and the bridge, and keep the river on your right.",
+            "* Sam is down", "* Sam was revived", "Sam: Thanks, that one nearly had me.", "You: Stay close this time.",
+            "* Alex joined", "Alex: Where are you two?", "* Alex left"};
+        return JoinLines(lines);
+    }
+
     struct FeedCorner
     {
-        float right = 0, top = 0;
+        float left = 0, top = 0;
     };
 
-    // Where the panel's top right corner goes, kept on the screen whatever the settings say
-    inline FeedCorner PlaceFeed(int xPercent, int yPercent, float screenWidth, float screenHeight, float width, float height)
+    // X is where the side the text sits against goes, so the whole slider moves it. It stays on the screen whatever the
+    // settings say.
+    inline FeedCorner PlaceFeed(int xPercent, int yPercent, float screenWidth, float screenHeight, float width, float height,
+        bool alignRight)
     {
         constexpr float kMargin = 8;
         FeedCorner corner;
-        float leftmost = std::min<float>(width + kMargin, screenWidth - kMargin);
-        corner.right = std::clamp(screenWidth * xPercent / 100, leftmost, std::max<float>(leftmost, screenWidth - kMargin));
-        float lowest = std::max<float>(kMargin, screenHeight - height - kMargin);
-        corner.top = std::clamp(screenHeight * yPercent / 100, kMargin, lowest);
+        float left = screenWidth * xPercent / 100 - (alignRight ? width : 0);
+        corner.left = std::clamp(left, kMargin, std::max<float>(kMargin, screenWidth - width - kMargin));
+        corner.top = std::clamp(screenHeight * yPercent / 100, kMargin, std::max<float>(kMargin, screenHeight - height - kMargin));
         return corner;
     }
 }
