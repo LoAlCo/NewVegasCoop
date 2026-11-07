@@ -386,6 +386,18 @@
 							"default": 1
 						}
 					]
+				},
+				"32": {
+					"title": "Synced Weather",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Outdoors in the same area as the host, you see the host's weather. Your save keeps its own",
+					"vars": [
+						{
+							"configINI": "Settings:bSyncWeather",
+							"default": 1
+						}
+					]
 				}
 			}
 		},
