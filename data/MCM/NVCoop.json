@@ -282,23 +282,6 @@
 						}
 					]
 				},
-				"32": {
-					"title": "Your Shots Fly the Same Path for Friends",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Friends' copies of your shots follow your real shots. Off: they fly from your character's aim, as they used to",
-					"vars": [
-						{
-							"configINI": "Settings:bShotPaths",
-							"default": 1
-						}
-					]
-				},
-				"31": {
-					"title": "Testing",
-					"enable": 1,
-					"type": 0
-				},
 				"22": {
 					"title": "Synced Weather",
 					"type": 5,
@@ -328,7 +311,7 @@
 					"enable": 1,
 					"type": 0
 				},
-				"26": {
+				"25": {
 					"title": "Friend Markers",
 					"type": 5,
 					"enable": 1,
@@ -340,7 +323,7 @@
 						}
 					]
 				},
-				"25": {
+				"26": {
 					"title": "Field of View",
 					"type": 2,
 					"enable": 1,
@@ -429,6 +412,23 @@
 					"vars": [
 						{
 							"configINI": "Settings:bGiftSave",
+							"default": 1
+						}
+					]
+				},
+				"35": {
+					"title": "Testing",
+					"enable": 1,
+					"type": 0
+				},
+				"36": {
+					"title": "Your Shots Fly the Same Path for Friends",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Friends' copies of your shots follow your real shots. Off: they fly from your character's aim, as they used to",
+					"vars": [
+						{
+							"configINI": "Settings:bShotPaths",
 							"default": 1
 						}
 					]
