@@ -3397,18 +3397,13 @@ TEST(a_ping_only_reaches_players_near_the_sender)
     CHECK(!coop::PingInRange(nullptr, &sender, 0));
 }
 
-TEST(ping_line_gives_distance_and_direction)
+TEST(ping_line_gives_name_and_distance)
 {
     using coop::PingLine;
-    CHECK(PingLine("Zyr", "Marked spot", 0, 1610) == "Zyr: Marked spot (23 m N)");
-    CHECK(PingLine("Zyr", "Marked spot", 700, 700) == "Zyr: Marked spot (14 m NE)");
-    CHECK(PingLine("Zyr", "Marked spot", 700, 0) == "Zyr: Marked spot (10 m E)");
-    CHECK(PingLine("Zyr", "Marked spot", 700, -700) == "Zyr: Marked spot (14 m SE)");
-    CHECK(PingLine("Zyr", "Marked spot", 0, -700) == "Zyr: Marked spot (10 m S)");
-    CHECK(PingLine("Zyr", "Marked spot", -700, -700) == "Zyr: Marked spot (14 m SW)");
-    CHECK(PingLine("Zyr", "Marked spot", -700, 0) == "Zyr: Marked spot (10 m W)");
-    CHECK(PingLine("Zyr", "Marked spot", -700, 700) == "Zyr: Marked spot (14 m NW)");
-    CHECK(PingLine("You", "Over here", 0, 0) == "You: Over here (0 m N)");
+    CHECK(PingLine("Zyr", "Marked spot", 0, 1610) == "Zyr: Marked spot (23 m)");
+    CHECK(PingLine("Zyr", "Marked spot", 0, -1610) == "Zyr: Marked spot (23 m)");
+    CHECK(PingLine("Zyr", "Ammo Box", 420, 560) == "Zyr: Ammo Box (10 m)");
+    CHECK(PingLine("You", "Over here", 0, 0) == "You: Over here (0 m)");
     CHECK(PingLine("<b>Zyr", "Over here", 0, 0)[0] == '(');
     CHECK(PingLine("{Zyr", "Over here", 0, 0)[0] == '(');
 }

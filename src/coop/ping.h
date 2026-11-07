@@ -152,15 +152,11 @@ namespace coop
         }
     }
 
-    // dx and dy run from the viewer to the spot, +Y being north.
+    // dx and dy run from the viewer to the spot.
     inline std::string PingLine(const std::string& who, const std::string& name, float dx, float dy)
     {
-        static const char* const kDirections[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
-        float degrees = std::atan2(dx, dy) * 180.0f / 3.14159265f;
-        int sector = static_cast<int>(std::floor((degrees + 22.5f) / 45.0f));
-        sector = ((sector % 8) + 8) % 8;
         int metres = static_cast<int>(std::sqrt(dx * dx + dy * dy) / kPingUnitsPerMetre + 0.5f);
-        std::string line = who + ": " + name + " (" + std::to_string(metres) + " m " + kDirections[sector] + ")";
+        std::string line = who + ": " + name + " (" + std::to_string(metres) + " m)";
         // The game's text reads a line starting with one of these as markup.
         if (line[0] == '<' || line[0] == '{')
             line[0] = '(';
