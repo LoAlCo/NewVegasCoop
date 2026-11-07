@@ -16,8 +16,8 @@ namespace display
 
     inline long long OverlapArea(const Box& a, const Box& b)
     {
-        const long long wide = std::min(a.right, b.right) - std::max(a.left, b.left);
-        const long long tall = std::min(a.bottom, b.bottom) - std::max(a.top, b.top);
+        const long long wide = (std::min)(a.right, b.right) - (std::max)(a.left, b.left);
+        const long long tall = (std::min)(a.bottom, b.bottom) - (std::max)(a.top, b.top);
         return wide > 0 && tall > 0 ? wide * tall : 0;
     }
 
@@ -54,8 +54,8 @@ namespace display
         for (const Box& screen : screens)
             corners.push_back(at(screen.left, screen.top));
         for (const Box& screen : screens)
-            corners.push_back(at(std::max(screen.left, screen.right - window.Width()),
-                std::max(screen.top, screen.bottom - window.Height())));
+            corners.push_back(at((std::max)(screen.left, screen.right - window.Width()),
+                (std::max)(screen.top, screen.bottom - window.Height())));
 
         Box best = corners.front();
         long long bestOverlap = OverlapWithAny(best, others);
