@@ -40,7 +40,11 @@ struct Config
     bool eventFeed = true;
     bool chatHistory = true;
     int feedX = 98;
-    int feedY = 30;
+    int feedY = 45;
+    int feedWidth = 500;
+    int feedAlign = 1;
+    int feedSize = 65;
+    bool feedPreview = false;
     int feedSeconds = 8;
     bool coopBalanced = false;
     bool friendlyFire = false;

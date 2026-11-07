@@ -4097,17 +4097,17 @@ namespace game
         s_showing = !lines.empty();
     }
 
-    void ShowChatPanel(const std::string& text, int xPercent, int yPercent, float alpha)
+    void ShowChatPanel(const std::string& text, const ChatPanelLook& look, float alpha)
     {
-        // The text is 769 wide at this scale; right justified text is drawn leftward from its x
-        constexpr float kWidth = 500, kScale = 0.65f, kAlpha = 235, kBarAlpha = 120, kBarPad = 6, kBarSide = 8;
-        constexpr float kTextLine = 32;
+        constexpr float kAlpha = 235, kBarAlpha = 120, kBarPad = 6, kBarSide = 8, kTextLine = 32;
         constexpr uint32_t kHeight = 0xFB0, kWidthTrait = 0xFB1;
+        // The game's values for the justify trait
+        constexpr float kJustifyLeft = 1, kJustifyRight = 4;
         static bool s_showing = false;
         static const void* s_tile = nullptr;
         static std::string s_text;
-        static float s_place[3] = {-1, -1, -1};
-        static float s_bar[4] = {-1, -1, -1, -1};
+        static float s_place[5] = {-1, -1, -1, -1, -1};
+        static float s_bar[5] = {-1, -1, -1, -1, -1};
         bool show = !text.empty() && alpha > 0;
         if (!Player() || !g_feedText || !g_feedPlace || !g_feedBar || !g_chatHud || (!show && !s_showing))
             return;
@@ -4124,7 +4124,9 @@ namespace game
             std::fill(std::begin(s_place), std::end(s_place), -1.0f);
             std::fill(std::begin(s_bar), std::end(s_bar), -1.0f);
         }
-        float height = kTextLine * kScale;
+        const float scale = std::clamp(look.scale, 0.2f, 3.0f);
+        const float width = std::clamp(look.width, 200.0f, 1200.0f);
+        float height = kTextLine * scale;
         if (show)
         {
             if (text != s_text)
@@ -4132,10 +4134,10 @@ namespace game
                 g_scripts->CallFunction(g_feedText, Player(), nullptr, nullptr, 1, text.c_str());
                 s_text = text;
             }
-            ScaleTile(tile, kScale);
+            ScaleTile(tile, scale);
             float measured = TileValue(tile, kHeight);
             if (measured > 0)
-                height = measured * kScale;
+                height = measured * scale;
         }
         else
             s_text.clear();
@@ -4145,16 +4147,20 @@ namespace game
                 *reinterpret_cast<const float*>(addr::kMenuUnitsPerPixel);
         if (screenWidth < 200)
             screenWidth = screenHeight * 16 / 9;
-        coop::FeedCorner corner = coop::PlaceFeed(xPercent, yPercent, screenWidth, screenHeight, kWidth, height);
+        coop::FeedCorner corner = coop::PlaceFeed(look.xPercent, look.yPercent, screenWidth, screenHeight, width, height,
+            look.alignRight);
         float shown = show ? std::clamp(alpha, 0.0f, 1.0f) : 0;
-        const float place[3] = {corner.right, corner.top, kAlpha * shown};
-        const float bar[4] = {corner.right - kWidth - kBarSide, corner.top - kBarPad / 2, height + kBarPad, kBarAlpha * shown};
+        // Right justified text is drawn leftward from its x
+        const float place[5] = {look.alignRight ? corner.left + width : corner.left, corner.top, kAlpha * shown, width / scale,
+            look.alignRight ? kJustifyRight : kJustifyLeft};
+        const float bar[5] = {corner.left - kBarSide, corner.top - kBarPad / 2, height + kBarPad, kBarAlpha * shown,
+            width + 2 * kBarSide};
         if (Changed(s_place, place))
-            g_scripts->CallFunction(g_feedPlace, Player(), nullptr, nullptr, 3, FloatArg(place[0]), FloatArg(place[1]),
-                FloatArg(place[2]));
+            g_scripts->CallFunction(g_feedPlace, Player(), nullptr, nullptr, 5, FloatArg(place[0]), FloatArg(place[1]),
+                FloatArg(place[2]), FloatArg(place[3]), FloatArg(place[4]));
         if (Changed(s_bar, bar))
-            g_scripts->CallFunction(g_feedBar, Player(), nullptr, nullptr, 4, FloatArg(bar[0]), FloatArg(bar[1]),
-                FloatArg(bar[2]), FloatArg(bar[3]));
+            g_scripts->CallFunction(g_feedBar, Player(), nullptr, nullptr, 5, FloatArg(bar[0]), FloatArg(bar[1]),
+                FloatArg(bar[2]), FloatArg(bar[3]), FloatArg(bar[4]));
         s_showing = show;
     }
 
