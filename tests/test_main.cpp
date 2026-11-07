@@ -6658,6 +6658,8 @@ TEST(visitor_companions_reach_the_host)
 
     c.Stop();
     a.Stop();
+    host.Stop();
+}
 
 TEST(weather_messages_round_trip_and_bad_ones_are_rejected)
 {
