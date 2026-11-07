@@ -1260,8 +1260,9 @@ namespace net
 
     bool Decode(Reader& r, WeatherState& m)
     {
-        return r.U32(m.weather) && m.weather != 0 && r.U32(m.climate) && r.U32(m.rootSpace) && r.F32(m.percent) &&
-            m.percent >= 0 && m.percent <= 1 && r.U8(m.flags) && m.flags <= kWeatherPopped && r.AtEnd();
+        return r.U32(m.weather) && r.U32(m.climate) && r.U32(m.rootSpace) && r.F32(m.percent) && m.percent >= 0 &&
+            m.percent <= 1 && r.U8(m.flags) && m.flags <= (kWeatherPopped | kWeatherHostOff) &&
+            (m.weather == 0) == ((m.flags & kWeatherHostOff) != 0) && r.AtEnd();
     }
 
     Bytes Encode(const SaveOrder& m)

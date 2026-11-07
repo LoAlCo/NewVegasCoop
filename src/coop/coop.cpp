@@ -1171,7 +1171,7 @@ namespace coop
             if (Decode(r, m))
             {
                 m_hostWeather = m;
-                m_hasHostWeather = true;
+                m_hasHostWeather = !(m.flags & kWeatherHostOff);
             }
         }
         else if (type == MsgType::TalkState)

@@ -5009,8 +5009,15 @@ TEST(weather_messages_round_trip_and_bad_ones_are_rejected)
     bad.weather = 0;
     CHECK(!decode(Encode(bad), out));
     bad = sent;
-    bad.flags = 2;
+    bad.flags = kWeatherHostOff;
     CHECK(!decode(Encode(bad), out));
+    bad = sent;
+    bad.flags = 4;
+    CHECK(!decode(Encode(bad), out));
+    WeatherState off;
+    off.flags = kWeatherHostOff;
+    CHECK(decode(Encode(off), out));
+    CHECK(out.weather == 0 && (out.flags & kWeatherHostOff));
 }
 
 TEST(a_friend_follows_the_hosts_weather_only_outdoors_in_the_same_place)
@@ -5141,6 +5148,18 @@ TEST(the_hosts_weather_reaches_friends_at_once_and_on_joining)
     CHECK(b.Join("127.0.0.1", kTestPort, "B"));
     CHECK(RunUntil({&host, &a, &b}, [&] { return b.InGame() && b.HostWeather(heard); }));
     CHECK(heard.weather == 11);
+
+    host.StopMyWeather();
+    CHECK(RunUntil({&host, &a, &b}, [&] { return !a.HostWeather(heard) && !b.HostWeather(heard); }, 1000));
+    coop::Coop late;
+    CHECK(late.Join("127.0.0.1", kTestPort, "Late"));
+    CHECK(RunUntil({&host, &a, &b, &late}, [&] { return late.InGame(); }));
+    for (int i = 0; i < 20; ++i)
+        RunUntil({&host, &a, &b, &late}, [] { return true; });
+    CHECK(!late.HostWeather(heard));
+    late.Stop();
+    host.SetMyWeather(WeatherState{12, 20, 30, 1.f, kWeatherPopped}, true);
+    CHECK(RunUntil({&host, &a, &b}, [&] { return a.HostWeather(heard) && heard.weather == 12; }, 1000));
 
     a.Stop();
     CHECK(!a.HostWeather(heard));

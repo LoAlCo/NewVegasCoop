@@ -286,7 +286,7 @@
 					"title": "Synced Weather",
 					"type": 5,
 					"enable": 1,
-					"mouse": "Outdoors in the same area as the host, you see the host's weather. Your save keeps its own",
+					"mouse": "Outdoors with the host, friends see the host's weather. Off for a friend: that friend keeps their own. Off for the host: everyone does",
 					"vars": [
 						{
 							"configINI": "Settings:bSyncWeather",

@@ -310,6 +310,15 @@ namespace coop
             m_hasMyWeather = true;
             m_myWeatherChanged = m_myWeatherChanged || changed;
         }
+        void StopMyWeather()
+        {
+            if (!m_hasMyWeather)
+                return;
+            m_hasMyWeather = m_myWeatherChanged = false;
+            net::WeatherState off;
+            off.flags = net::kWeatherHostOff;
+            SendToJoined(net::Encode(off), true);
+        }
         bool HostWeather(net::WeatherState& out) const
         {
             if (m_hasHostWeather)
