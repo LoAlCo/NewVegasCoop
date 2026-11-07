@@ -729,6 +729,7 @@ namespace net
         uint16_t year = 2281;
     };
     constexpr uint8_t kWeatherPopped = 1;
+    constexpr uint8_t kWeatherHostOff = 2; // the host stopped sharing its weather; weather is 0
     struct WeatherState
     {
         uint32_t weather = 0;

@@ -258,10 +258,24 @@ namespace game
         if (!sky || !Player() || InLoadingScreen())
             return;
         bool syncOn = settingOn && worldReady;
-        if (m_coop->GetRole() == coop::Role::Host && worldReady)
-            Host(ReadSky(sky));
-        else if (m_coop->GetRole() == coop::Role::Friend && (syncOn || g_following))
-            Friend(now, syncOn, ReadSky(sky));
+        if (m_coop->GetRole() == coop::Role::Host)
+        {
+            if (!settingOn)
+            {
+                m_coop->StopMyWeather();
+                m_changed.Reset();
+                m_why = "setting off, so not sending";
+            }
+            else if (worldReady)
+                Host(ReadSky(sky));
+        }
+        else if (m_coop->GetRole() == coop::Role::Friend)
+        {
+            if (syncOn || g_following)
+                Friend(now, syncOn, ReadSky(sky));
+            else
+                m_why = "setting off, or still loading";
+        }
     }
 
     void Weather::Forget()
