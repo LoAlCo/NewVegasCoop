@@ -374,6 +374,77 @@
 							"default": 0
 						}
 					]
+				},
+				"31": {
+					"title": "Pings",
+					"enable": 1,
+					"type": 0
+				},
+				"32": {
+					"title": "Pings",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Mark the spot you're aiming at for players near you",
+					"vars": [
+						{
+							"configINI": "Settings:bPings",
+							"default": 1
+						}
+					]
+				},
+				"33": {
+					"title": "Ping Key",
+					"type": 3,
+					"enable": 1,
+					"mouse": "The key that marks the spot you're aiming at",
+					"vars": [
+						{
+							"configINI": "Settings:iPingKey",
+							"default": 34
+						}
+					],
+					"keybind": {
+						"type": 0
+					}
+				},
+				"34": {
+					"title": "Ping Sound",
+					"type": 1,
+					"enable": 1,
+					"mouse": "The sound you hear when a ping appears",
+					"vars": [
+						{
+							"configINI": "Settings:iPingSound",
+							"default": 1
+						}
+					],
+					"strings": [
+						"Off",
+						"Map marker",
+						"Message",
+						"New quest",
+						"Radio signal",
+						"Menu OK"
+					]
+				},
+				"35": {
+					"title": "Ping Range",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How near a player must be for you to see their ping. 0 means no limit. Only changes what you see",
+					"vars": [
+						{
+							"configINI": "Settings:iPingRadius",
+							"default": 8000
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 500,
+						"valueMin": 0,
+						"valueMax": 20000,
+						"suffix": ""
+					}
 				}
 			}
 		},

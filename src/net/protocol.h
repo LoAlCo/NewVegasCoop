@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 70;
+    constexpr uint32_t kProtocolVersion = 71;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -90,6 +90,7 @@ namespace net
         PlayerModAnims = 69,
         Drag = 70,
         Mode = 71,
+        Ping = 77,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -686,6 +687,22 @@ namespace net
         std::string text;
         coop::VoiceStyle style;
     };
+    // Only spots for now. Another kind of target can use target for its ID without changing the format.
+    enum class PingKind : uint8_t
+    {
+        Spot,
+        Count
+    };
+    constexpr size_t kMaxPingName = 48;
+    struct Ping
+    {
+        uint8_t player = 0;
+        PingKind kind = PingKind::Spot;
+        uint32_t target = 0;
+        uint32_t space = 0;
+        float x = 0, y = 0, z = 0;
+        std::string name;
+    };
     constexpr size_t kMaxChatText = 160;
     constexpr size_t kMaxVoiceBytes = 2048;
     struct VoiceData
@@ -721,6 +738,8 @@ namespace net
     bool Decode(Reader& r, VoiceData& m);
     Bytes Encode(const ChatLine& m);
     bool Decode(Reader& r, ChatLine& m);
+    Bytes Encode(const Ping& m);
+    bool Decode(Reader& r, Ping& m);
     Bytes Encode(const PlayerCommand& m);
     bool Decode(Reader& r, PlayerCommand& m);
     struct RadioPick

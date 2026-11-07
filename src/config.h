@@ -50,6 +50,10 @@ struct Config
     int voiceChatKey = 48;
     int voiceChatMode = 0;
     int voiceChatVolume = 100;
+    bool pings = true;
+    int pingKey = 34;
+    int pingSound = 1;
+    int pingRadius = 8000;
     bool mouths = true;
     bool skipDlcPopups = true;
     bool labChannel = false;

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+- New: pings. Press G (change it, turn it off or pick the sound in the Mod Configuration Menu) to mark the spot you're
+  aiming at. Players near you see your name, how far and which way, for 15 seconds, at the edge of the screen if it's
+  out of view. If you aim at nothing, it says "Over here" where you stand.
+
 ## 0.1.10
 - Everyone needs 0.1.10 to play together.
 - New: a log of nearby conversations on the left of the screen (by LoAlCo). When a friend near you talks to someone,

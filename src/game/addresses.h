@@ -7,6 +7,12 @@
 namespace game::addr
 {
     constexpr uintptr_t kThePlayer = 0x011DEA3C;
+    constexpr uintptr_t kWorldSceneGraph = 0x011DEB7C;
+    constexpr uint32_t kSceneGraphCamera = 0xAC;
+    constexpr uintptr_t kTesPick = 0x00458440;
+    constexpr uintptr_t kAudioSingleton = 0x00453A70;
+    constexpr uintptr_t kSoundHandleByEditorId = 0x00AD7550;
+    constexpr uintptr_t kSoundHandlePlay = 0x00AD8830;
     constexpr uintptr_t kFormMap = 0x011C54C0;
     constexpr uintptr_t kFormHeapFree = 0x00401030;
     constexpr uintptr_t kFormHeapAllocate = 0x00401000;
