@@ -242,7 +242,13 @@ namespace game
     };
     void ShowTalkLog(const std::vector<coop::TalkLog::Shown>& lines, const TalkLogLook& look);
     // One panel for the party's event lines and, while chat is open, the chat history. Empty text hides it.
-    void ShowChatPanel(const std::string& text, int xPercent, int yPercent, float alpha);
+    struct ChatPanelLook
+    {
+        int xPercent = 98, yPercent = 45;
+        float width = 500, scale = 0.65f;
+        bool alignRight = true;
+    };
+    void ShowChatPanel(const std::string& text, const ChatPanelLook& look, float alpha);
     // Lines to move back through the history (negative is forward) since last asked
     int TakeChatScroll();
     void SetSpeedMult(TESObjectREFR* actor, int mult);

@@ -93,6 +93,10 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bChatHistory", chatHistory);
         Write(path, "iFeedX", feedX);
         Write(path, "iFeedY", feedY);
+        Write(path, "iFeedWidth", feedWidth);
+        Write(path, "iFeedAlign", feedAlign);
+        Write(path, "iFeedSize", feedSize);
+        Write(path, "bFeedPreview", feedPreview);
         Write(path, "iFeedSeconds", feedSeconds);
         Write(path, "bShowAddress", showAddress);
         WriteSwitches(path);
@@ -147,6 +151,10 @@ void Config::LoadPlayer(const std::string& path)
     chatHistory = flag("bChatHistory", chatHistory);
     feedX = number("iFeedX", feedX, 0, 100);
     feedY = number("iFeedY", feedY, 0, 100);
+    feedWidth = number("iFeedWidth", feedWidth, 200, 1200);
+    feedAlign = number("iFeedAlign", feedAlign, 0, 1);
+    feedSize = number("iFeedSize", feedSize, 40, 150);
+    feedPreview = flag("bFeedPreview", feedPreview);
     feedSeconds = number("iFeedSeconds", feedSeconds, 3, 60);
     showAddress = flag("bShowAddress", showAddress);
     coopBalanced = flag("bCoopBalanced", coopBalanced);

@@ -605,6 +605,11 @@
 			"enable": 1,
 			"options": {
 				"1": {
+					"title": "General",
+					"enable": 1,
+					"type": 0
+				},
+				"2": {
 					"title": "Show Chat History",
 					"type": 5,
 					"enable": 1,
@@ -616,7 +621,7 @@
 						}
 					]
 				},
-				"2": {
+				"3": {
 					"title": "Show Party Events",
 					"type": 5,
 					"enable": 1,
@@ -628,8 +633,20 @@
 						}
 					]
 				},
-				"3": {
-					"title": "Event Seconds",
+				"4": {
+					"title": "Preview",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Fills the panel with sample lines, as many as it can show, so you can try its position and look. Close the menu to see it, and turn this off when you're done",
+					"vars": [
+						{
+							"configINI": "Settings:bFeedPreview",
+							"default": 0
+						}
+					]
+				},
+				"5": {
+					"title": "Seconds",
 					"type": 2,
 					"enable": 1,
 					"mouse": "How long party event lines stay on screen",
@@ -647,11 +664,16 @@
 						"suffix": " s"
 					}
 				},
-				"4": {
-					"title": "Across the Screen",
+				"6": {
+					"title": "Position",
+					"enable": 1,
+					"type": 0
+				},
+				"7": {
+					"title": "Horizontal Position",
 					"type": 2,
 					"enable": 1,
-					"mouse": "Where the panel's right edge is, from the left of the screen",
+					"mouse": "How far across the screen the panel's aligned side goes, in percent. It stays on screen",
 					"vars": [
 						{
 							"configINI": "Settings:iFeedX",
@@ -666,15 +688,15 @@
 						"suffix": "%"
 					}
 				},
-				"5": {
-					"title": "Down the Screen",
+				"8": {
+					"title": "Vertical Position",
 					"type": 2,
 					"enable": 1,
-					"mouse": "Where the panel's top is, from the top of the screen",
+					"mouse": "How far down the screen the panel starts, in percent. It stays on screen",
 					"vars": [
 						{
 							"configINI": "Settings:iFeedY",
-							"default": 30
+							"default": 45
 						}
 					],
 					"scale": {
@@ -682,6 +704,64 @@
 						"valueIncrement": 1,
 						"valueMin": 0,
 						"valueMax": 100,
+						"suffix": "%"
+					}
+				},
+				"9": {
+					"title": "Width",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How wide the panel gets before a line moves down to the next one. Lower it to keep clear of other parts of the HUD",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedWidth",
+							"default": 500
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 10,
+						"valueMin": 200,
+						"valueMax": 1200
+					}
+				},
+				"10": {
+					"title": "Alignment",
+					"type": 1,
+					"enable": 1,
+					"mouse": "Which side of the panel the lines sit against. The horizontal position is where that side goes",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedAlign",
+							"default": 1
+						}
+					],
+					"strings": [
+						"Left",
+						"Right"
+					]
+				},
+				"11": {
+					"title": "Look",
+					"enable": 1,
+					"type": 0
+				},
+				"12": {
+					"title": "Text Size",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How big the lines are, in percent",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedSize",
+							"default": 65
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 5,
+						"valueMin": 40,
+						"valueMax": 150,
 						"suffix": "%"
 					}
 				}

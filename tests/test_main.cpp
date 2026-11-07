@@ -5251,12 +5251,47 @@ TEST(feed_names_cant_start_tags)
 
 TEST(chat_panel_stays_on_the_screen)
 {
-    coop::FeedCorner corner = coop::PlaceFeed(98, 30, 1000, 500, 200, 100);
-    CHECK(corner.right == 980 && corner.top == 150);
-    corner = coop::PlaceFeed(100, 100, 1000, 500, 200, 100);
-    CHECK(corner.right == 992 && corner.top == 392);
-    corner = coop::PlaceFeed(0, 0, 1000, 500, 200, 100);
-    CHECK(corner.right == 208 && corner.top == 8);
-    corner = coop::PlaceFeed(50, 50, 100, 50, 200, 100);
-    CHECK(corner.right == 92 && corner.top == 8);
+    coop::FeedCorner corner = coop::PlaceFeed(98, 30, 1000, 500, 200, 100, true);
+    CHECK(corner.left == 780 && corner.top == 150);
+    corner = coop::PlaceFeed(70, 30, 1000, 500, 200, 100, true);
+    CHECK(corner.left == 500);
+    corner = coop::PlaceFeed(70, 30, 1000, 500, 200, 100, false);
+    CHECK(corner.left == 700);
+    corner = coop::PlaceFeed(100, 100, 1000, 500, 200, 100, false);
+    CHECK(corner.left == 792 && corner.top == 392);
+    corner = coop::PlaceFeed(0, 0, 1000, 500, 200, 100, true);
+    CHECK(corner.left == 8 && corner.top == 8);
+    corner = coop::PlaceFeed(50, 50, 100, 50, 200, 100, true);
+    CHECK(corner.left == 8 && corner.top == 8);
+}
+
+TEST(chat_panel_fits_its_history_to_its_size_and_width)
+{
+    CHECK(coop::ChatPanelRows(65) == coop::ChatHistory::kRows);
+    CHECK(coop::ChatPanelCharsPerRow(500, 65) == coop::ChatHistory::kCharsPerRow);
+    CHECK(coop::ChatPanelRows(130) == 8);
+    CHECK(coop::ChatPanelCharsPerRow(250, 65) == 24);
+    CHECK(coop::ChatPanelCharsPerRow(500, 130) == 24);
+    CHECK(coop::ChatPanelRows(150) >= 4 && coop::ChatPanelRows(40) <= 24);
+    CHECK(coop::ChatPanelCharsPerRow(200, 150) >= 10);
+
+    coop::ChatHistory history;
+    for (int i = 0; i < 30; ++i)
+        history.Add(std::string(30, 'x'));
+    CHECK(history.View().lines.size() == coop::ChatHistory::kMostShown);
+    history.SetShape(coop::ChatPanelRows(130), coop::ChatPanelCharsPerRow(250, 65));
+    CHECK(history.View().lines.size() == 4);
+    history.Scroll(100000);
+    CHECK(history.View().older == 0 && history.View().lines.size() == 4);
+    history.SetShape(coop::ChatPanelRows(65), coop::ChatPanelCharsPerRow(500, 65));
+    CHECK(history.View().older == 0 && history.View().lines.size() == coop::ChatHistory::kMostShown);
+}
+
+TEST(chat_panel_preview_is_as_big_as_the_panel_gets)
+{
+    std::string preview = coop::ChatPanelPreview();
+    size_t lines = 1 + static_cast<size_t>(std::count(preview.begin(), preview.end(), '\n'));
+    CHECK(lines == coop::ChatHistory::kMostShown);
+    CHECK(coop::CleanFeedText(preview).find('\n') == std::string::npos);
+    CHECK(preview.find('<') == std::string::npos && preview.find('{') == std::string::npos);
 }
