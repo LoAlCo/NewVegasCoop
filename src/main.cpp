@@ -1285,10 +1285,11 @@ namespace
             LOG_INFO("Mode: %s (changed in the menu)", coop::Describe(g_ourMode).c_str());
         }
         LOG_INFO("Settings: changed in the menu (chat %d, key %d, speech %d at %d%%, voice %d/%d pitch %d speed %d "
-            "effect %d, voice chat %d key %d mode %d at %d%%, radio %d, desync notices %d)", g_config.chat,
+            "effect %d, voice chat %d key %d mode %d at %d%%, radio %d, desync notices %d, pings %d key %d sound %d radius %d)", g_config.chat,
             g_config.chatKey, g_config.chatSpeech, g_config.chatSpeechVolume, g_config.voice, g_config.voiceVariant,
             g_config.voicePitch, g_config.voiceSpeed, g_config.voiceEffect, g_config.voiceChat, g_config.voiceChatKey,
-            g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.desyncNotices);
+            g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.desyncNotices, g_config.pings,
+            g_config.pingKey, g_config.pingSound, g_config.pingRadius);
     }
 
     double QpcMs(const LARGE_INTEGER& from, const LARGE_INTEGER& to)
@@ -2361,6 +2362,7 @@ namespace
         UpdateQuickStart(now);
         g_partClock.Done(kPartModes);
         UpdateChat();
+        UpdatePings();
         g_partClock.Done(kPartChat);
         UpdateVoice();
         g_partClock.Done(kPartVoice);

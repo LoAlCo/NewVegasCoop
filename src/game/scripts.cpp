@@ -121,6 +121,8 @@ namespace game
         Script* g_controlPressed = nullptr;
         Script* g_menuMode = nullptr;
         Script* g_keyPressed = nullptr;
+        Script* g_spotOnScreen = nullptr;
+        Script* g_pingLabel[coop::kPingSlots] = {};
         Script* g_chatHud = nullptr;
         Script* g_chatShow = nullptr;
         Script* g_onScreen = nullptr;
@@ -724,6 +726,52 @@ namespace game
         }
         if (!g_onScreen)
             LOG_ERROR("Couldn't compile the on screen script (Johnny Guitar's WorldToScreen): no chat above heads");
+        for (const char* call : {"WorldToScreen fX fY fZ fPX fPY fPZ 0", "JGLegacyWorldToScreen \"fX\" \"fY\" \"fZ\" fPX fPY fPZ 0",
+                 "WorldToScreen \"fX\" \"fY\" \"fZ\" fPX fPY fPZ 0"})
+        {
+            if (g_spotOnScreen)
+                break;
+            g_spotOnScreen = g_scripts->CompileScript((std::string(
+                "float fX\n"
+                "float fY\n"
+                "float fZ\n"
+                "float fPX\n"
+                "float fPY\n"
+                "float fPZ\n"
+                "int iOn\n"
+                "array_var aOut\n"
+                "Begin Function {fPX, fPY, fPZ}\n"
+                "  set iOn to ") + call + "\n"
+                "  let aOut := ar_List iOn fX fY\n"
+                "  SetFunctionValue aOut\n"
+                "End\n").c_str());
+            if (g_spotOnScreen)
+            {
+                g_ourScripts.insert(g_spotOnScreen);
+                LOG_INFO("Pings: places a spot on screen with \"%s\"", call);
+            }
+        }
+        if (!g_spotOnScreen)
+            LOG_ERROR("Couldn't compile the spot on screen script (Johnny Guitar's WorldToScreen): no ping labels");
+        for (int slot = 0; slot < coop::kPingSlots; ++slot)
+        {
+            std::string path = "HUDMainMenu/NVCoopPing" + std::to_string(slot);
+            g_pingLabel[slot] = Compile("ping label",
+                "string_var sText\n"
+                "float fX\n"
+                "float fY\n"
+                "int iShow\n"
+                "Begin Function {sText, fX, fY, iShow}\n"
+                "  if iShow == 2\n"
+                "    SetUIStringEx \"" + path + "/string\" \"%z\" sText\n"
+                "  endif\n"
+                "  if iShow\n"
+                "    SetUIFloat \"" + path + "/user0\" fX\n"
+                "    SetUIFloat \"" + path + "/user1\" fY\n"
+                "  endif\n"
+                "  SetUIFloat \"" + path + "/visible\" iShow\n"
+                "End\n");
+        }
         for (int slot = 0; slot < kMarkSlots; ++slot)
         {
             std::string path = "HUDMainMenu/NVCoopMark" + std::to_string(slot);

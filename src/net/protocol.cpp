@@ -1674,6 +1674,32 @@ namespace net
         return m.style.Valid();
     }
 
+    Bytes Encode(const Ping& m)
+    {
+        Writer w(MsgType::Ping);
+        w.U8(m.player);
+        w.U8(static_cast<uint8_t>(m.kind));
+        w.U32(m.target);
+        w.U32(m.space);
+        w.F32(m.x);
+        w.F32(m.y);
+        w.F32(m.z);
+        w.String(m.name, kMaxPingName);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, Ping& m)
+    {
+        uint8_t kind = 0;
+        if (!(r.U8(m.player) && r.U8(kind) && r.U32(m.target) && r.U32(m.space) && r.F32(m.x) && r.F32(m.y) && r.F32(m.z) &&
+                r.String(m.name, kMaxPingName) && r.AtEnd()))
+            return false;
+        if (kind >= static_cast<uint8_t>(PingKind::Count) || m.space == 0 || m.name.empty())
+            return false;
+        m.kind = static_cast<PingKind>(kind);
+        return m.kind != PingKind::Spot || m.target == 0;
+    }
+
     Bytes Encode(const PlayerCommand& m)
     {
         Writer w(MsgType::PlayerCommand);

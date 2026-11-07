@@ -8,6 +8,7 @@
 #include "coop/mod_transfer.h"
 #include "coop/mods.h"
 #include "coop/party_perks.h"
+#include "coop/ping.h"
 #include "coop/chat.h"
 #include "coop/voice.h"
 #include "coop/desync.h"
@@ -102,6 +103,7 @@ namespace coop
         uint32_t itemMovesSince = 0, itemMoves = 0;
         net::DesyncReport desyncs;
         ChatLimiter chatLimit;
+        PingGate pingLimit{kPingRelayGapMs};
         VoiceLimiter voiceLimit;
         bool fighting = false;
         uint32_t playerHitsSince = 0, playerHits = 0;
@@ -156,6 +158,7 @@ namespace coop
         struct CompanionOrderFrom { uint8_t playerId; net::CompanionOrder order; };
         struct ChatHeard { uint8_t player = 0; std::string name, text; VoiceStyle style; };
         struct VoiceHeard { uint8_t player = 0; net::Bytes data; };
+        struct PingHeard { std::string who; net::Ping ping; };
         struct ItemChangeFrom { uint8_t playerId; net::ContainerChange change; };
         struct ItemTakeFrom { uint8_t playerId; net::ItemTake take; };
         struct ItemDropFrom { uint8_t playerId; net::ItemDrop drop; };
@@ -264,6 +267,7 @@ namespace coop
         uint32_t m_nextRadioResend = 0;
         std::map<uint32_t, uint32_t> m_radioStartedAt;
         std::vector<ChatHeard> m_chat;
+        std::vector<PingHeard> m_pings;
         std::vector<VoiceHeard> m_voice;
         std::vector<net::NpcPile> m_piles;
         std::vector<MineFrom> m_mines;
@@ -330,6 +334,7 @@ namespace coop
         using CompanionOrderFrom = SessionState::CompanionOrderFrom;
         using ChatHeard = SessionState::ChatHeard;
         using VoiceHeard = SessionState::VoiceHeard;
+        using PingHeard = SessionState::PingHeard;
         using ItemChangeFrom = SessionState::ItemChangeFrom;
         using ItemTakeFrom = SessionState::ItemTakeFrom;
         using ItemDropFrom = SessionState::ItemDropFrom;
@@ -387,6 +392,8 @@ namespace coop
         void ShareRadioLine(net::RadioLine line, uint32_t startedAt);
         void SendChat(const std::string& text, VoiceStyle style = {});
         std::vector<ChatHeard> TakeChat() { return std::move(m_chat); }
+        void SendPing(net::Ping ping);
+        std::vector<PingHeard> TakePings() { return std::move(m_pings); }
         void SendVoice(const net::Bytes& data);
         std::vector<VoiceHeard> TakeVoice() { return std::move(m_voice); }
         void SetMyLooks(const net::PlayerLooks& looks);

@@ -721,6 +721,22 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::Ping)
+        {
+            net::Ping m;
+            if (!player.joined || !Decode(r, m))
+                return;
+            m.name = CleanChat(m.name);
+            if (m.name.empty() || m_pings.size() >= 32)
+                return;
+            if (!player.pingLimit.Allow(GetTickCount()))
+                return LOG_DEBUG("Pings: %s pinged too soon; dropped", player.name.c_str());
+            m.player = player.id;
+            SendToJoined(Encode(m), true, peer);
+            m_pings.push_back({NameOf(player.id), std::move(m)});
+            return;
+        }
+
         if (type == MsgType::KilledByScript)
         {
             if (r.AtEnd() && !m_gameOverSent)
@@ -1405,6 +1421,16 @@ namespace coop
                     m_chat.push_back({m.player, NameOf(m.player), line, m.style});
             }
         }
+        else if (type == MsgType::Ping)
+        {
+            net::Ping m;
+            if (Decode(r, m) && m.player != m_myId && m_pings.size() < 32)
+            {
+                m.name = CleanChat(m.name);
+                if (!m.name.empty())
+                    m_pings.push_back({NameOf(m.player), std::move(m)});
+            }
+        }
         else if (type == MsgType::MineChange)
         {
             net::MineChange m;
@@ -1657,6 +1683,19 @@ namespace coop
         if (!style.Valid())
             style = VoiceStyle{};
         Bytes data = Encode(net::ChatLine{m_myId, line, style});
+        if (m_role == Role::Host)
+            SendToJoined(data, true);
+        else
+            m_net->Send(1, data, true);
+    }
+
+    void Coop::SendPing(net::Ping ping)
+    {
+        ping.name = CleanChat(ping.name);
+        if (!InGame() || ping.name.empty())
+            return;
+        ping.player = m_myId;
+        Bytes data = Encode(ping);
         if (m_role == Role::Host)
             SendToJoined(data, true);
         else

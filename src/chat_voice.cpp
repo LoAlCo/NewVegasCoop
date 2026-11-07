@@ -144,6 +144,73 @@
         game::ShowFriendMarkers(friends);
     }
 
+    void UpdatePings()
+    {
+        static bool s_keyWas = false;
+        static coop::PingGate s_gate(coop::kPingSendGapMs);
+        static coop::PingBoard s_board;
+        uint32_t now = GetTickCount();
+        bool on = g_config.pings && g_coop.InGame() && g_worldLoaded && !g_loadingSave;
+        if (!on)
+            s_board.Clear();
+        coop::Pose me;
+        bool placed = on && game::GetPose(game::Player(), me);
+        bool key = placed && !g_cutscene && !game::ChatTyping() && game::IsKeyPressed(g_config.pingKey);
+        if (key && !s_keyWas && s_gate.Allow(now))
+        {
+            game::CrosshairPick aim;
+            bool hit = game::CrosshairPoint(aim) && aim.hit;
+            net::Ping ping;
+            ping.space = me.space;
+            ping.x = hit ? aim.at[0] : me.x;
+            ping.y = hit ? aim.at[1] : me.y;
+            ping.z = hit ? aim.at[2] : me.z;
+            ping.name = hit ? "Marked spot" : "Over here";
+            float at[3] = {ping.x, ping.y, ping.z}, sx = 0, sy = 0;
+            bool inView = false;
+            game::SpotOnScreen(at, sx, sy, inView);
+            LOG_INFO("Pings: we mark %.0f %.0f %.0f in place %08X (%s, %.0f away on \"%s\"), %.3f %.3f on screen", ping.x, ping.y,
+                ping.z, ping.space, ping.name.c_str(), aim.distance, aim.what, sx, sy);
+            g_coop.SendPing(ping);
+            s_board.Add(g_coop.MyPlayerId(), "You", ping.name, ping.x, ping.y, ping.z, now);
+            game::PlayPingSound(g_config.pingSound);
+        }
+        s_keyWas = key;
+        const auto& remotes = g_coop.Remotes();
+        for (coop::Coop::PingHeard& h : g_coop.TakePings())
+        {
+            coop::Pose sender;
+            auto remote = remotes.find(h.ping.player);
+            bool known = remote != remotes.end() && remote->second.motion.Newest(sender);
+            bool inRange = placed && h.ping.space == me.space && coop::PingInRange(&me, known ? &sender : nullptr, g_config.pingRadius);
+            LOG_INFO("Pings: %s marks %.0f %.0f %.0f in place %08X (%s), %s", h.who.c_str(), h.ping.x, h.ping.y, h.ping.z,
+                h.ping.space, h.ping.name.c_str(), inRange ? "shown" : "out of range");
+            if (!inRange)
+                continue;
+            s_board.Add(h.ping.player, h.who, h.ping.name, h.ping.x, h.ping.y, h.ping.z, now);
+            game::PlayPingSound(g_config.pingSound);
+        }
+        s_board.Expire(now);
+        std::array<game::PingMark, coop::kPingSlots> marks;
+        for (int slot = 0; slot < coop::kPingSlots; ++slot)
+        {
+            const coop::ActivePing& p = s_board.Slots()[slot];
+            if (!p.used)
+                continue;
+            if (p.player != g_coop.MyPlayerId() && !remotes.count(p.player))
+            {
+                s_board.Remove(p.player);
+                continue;
+            }
+            marks[slot].active = true;
+            marks[slot].text = coop::PingLine(p.who, p.name, p.x - me.x, p.y - me.y);
+            marks[slot].at[0] = p.x;
+            marks[slot].at[1] = p.y;
+            marks[slot].at[2] = p.z;
+        }
+        game::ShowPings(marks);
+    }
+
     bool g_labTalking = false;
 
     void UpdateVoice()

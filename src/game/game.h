@@ -4,9 +4,11 @@
 
 #include "coop/given_rounds.h"
 #include "coop/smoothing.h"
+#include "coop/ping.h"
 #include "coop/talk_log.h"
 #include "net/protocol.h"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -350,6 +352,23 @@ namespace game
     bool HoldLevelUp(bool fighting);
     TESObjectREFR* OpenContainer();
     TESObjectREFR* CrosshairRef();
+    struct CrosshairPick
+    {
+        bool hit = false;
+        float at[3] = {};
+        float distance = 0;
+        char what[64] = {};
+    };
+    bool CrosshairPoint(CrosshairPick& out);
+    bool SpotOnScreen(const float (&at)[3], float& x, float& y, bool& inView);
+    struct PingMark
+    {
+        bool active = false;
+        std::string text;
+        float at[3] = {};
+    };
+    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks);
+    void PlayPingSound(int choice);
     struct Item { uint32_t id; int32_t count; uint8_t health = net::kNoCondition; uint8_t mods = 0; };
     constexpr size_t kMaxItemKinds = 500;
     bool Contents(TESObjectREFR* ref, std::vector<Item>& out);

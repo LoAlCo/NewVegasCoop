@@ -119,6 +119,7 @@ extern bool g_teleportAsked;
 extern std::vector<std::pair<uint8_t, bool>> g_teleportChoices;
 
 void UpdateChat();
+void UpdatePings();
 void UpdateVoice();
 extern bool g_labTalking;
 extern std::vector<std::string> g_labChat;
