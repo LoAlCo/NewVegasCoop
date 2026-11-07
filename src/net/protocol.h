@@ -98,6 +98,7 @@ namespace net
         CompanionHurt = 76,
         MineChange = 63,
         ModsMatch = 48,
+        WeatherState = 80,
     };
 
     using Bytes = std::vector<uint8_t>;
@@ -644,6 +645,15 @@ namespace net
         uint8_t month = 0;
         uint16_t year = 2281;
     };
+    constexpr uint8_t kWeatherPopped = 1;
+    struct WeatherState
+    {
+        uint32_t weather = 0;
+        uint32_t climate = 0;
+        uint32_t rootSpace = 0;
+        float percent = 1;
+        uint8_t flags = 0;
+    };
     Bytes Encode(const WaitAsk& m);
     bool Decode(Reader& r, WaitAsk& m);
     Bytes Encode(const WaitVote& m);
@@ -654,6 +664,8 @@ namespace net
     bool Decode(Reader& r, WaitResult& m);
     Bytes Encode(const GameTime& m);
     bool Decode(Reader& r, GameTime& m);
+    Bytes Encode(const WeatherState& m);
+    bool Decode(Reader& r, WeatherState& m);
     constexpr size_t kMaxSaveOrderName = 100;
     struct SaveOrder { bool load = false; std::string name; coop::SaveTag tag; };
     struct ModsMatch { std::string hostName; std::string save; coop::SaveTag tag; };

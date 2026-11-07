@@ -160,6 +160,7 @@ namespace coop
         m_frozen = false;
         m_loadRefused = false;
         m_hasGameTime = m_hostTimeNew = false;
+        m_hasMyWeather = m_myWeatherChanged = m_hasHostWeather = false;
         m_dialogueLines.clear();
         m_subtitles.clear();
     }
@@ -262,6 +263,12 @@ namespace coop
             {
                 m_lastGameTimeSent = now;
                 SendToJoined(Encode(m_myGameTime), true);
+            }
+            if (m_hasMyWeather && (m_myWeatherChanged || now - m_lastWeatherSent >= kGameTimeEveryMs))
+            {
+                m_lastWeatherSent = now;
+                m_myWeatherChanged = false;
+                SendToJoined(Encode(m_myWeather), true);
             }
         }
 
@@ -1252,6 +1259,15 @@ namespace coop
                 m_hostTimeNew = true;
             }
         }
+        else if (type == MsgType::WeatherState)
+        {
+            WeatherState m;
+            if (Decode(r, m))
+            {
+                m_hostWeather = m;
+                m_hasHostWeather = true;
+            }
+        }
         else if (type == MsgType::TalkState)
         {
             TalkState m;
@@ -2137,6 +2153,8 @@ namespace coop
             if (other.joined && otherPeer != peer)
                 m_net->Send(peer, Encode(PlayerJoined{other.id, other.name}));
         SendToJoined(Encode(PlayerJoined{player.id, player.name}), true, peer);
+        if (m_hasMyWeather)
+            m_net->Send(peer, Encode(m_myWeather));
         m_remotes[player.id].name = player.name;
         if (m_hasMyLooks)
         {
