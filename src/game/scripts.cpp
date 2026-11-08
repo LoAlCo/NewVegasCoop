@@ -122,6 +122,7 @@ namespace game
         Script* g_menuMode = nullptr;
         Script* g_keyPressed = nullptr;
         Script* g_spotOnScreen = nullptr;
+        Script* g_wouldAttack = nullptr;
         Script* g_pingLabel[coop::kPingSlots] = {};
         Script* g_chatHud = nullptr;
         Script* g_chatShow = nullptr;
@@ -753,6 +754,22 @@ namespace game
         }
         if (!g_spotOnScreen)
             LOG_ERROR("Couldn't compile the spot on screen script (Johnny Guitar's WorldToScreen): no ping labels");
+        for (const char* test : {"GetShouldAttack PlayerRef", "GetFactionRelation PlayerRef == 1"})
+        {
+            if (g_wouldAttack)
+                break;
+            g_wouldAttack = g_scripts->CompileScript((std::string(
+                "Begin Function {}\n"
+                "  SetFunctionValue ") + test + "\n"
+                "End\n").c_str());
+            if (g_wouldAttack)
+            {
+                g_ourScripts.insert(g_wouldAttack);
+                LOG_INFO("Pings: tells enemies by \"%s\"", test);
+            }
+        }
+        if (!g_wouldAttack)
+            LOG_WARN("Pings: couldn't compile a would-attack test; only characters fighting a player count as enemies");
         for (int slot = 0; slot < coop::kPingSlots; ++slot)
         {
             std::string path = "HUDMainMenu/NVCoopPing" + std::to_string(slot);
@@ -760,7 +777,8 @@ namespace game
             for (int kind = 0; kind < static_cast<int>(net::PingKind::Count); ++kind)
             {
                 std::string icon = "HUDMainMenu/NVCoopPingIcon" + std::to_string(slot) + "x" + std::to_string(kind);
-                static const int kOwnColours[][3] = {{255, 182, 66}, {217, 165, 255}, {108, 198, 255}};
+                static const int kOwnColours[][3] = {{255, 182, 66}, {217, 165, 255}, {108, 198, 255}, {255, 92, 76},
+                    {236, 232, 214}, {120, 230, 140}};
                 static_assert(std::size(kOwnColours) == static_cast<size_t>(net::PingKind::Count));
                 icons += "  if iShow == 2\n"
                     "    if iIcons == 2\n"

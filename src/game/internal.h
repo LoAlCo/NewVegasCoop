@@ -142,6 +142,7 @@ namespace game
     extern Script* g_menuMode;
     extern Script* g_keyPressed;
     extern Script* g_spotOnScreen;
+    extern Script* g_wouldAttack;
     extern Script* g_pingLabel[coop::kPingSlots];
     extern Script* g_chatHud;
     extern Script* g_chatShow;

@@ -486,6 +486,18 @@
 							"default": 1
 						}
 					]
+				},
+				"39": {
+					"title": "Ping Characters",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Pinging someone puts an icon over their head that follows them: a skull for enemies, a person for anyone else. Off: it's a plain marked spot",
+					"vars": [
+						{
+							"configINI": "Settings:bPingCharacters",
+							"default": 1
+						}
+					]
 				}
 			}
 		},

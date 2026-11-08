@@ -363,6 +363,7 @@ namespace game::layout
     constexpr uint32_t kIdleChildren = 0x40;
     constexpr uint32_t kNodeWorldRotate = 0x68;
     constexpr uint32_t kNodeWorldTranslate = 0x8C;
+    constexpr uint32_t kNodeWorldBound = 0x20;
     constexpr uint32_t kRefPersistent = 0x400;
     constexpr uint32_t kRefDeleted = 0x20;
     constexpr uint32_t kRefDisabled = 0x800;

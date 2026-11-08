@@ -2875,7 +2875,8 @@ namespace game
                     "<font>2</font><justify>&center;</justify><wrapwidth>500</wrapwidth>"
                     "<systemcolor>1</systemcolor><string> </string></text>";
                 g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
-                static const char* const kIconFiles[] = {"ping_spot", "ping_loot", "ping_tool"};
+                static const char* const kIconFiles[] = {"ping_spot", "ping_loot", "ping_tool", "ping_enemy", "ping_friend",
+                    "ping_friend"};
                 static_assert(std::size(kIconFiles) == static_cast<size_t>(net::PingKind::Count));
                 for (int kind = 0; kind < static_cast<int>(net::PingKind::Count); ++kind)
                 {
@@ -3814,6 +3815,59 @@ namespace game
         x = static_cast<float>(e[1].GetNumber());
         y = static_cast<float>(e[2].GetNumber());
         return true;
+    }
+
+    namespace
+    {
+        // The sphere the game keeps round everything a character's model draws, in world units.
+        bool BoundOf(TESObjectREFR* ref, float (&sphere)[4])
+        {
+            __try
+            {
+                const auto* node = ref ? reinterpret_cast<const uint8_t*>(ref->GetNiNode()) : nullptr;
+                const float* bound = node ? *reinterpret_cast<const float* const*>(node + layout::kNodeWorldBound) : nullptr;
+                if (!bound)
+                    return false;
+                std::copy_n(bound, 4, sphere);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+    }
+
+    // Just above a character's head, wherever their model is on this screen. Standing, the top of their bound is close to
+    // the top of their head; lying down it's a little above the body.
+    bool OverHead(TESObjectREFR* ref, float (&at)[3])
+    {
+        constexpr float kFallbackHeight = 130.0f, kAbove = 12.0f;
+        if (!ref || !ref->GetNiNode())
+            return false;
+        at[0] = ref->posX;
+        at[1] = ref->posY;
+        at[2] = ref->posZ + kFallbackHeight;
+        float sphere[4];
+        if (BoundOf(ref, sphere) && std::isfinite(sphere[0] + sphere[1] + sphere[2] + sphere[3]) && sphere[3] > 4 &&
+            sphere[3] < 1500 && std::fabs(sphere[0] - ref->posX) < 1500 && std::fabs(sphere[1] - ref->posY) < 1500 &&
+            std::fabs(sphere[2] - ref->posZ) < 1500)
+        {
+            at[0] = sphere[0];
+            at[1] = sphere[1];
+            at[2] = (std::max)(sphere[2] + sphere[3] * 0.85f, ref->posZ + 10.0f) + kAbove;
+        }
+        return true;
+    }
+
+    bool WouldAttackPlayer(TESObjectREFR* actor)
+    {
+        if (!actor || !IsActor(actor) || IsTeammate(actor))
+            return false;
+        uint32_t target = CombatTarget(actor);
+        if (target && Player() && target == Player()->refID)
+            return true;
+        return g_wouldAttack && Number(g_wouldAttack, actor) != 0;
     }
 
     void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks, coop::PingIcons icons)

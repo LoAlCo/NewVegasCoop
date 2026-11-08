@@ -59,6 +59,7 @@ namespace coop
         float x = 0, y = 0, z = 0;
         uint32_t until = 0;
         uint8_t kind = 0;
+        uint32_t target = 0;
     };
 
     // One ping per player. Each game runs the 15 seconds on its own clock.
@@ -66,7 +67,7 @@ namespace coop
     {
     public:
         void Add(uint8_t player, const std::string& who, const std::string& name, float x, float y, float z, uint32_t now,
-            uint8_t kind = 0)
+            uint8_t kind = 0, uint32_t target = 0)
         {
             ActivePing* slot = nullptr;
             for (ActivePing& p : m_slots)
@@ -82,7 +83,7 @@ namespace coop
                     if (static_cast<int32_t>(p.until - slot->until) < 0)
                         slot = &p;
             }
-            *slot = ActivePing{true, player, who, name, x, y, z, now + kPingLifeMs, kind};
+            *slot = ActivePing{true, player, who, name, x, y, z, now + kPingLifeMs, kind, target};
         }
         void Expire(uint32_t now)
         {
@@ -95,6 +96,14 @@ namespace coop
             for (ActivePing& p : m_slots)
                 if (p.used && p.player == player)
                     p = ActivePing{};
+        }
+        // Keeps a ping on a character as they move. It stays at the last place seen if they can't be found.
+        void Follow(int slot, float x, float y, float z)
+        {
+            ActivePing& p = m_slots[slot];
+            p.x = x;
+            p.y = y;
+            p.z = z;
         }
         void Clear() { m_slots.fill(ActivePing{}); }
         const std::array<ActivePing, kPingSlots>& Slots() const { return m_slots; }
@@ -139,13 +148,51 @@ namespace coop
         OwnColours
     };
 
-    // What a ping marks once the player's Recognise Objects choice is applied.
-    inline PingThing ChosenPingThing(PingThing seen, bool recognise)
+    // What a ping marks once the player's Recognise Objects and Ping Characters choices are applied.
+    inline PingThing ChosenPingThing(PingThing seen, bool objects, bool characters = true)
     {
-        return recognise || seen == PingThing::Nothing ? seen : PingThing::Scenery;
+        if (seen == PingThing::Nothing)
+            return seen;
+        if (seen == PingThing::Actor)
+            return characters ? seen : PingThing::Scenery;
+        return objects ? seen : PingThing::Scenery;
     }
 
-    // Actors stay plain spots until pings can follow them.
+    // A character under the sender's crosshair, as their game sees it.
+    struct PingCharacter
+    {
+        std::string name;
+        int player = -1;
+        uint32_t hostRef = 0;
+        bool dead = false;
+        bool hostile = false;
+    };
+
+    struct PingAim
+    {
+        net::PingKind kind = net::PingKind::Spot;
+        std::string name;
+        uint32_t target = 0;
+    };
+
+    // A ping on another player follows them by their ID; one on an NPC or body by the host's ref, which every screen
+    // can turn into its own copy. Without a host ref (a character only this game has) it marks where they stood.
+    inline PingAim ClassifyCharacterPing(const PingCharacter& c)
+    {
+        std::string name = c.name.substr(0, kMaxPingThingName);
+        if (c.player >= 0 && c.player < 256)
+            return {net::PingKind::Friend, name.empty() ? "Friend" : name, static_cast<uint32_t>(c.player)};
+        if (c.dead)
+        {
+            std::string body = name.empty() ? "Body" : name + " (dead)";
+            return {net::PingKind::Loot, body.substr(0, kMaxPingThingName), c.hostRef};
+        }
+        if (c.hostile)
+            return {net::PingKind::Enemy, name.empty() ? "Enemy" : name, c.hostRef};
+        return {net::PingKind::Person, name.empty() ? "Someone" : name, c.hostRef};
+    }
+
+    // Characters go through ClassifyCharacterPing; here they're only a spot.
     inline PingLook ClassifyPing(PingThing thing, const std::string& name)
     {
         std::string shown = name.substr(0, kMaxPingThingName);

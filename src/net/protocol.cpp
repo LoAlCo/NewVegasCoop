@@ -1697,6 +1697,8 @@ namespace net
         if (kind >= static_cast<uint8_t>(PingKind::Count) || m.space == 0 || m.name.empty())
             return false;
         m.kind = static_cast<PingKind>(kind);
+        if (m.kind == PingKind::Friend)
+            return m.target < 256;
         return m.kind != PingKind::Spot || m.target == 0;
     }
 

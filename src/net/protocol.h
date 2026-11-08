@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 79;
+    constexpr uint32_t kProtocolVersion = 80;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -814,12 +814,16 @@ namespace net
         std::string text;
         coop::VoiceStyle style;
     };
-    // Each kind has its own icon. None sends a target yet: a later kind can use it for an ID without changing the format.
+    // Each kind has its own icon. A ping on a character carries a target so each screen can follow it: the host's ref of
+    // an NPC or body, or a player's ID for Friend. Zero means a fixed spot.
     enum class PingKind : uint8_t
     {
         Spot,
         Loot,
         Utility,
+        Enemy,
+        Person,
+        Friend,
         Count
     };
     constexpr size_t kMaxPingName = 48;
