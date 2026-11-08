@@ -2,6 +2,8 @@
 
 #include "net/protocol.h"
 
+#include "coop/party_perks.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -318,17 +320,20 @@ namespace net
         Writer w(MsgType::Attack);
         w.U8(m.playerId);
         w.U8(m.release ? 0 : m.shots);
-        w.U8(m.release ? 1 : 0);
+        w.U8(m.release ? 1 : m.reload ? 2 : 0);
         return w.Take();
     }
 
     bool Decode(Reader& r, Attack& m)
     {
-        uint8_t release;
-        if (!r.U8(m.playerId) || !r.U8(m.shots) || !r.U8(release) || !r.AtEnd() || release > 1)
+        uint8_t flags;
+        if (!r.U8(m.playerId) || !r.U8(m.shots) || !r.U8(flags) || !r.AtEnd() || flags > 2)
             return false;
-        m.release = release == 1;
-        return m.release ? m.shots == 0 : m.shots >= 1 && m.shots <= kMaxShots;
+        m.release = flags == 1;
+        m.reload = flags == 2;
+        if (m.release)
+            return m.shots == 0;
+        return m.shots <= kMaxShots && (m.shots >= 1 || m.reload);
     }
 
     Bytes Encode(const Travel& m)
@@ -396,6 +401,7 @@ namespace net
             w.U32(n.idle);
             w.U32(n.weapon);
             w.U32(n.base);
+            w.U32(n.rolled);
             if (n.flags & kNpcDead)
             {
                 w.U16(n.limbs);
@@ -419,7 +425,7 @@ namespace net
                 !r.F32(n.health) || n.health < -kMaxHealth || n.health > kMaxHealth || !r.F32(n.maxHealth) ||
                 !(n.maxHealth > 0) || n.maxHealth > kMaxHealth || !r.U32(n.idle) || (n.idle >> 24) == 0xFF ||
                 !r.U32(n.weapon) || IsMadeWhilePlaying(n.weapon) || !r.U32(n.base) || IsMadeWhilePlaying(n.base) ||
-                (IsMadeWhilePlaying(n.ref) && n.base == 0))
+                (IsMadeWhilePlaying(n.ref) && n.base == 0) || !r.U32(n.rolled) || IsMadeWhilePlaying(n.rolled))
                 return false;
             if ((n.flags & kNpcDead) && (!r.U16(n.limbs) || n.limbs >= 0x8000 || !r.U8(n.pile) || n.pile > kPileLast))
                 return false;
@@ -886,6 +892,128 @@ namespace net
         return r.AtEnd();
     }
 
+    Bytes Encode(const std::vector<ObjectState>& m)
+    {
+        Writer w(MsgType::ObjectStates);
+        size_t count = m.size() < kMaxObjectsPerMessage ? m.size() : kMaxObjectsPerMessage;
+        w.U8(static_cast<uint8_t>(count));
+        for (size_t i = 0; i < count; ++i)
+        {
+            w.U32(m[i].ref);
+            w.U8(static_cast<uint8_t>((m[i].destroyed ? 1 : 0) | (m[i].init ? 2 : 0)));
+            w.U16(m[i].group);
+            w.U8(m[i].plays);
+            w.F32(m[i].health);
+        }
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, std::vector<ObjectState>& m)
+    {
+        uint8_t count;
+        if (!r.U8(count) || count == 0 || count > kMaxObjectsPerMessage)
+            return false;
+        m.resize(count);
+        for (ObjectState& o : m)
+        {
+            uint8_t flags;
+            if (!r.U32(o.ref) || !IsSharedRef(o.ref) || IsMadeWhilePlaying(o.ref) || !r.U8(flags) || flags > 3 ||
+                !r.U16(o.group) || (o.group != kNoAnimGroup && o.group >= kAnimGroupCount) || !r.U8(o.plays) ||
+                !r.F32(o.health) || !(o.health == kNoHealth || (o.health >= 0 && o.health <= kMaxObjectHealth)))
+                return false;
+            o.destroyed = (flags & 1) != 0;
+            o.init = (flags & 2) != 0;
+        }
+        return r.AtEnd();
+    }
+
+    Bytes Encode(const std::vector<ObjectLow>& m)
+    {
+        Writer w(MsgType::ObjectLows);
+        size_t count = m.size() < kMaxObjectLowsPerMessage ? m.size() : kMaxObjectLowsPerMessage;
+        w.U8(static_cast<uint8_t>(count));
+        for (size_t i = 0; i < count; ++i)
+        {
+            w.U32(m[i].ref);
+            w.F32(m[i].health);
+        }
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, std::vector<ObjectLow>& m)
+    {
+        uint8_t count;
+        if (!r.U8(count) || count == 0 || count > kMaxObjectLowsPerMessage)
+            return false;
+        m.resize(count);
+        for (ObjectLow& l : m)
+            if (!r.U32(l.ref) || !IsSharedRef(l.ref) || IsMadeWhilePlaying(l.ref) || !r.F32(l.health) ||
+                !(l.health >= 0 && l.health <= kMaxObjectHealth))
+                return false;
+        return r.AtEnd();
+    }
+
+    Bytes Encode(const TerminalUse& m)
+    {
+        Writer w(MsgType::TerminalUse);
+        w.U8(m.player);
+        w.U32(m.ref);
+        w.U32(m.terminal);
+        w.U8(m.entry);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, TerminalUse& m)
+    {
+        return r.U8(m.player) && m.player <= kMaxPlayerId && r.U32(m.ref) && IsSharedRef(m.ref) &&
+            !IsMadeWhilePlaying(m.ref) && r.U32(m.terminal) && m.terminal != 0 && !IsMadeWhilePlaying(m.terminal) &&
+            r.U8(m.entry) && m.entry < kMaxTerminalEntries && r.AtEnd();
+    }
+
+    Bytes Encode(const ActivatorUse& m)
+    {
+        Writer w(MsgType::ActivatorUse);
+        w.U8(m.player);
+        w.U32(m.ref);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, ActivatorUse& m)
+    {
+        return r.U8(m.player) && m.player <= kMaxPlayerId && r.U32(m.ref) && IsSharedRef(m.ref) &&
+            !IsMadeWhilePlaying(m.ref) && r.AtEnd();
+    }
+
+    Bytes Encode(const QuestCommand& m)
+    {
+        Writer w(MsgType::QuestCommand);
+        w.U8(static_cast<uint8_t>(m.kind));
+        w.U32(m.quest);
+        w.U32(m.number);
+        w.U8(m.on);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, QuestCommand& m)
+    {
+        uint8_t kind;
+        if (!r.U8(kind) || kind > static_cast<uint8_t>(QuestCommandKind::CompleteQuest) || !r.U32(m.quest) ||
+            m.quest == 0 || IsMadeWhilePlaying(m.quest) || !r.U32(m.number) || !r.U8(m.on) || m.on > 1 || !r.AtEnd())
+            return false;
+        m.kind = static_cast<QuestCommandKind>(kind);
+        switch (m.kind)
+        {
+        case QuestCommandKind::SetStage:
+            return m.number <= 255 && m.on == 0;
+        case QuestCommandKind::ShowObjective:
+        case QuestCommandKind::CompleteObjective:
+            return m.number <= kMaxObjectiveIndex;
+        case QuestCommandKind::CompleteQuest:
+            return m.number == 0 && m.on == 0;
+        }
+        return false;
+    }
+
     Bytes Encode(const Progress& m)
     {
         Writer w(MsgType::Progress);
@@ -988,6 +1116,19 @@ namespace net
             r.AtEnd();
     }
 
+    Bytes Encode(const PartyPerks& m)
+    {
+        Writer w(MsgType::PartyPerks);
+        w.U8(m.player);
+        w.U8(m.perks);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, PartyPerks& m)
+    {
+        return r.U8(m.player) && r.U8(m.perks) && (m.perks & ~coop::kPartyPerksAll) == 0 && r.AtEnd();
+    }
+
     Bytes Encode(const Teleport& m)
     {
         Writer w(MsgType::Teleport);
@@ -1017,6 +1158,41 @@ namespace net
             return false;
         m.on = on != 0;
         return true;
+    }
+
+    Bytes Encode(const HealAlly& m)
+    {
+        Writer w(MsgType::HealAlly);
+        w.U8(m.giver);
+        w.U8(m.target);
+        w.U32(m.item);
+        w.U8(m.medicine);
+        w.U8(m.fastMetabolism ? 1 : 0);
+        w.U16(m.seq);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, HealAlly& m)
+    {
+        uint8_t fast = 0;
+        if (!r.U8(m.giver) || !r.U8(m.target) || !r.U32(m.item) || !r.U8(m.medicine) || !r.U8(fast) || !r.U16(m.seq) ||
+            !r.AtEnd() || m.giver == m.target || m.medicine > kMaxSkill || fast > 1)
+            return false;
+        m.fastMetabolism = fast != 0;
+        return true;
+    }
+
+    Bytes Encode(const HealRefused& m)
+    {
+        Writer w(MsgType::HealRefused);
+        w.U16(m.seq);
+        w.U32(m.item);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, HealRefused& m)
+    {
+        return r.U16(m.seq) && r.U32(m.item) && r.AtEnd();
     }
 
     Bytes Encode(const ModeChange& m)
@@ -1526,7 +1702,9 @@ namespace net
                 return false;
         }
         m.kind = static_cast<PlayerCommandKind>(kind);
-        return r.U8(m.flags) && r.AtEnd();
+        if (!r.U8(m.flags) || !r.AtEnd())
+            return false;
+        return (m.flags & ~PlayerCommandFlagsAllowed(m.kind)) == 0;
     }
 
     Bytes Encode(const DesyncReport& m)

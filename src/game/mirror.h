@@ -18,7 +18,7 @@ namespace game
         void Stop();
         uint32_t Copier() const { return m_refId; }
         void Update(uint32_t now);
-        void Attack(uint8_t shots, bool release = false);
+        void Attack(uint8_t shots, bool release = false, bool reload = false);
 
     private:
         uint32_t m_refId = 0;

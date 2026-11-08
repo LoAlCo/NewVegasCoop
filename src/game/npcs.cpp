@@ -2,7 +2,11 @@
 
 #include "game/npcs.h"
 
+#include "coop/copy_kill.h"
+#include "coop/levelled_roll.h"
+
 #include "coop/clock.h"
+#include "game/addresses.h"
 #include "game/game.h"
 #include "game/standins.h"
 #include "log.h"
@@ -31,12 +35,14 @@ namespace game
         constexpr uint32_t kWeaponCheckEveryMs = 2000;
         constexpr uint32_t kMaxWeaponGifts = 2;
         constexpr uint32_t kMaxGiftsPerCopy = 10;
+        constexpr size_t kMaxTakeBacks = 64;
         constexpr uint32_t kSitCheckEveryMs = 250;
         constexpr uint32_t kStandAfterMs = 1000;
         constexpr uint32_t kSwitchOnAfterMs = 3000;
         constexpr uint32_t kSwitchOnHeardMs = 1000;
         constexpr uint32_t kSwitchOnEveryMs = 3000;
         constexpr uint32_t kMaxSwitchOns = 5;
+        constexpr uint32_t kHoldLookEveryMs = 250;
 
         double MsSince(const LARGE_INTEGER& start)
         {
@@ -47,6 +53,13 @@ namespace game
         }
 
         float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+        uint32_t RolledAs(TESObjectREFR* actor)
+        {
+            BaseInfo b = DescribeBase(actor);
+            bool actorBase = b.leveledActorType == layout::kFormTypeNpc || b.leveledActorType == layout::kFormTypeCreature;
+            return actorBase && !net::IsMadeWhilePlaying(b.leveledActor) ? b.leveledActor : 0;
+        }
     }
 
     void Npcs::Share(coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
@@ -160,6 +173,7 @@ namespace game
             if ((n.weapon >> 24) == 0xFF)
                 n.weapon = 0;
             n.base = base;
+            n.rolled = RolledAs(actor);
             if (dead)
             {
                 if (coop::IsDue(now, w.nextLimbCheck))
@@ -296,21 +310,126 @@ namespace game
         LARGE_INTEGER start;
         QueryPerformanceCounter(&start);
         UpdateCopies(coop, now, myPose, standIns);
+        HoldUnshared(coop, now, myPose, standIns);
         m_updateMs += MsSince(start);
         ++m_updates;
         LogStats(now, coop.Npcs().size());
     }
 
+    void Npcs::HoldUnshared(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
+    {
+        if (coop.GetRole() != coop::Role::Friend || !coop.InGame())
+        {
+            if (m_holds.Count())
+                ReleaseHolds();
+            return;
+        }
+        if (coop::IsDue(now, m_nextHoldLook))
+        {
+            m_nextHoldLook = now + kHoldLookEveryMs;
+            NearbyActors(m_nearby);
+            std::vector<coop::LocalActor> nearby;
+            nearby.reserve(m_nearby.size());
+            for (TESObjectREFR* actor : m_nearby)
+            {
+                coop::LocalActor a;
+                a.ref = RefId(actor);
+                a.playerOrStandIn = actor == Player() || standIns.IsStandIn(actor);
+                a.ourCopy = m_entries.count(a.ref) || (net::IsMadeWhilePlaying(a.ref) && HostRefOf(a.ref) != 0);
+                a.sharedByHost = coop.Npcs().count(a.ref) != 0;
+                a.enabled = IsEnabled(actor);
+                a.alive = !IsDead(actor);
+                a.loaded = Is3DLoaded(actor);
+                coop::Pose at;
+                a.samePlace = GetPose(actor, at) && at.space == myPose.space;
+                nearby.push_back(a);
+            }
+            coop::Holds::Changes changes = m_holds.Look(nearby, coop.Npcs().size() >= coop::kMaxNpcs);
+            for (const coop::Holds::Released& r : changes.release)
+                LetGoOfHold(r, coop.Npcs().count(r.ref) || m_entries.count(r.ref));
+            for (uint32_t ref : changes.start)
+            {
+                TESObjectREFR* actor = LookupRef(ref);
+                coop::Pose spot;
+                if (!actor || !GetPose(actor, spot))
+                    continue;
+                spot.flags = 0;
+                spot.moves = 0;
+                Held& h = m_heldActors[ref];
+                h.spot = spot;
+                char who[96];
+                snprintf(who, sizeof(who), "%s (%08X, held)", Name(actor), ref);
+                h.puppet.Start(who, kPuppetStatsEveryMs);
+                SetCombatOff(actor, true);
+                m_holds.NoteGhost(ref, IsGhost(actor));
+                SetGhost(actor, true);
+                ++m_holdsStarted;
+                LOG_INFO("NPCs: %s (%08X) is near us but the host's game doesn't share it (not running it there); "
+                    "held still", Name(actor), ref);
+            }
+        }
+        for (auto& [ref, h] : m_heldActors)
+        {
+            TESObjectREFR* actor = LookupRef(ref);
+            coop::Pose at;
+            if (coop.Npcs().count(ref) || m_entries.count(ref))
+                continue;
+            if (actor && IsActor(actor) && Is3DLoaded(actor) && GetPose(actor, at) && at.space == h.spot.space)
+                h.puppet.Update(actor, h.spot, now);
+        }
+    }
+
+    void Npcs::LetGoOfHold(const coop::Holds::Released& held, bool nowOurCopy)
+    {
+        uint32_t ref = held.ref;
+        auto it = m_heldActors.find(ref);
+        if (it == m_heldActors.end())
+            return;
+        TESObjectREFR* actor = LookupRef(ref);
+        if (actor && !IsActor(actor))
+            actor = nullptr;
+        if (actor)
+            SetGhost(actor, held.wasGhost);
+        if (nowOurCopy)
+            LOG_INFO("NPCs: %08X, held, is shared by the host now", ref);
+        else if (actor)
+        {
+            it->second.puppet.Release(actor);
+            SetCombatOff(actor, false);
+            LOG_DEBUG("NPCs: %08X, held, is let go (gone from near us)", ref);
+        }
+        m_heldActors.erase(it);
+    }
+
+    void Npcs::ReleaseHolds()
+    {
+        for (const coop::Holds::Released& held : m_holds.ReleaseAll())
+            LetGoOfHold(held, false);
+        m_heldActors.clear();
+    }
+
     void Npcs::UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
     {
         const auto& shared = coop.Npcs();
+        TakeBackWhenClosed();
 
         for (auto it = m_made.begin(); it != m_made.end();)
         {
             uint32_t ref = it->first;
             ++it;
-            if (!shared.count(ref))
+            if (!shared.count(ref) && !(Find(ref) && Find(ref) == OpenContainer()))
                 Unmake(ref);
+        }
+        for (auto it = m_rerolled.begin(); it != m_rerolled.end();)
+        {
+            if (shared.count(*it) || m_made.count(*it))
+            {
+                ++it;
+                continue;
+            }
+            if (TESObjectREFR* own = LookupRef(*it))
+                SetEnabled(own, true);
+            it = m_rerolled.erase(it);
         }
         auto stillHere = [&](uint32_t ref) {
             TESObjectREFR* a = Find(ref);
@@ -321,8 +440,11 @@ namespace game
         {
             uint32_t ref = it->first;
             ++it;
-            if (!shared.count(ref) && !stillHere(ref))
+            if (!shared.count(ref))
+            {
                 Release(ref);
+                m_nextHoldLook = 0;
+            }
         }
         for (auto it = m_killed.begin(); it != m_killed.end();)
             it = shared.count(it->first) ? std::next(it) : m_killed.erase(it);
@@ -338,10 +460,25 @@ namespace game
             float reach = m_entries.count(ref) || m_made.count(ref) ? showDistance + kShowMargin : showDistance;
             bool here = npc.motion.Sample(now, pose) && pose.space == myPose.space &&
                 std::hypot(pose.x - myPose.x, pose.y - myPose.y) <= reach;
-            bool made = net::IsMadeWhilePlaying(ref);
+            bool made = OursIsMade(ref);
             TESObjectREFR* actor = here ? Find(ref) : nullptr;
             if (actor && (!IsActor(actor) || actor == Player() || standIns.IsStandIn(actor)))
                 actor = nullptr;
+            if (actor && !made && coop::CompareRolls(npc.rolled, RolledAs(actor)) == coop::RollMatch::Different)
+            {
+                LOG_INFO("NPCs: %s (%08X) is %08X here but %08X in the host's game (each game rolls its own); "
+                    "switched ours off, making a copy of the host's", Name(actor), ref, RolledAs(actor), npc.rolled);
+                Release(ref);
+                SetEnabled(actor, false);
+                m_rerolled.insert(ref);
+                m_killed.erase(ref);
+                m_nextRevive.erase(ref);
+                m_switchedOff.erase(ref);
+                m_localDeaths.erase(ref);
+                m_piled.erase(ref);
+                made = true;
+                actor = nullptr;
+            }
             if (made && !here)
             {
                 if (m_made.count(ref))
@@ -397,19 +534,41 @@ namespace game
 
             if (npc.dead)
             {
-                auto killed = m_killed.find(ref);
-                if (!IsDead(actor) && (killed == m_killed.end() || now - killed->second.at > 3000))
+                coop::CopyKill& kill = m_killed[ref];
+                int lifeBefore = LifeState(actor);
+                bool aiRunning = AiThreadsRunning();
+                static bool s_saidFlag = false;
+                if (!s_saidFlag)
                 {
-                    Kill(actor, npc.limbs);
-                    m_killed[ref] = {now, npc.limbs};
-                    ++m_kills;
-                    LOG_DEBUG("NPCs: %s (%08X) died on the host; killed our copy (limbs gone %04X)", Name(actor), ref,
-                        npc.limbs);
+                    s_saidFlag = true;
+                    LOG_INFO("Frame: the AI threads' flag read %d in our frame code (thread %lu)", aiRunning,
+                        GetCurrentThreadId());
                 }
-                else if (killed != m_killed.end() && (npc.limbs & ~killed->second.limbs))
+                switch (aiRunning ? coop::CopyKill::Do::Nothing : kill.Step(now, IsDead(actor)))
                 {
-                    Kill(actor, npc.limbs & ~killed->second.limbs);
-                    killed->second.limbs |= npc.limbs;
+                case coop::CopyKill::Do::Unprotect:
+                    Unprotect(actor);
+                    if (kill.Tries() > 1)
+                        LOG_INFO("NPCs: our copy of %s (%08X) didn't stay dead (life state %d); killing it again (try %d "
+                            "of %d)", Name(actor), ref, lifeBefore, kill.Tries(), coop::CopyKill::kMaxTries);
+                    break;
+                case coop::CopyKill::Do::Kill:
+                    KillPlain(actor);
+                    ++m_kills;
+                    LOG_DEBUG("NPCs: %s (%08X) died on the host; killed our copy (life state %d -> %d; limbs gone there "
+                        "%04X, not cut here)", Name(actor), ref, lifeBefore, LifeState(actor), npc.limbs);
+                    break;
+                case coop::CopyKill::Do::GiveUp:
+                    LOG_WARN("NPCs: our copy of %s (%08X) doesn't stay dead here (life state %d after %d kills); left "
+                        "alone", Name(actor), ref, lifeBefore, coop::CopyKill::kMaxTries);
+                    break;
+                default:
+                    if (aiRunning && !m_saidAiRunning)
+                    {
+                        m_saidAiRunning = true;
+                        LOG_WARN("NPCs: the game's AI threads were running when we came to kill %08X; waiting", ref);
+                    }
+                    break;
                 }
                 if (it != m_entries.end())
                     Release(ref);
@@ -430,7 +589,7 @@ namespace game
                 auto due = m_nextRevive.find(ref);
                 if (due == m_nextRevive.end())
                     m_nextRevive[ref] = now + kReviveAfterMs;
-                else if (coop::IsDue(now, due->second))
+                else if (coop::IsDue(now, due->second) && actor != OpenContainer())
                 {
                     LOG_INFO("NPCs: %s (%08X) is dead here but alive on the host (health %.0f / %.0f there); bringing "
                         "it back", Name(actor), ref, npc.health, npc.maxHealth);
@@ -591,7 +750,7 @@ namespace game
                 e.nextWeaponCheck = now + kWeaponCheckEveryMs;
                 if (npc.weapon && e.weaponGifts < kMaxWeaponGifts && e.allGifts < kMaxGiftsPerCopy &&
                     (s_labSteps & 4) && !(HeldWeaponId(actor) == npc.weapon && HoldsHarmless(actor)) &&
-                    AddAndEquip(actor, npc.weapon))
+                    AddAndEquip(actor, npc.weapon, &e.rounds))
                 {
                     ++e.weaponGifts;
                     if (++e.allGifts == kMaxGiftsPerCopy)
@@ -619,7 +778,7 @@ namespace game
     void Npcs::Attack(uint32_t ref, uint8_t shots, bool reload, bool release)
     {
         TESObjectREFR* actor = m_entries.count(ref) ? Find(ref) : nullptr;
-        if (net::IsMadeWhilePlaying(ref))
+        if (OursIsMade(ref))
         {
             auto m = m_made.find(ref);
             if (m == m_made.end() || !m->second.loadedAt || GetTickCount() - m->second.loadedAt < kSettleMs)
@@ -673,16 +832,28 @@ namespace game
             SetCombatOff(actor, false);
             if (it->second.ownMaxHealth > 0)
                 SetMaxHealth(actor, it->second.ownMaxHealth);
-            if (it->second.gaveWeapon)
-                RemoveItem(actor, it->second.gaveWeapon);
+            TakeBack gifts{RefId(actor), it->second.gaveWeapon, std::move(it->second.rounds)};
+            if (gifts.weapon || !gifts.rounds.Empty())
+            {
+                if (actor != OpenContainer())
+                    TakeBackGifts(actor, gifts);
+                else if (m_takeBacks.size() < kMaxTakeBacks)
+                {
+                    m_takeBacks.push_back(std::move(gifts));
+                    LOG_DEBUG("NPCs: %08X's body is open on our screen: what we gave it is taken back once it closes",
+                        ref);
+                }
+            }
         }
         LOG_DEBUG("NPCs: %08X is back to its own AI", ref);
         m_entries.erase(it);
     }
 
+    bool Npcs::OursIsMade(uint32_t ref) const { return net::IsMadeWhilePlaying(ref) || m_rerolled.count(ref); }
+
     TESObjectREFR* Npcs::Find(uint32_t ref) const
     {
-        if (!net::IsMadeWhilePlaying(ref))
+        if (!OursIsMade(ref))
             return LookupRef(ref);
         auto it = m_made.find(ref);
         return it == m_made.end() ? nullptr : LookupRef(it->second.localId);
@@ -699,11 +870,12 @@ namespace game
         if (m_made.size() >= coop::kMaxNpcs || !coop::IsDue(now, m_nextMakeAt))
             return nullptr;
         m_nextMakeAt = now + kMakeEveryMs;
-        TESObjectREFR* actor = PlaceActor(npc.base);
+        uint32_t from = coop::MakeCopyFrom(npc.base, npc.rolled);
+        TESObjectREFR* actor = PlaceActor(from);
         if (!actor)
         {
             LOG_WARN("NPCs: couldn't make a copy of the host's %08X from %08X (not an NPC or creature here: mods "
-                "differ?)", ref, npc.base);
+                "differ?)", ref, from);
             m_nextMakeAt = now + 5000;
             return nullptr;
         }
@@ -713,8 +885,42 @@ namespace game
         m_made[ref] = m;
         ++m_madeCount;
         LOG_DEBUG("NPCs: made %08X %s, our copy of the host's %08X (from %08X)", RefId(actor), Name(actor), ref,
-            npc.base);
+            from);
         return actor;
+    }
+
+    void Npcs::TakeBackGifts(TESObjectREFR* actor, TakeBack& gifts)
+    {
+        if (gifts.weapon)
+            RemoveItem(actor, gifts.weapon);
+        int32_t rounds = 0;
+        for (const auto& [ammo, count] : gifts.rounds.TakeBack(
+                 [&](uint32_t id) { TESForm* f = LookupForm(id); return f ? ItemCount(actor, f) : 0; }))
+        {
+            ChangeItem(actor, ammo, -count);
+            rounds += count;
+        }
+        if (rounds)
+            LOG_DEBUG("NPCs: took back the %d rounds we gave %08X", rounds, RefId(actor));
+    }
+
+    void Npcs::TakeBackWhenClosed()
+    {
+        if (m_takeBacks.empty())
+            return;
+        TESObjectREFR* open = OpenContainer();
+        for (auto it = m_takeBacks.begin(); it != m_takeBacks.end();)
+        {
+            TESObjectREFR* actor = LookupRef(it->ourRef);
+            if (actor && actor == open)
+            {
+                ++it;
+                continue;
+            }
+            if (actor && IsActor(actor))
+                TakeBackGifts(actor, *it);
+            it = m_takeBacks.erase(it);
+        }
     }
 
     void Npcs::Unmake(uint32_t ref)
@@ -752,10 +958,15 @@ namespace game
 
     void Npcs::ReleaseAll()
     {
+        ReleaseHolds();
         while (!m_made.empty())
             Unmake(m_made.begin()->first);
         while (!m_entries.empty())
             Release(m_entries.begin()->first);
+        for (uint32_t ref : m_rerolled)
+            if (TESObjectREFR* own = LookupRef(ref))
+                SetEnabled(own, true);
+        m_rerolled.clear();
         m_killed.clear();
         m_nextRevive.clear();
         m_switchedOff.clear();
@@ -763,8 +974,11 @@ namespace game
 
     void Npcs::Forget()
     {
+        m_holds.ReleaseAll();
+        m_heldActors.clear();
         m_entries.clear();
         m_made.clear();
+        m_rerolled.clear();
         m_killed.clear();
         m_nextRevive.clear();
         m_switchedOff.clear();
@@ -793,8 +1007,13 @@ namespace game
                 m_reloadsShown, m_kills, m_healthSets, m_idles, m_weapons, m_stoodUp, m_deadHere,
                 m_updates ? m_updateMs / m_updates : 0.0);
         if (!first && (m_madeCount || m_unmadeCount || !m_made.empty()))
-            LOG_INFO("NPCs: %zu copies we made of ones the host's game made while playing; made %u, deleted %u, "
-                "dressed %u times (in 30 s)", m_made.size(), m_madeCount, m_unmadeCount, m_dressed);
+            LOG_INFO("NPCs: %zu copies we made of ones the host's game made while playing or rolled differently "
+                "(%zu of ours switched off for that); made %u, deleted %u, dressed %u times (in 30 s)", m_made.size(),
+                m_rerolled.size(), m_madeCount, m_unmadeCount, m_dressed);
+        if (!first && (m_holdsStarted || !m_heldActors.empty()))
+            LOG_INFO("NPCs: holding %zu still that the host's game doesn't share (%u newly held in 30 s)",
+                m_heldActors.size(), m_holdsStarted);
+        m_holdsStarted = 0;
         m_madeCount = m_unmadeCount = m_dressed = 0;
         m_shareMs = m_updateMs = 0;
         m_shares = m_updates = m_brought = m_reloads = 0;

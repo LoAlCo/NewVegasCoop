@@ -19,6 +19,7 @@ namespace coop
         uint32_t Viewing() const { return m_ref; }
         std::vector<net::ItemCount> Look(const std::vector<net::ItemCount>& local,
             std::vector<net::ContainerChange>& changes);
+        void Closing(const std::vector<net::ItemCount>& local, std::vector<net::ContainerChange>& changes);
         void Settle(const std::vector<net::ItemCount>& local) { m_snapshot = local; }
         void Heard(const net::ContainerContents& m);
         void Reset() { *this = FriendContainer(); }

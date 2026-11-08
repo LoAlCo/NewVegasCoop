@@ -1,6 +1,10 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
 #include "coop/coop.h"
+#include "coop/objects.h"
+#include "coop/activator_uses.h"
+#include "coop/copy_kill.h"
+#include "coop/levelled_roll.h"
 #include "coop/attack_versions.h"
 #include "coop/balance.h"
 #include "coop/game_mode.h"
@@ -12,10 +16,18 @@
 #include "coop/quests.h"
 #include "coop/sha256.h"
 #include "coop/shot_counter.h"
+#include "coop/vats_feel.h"
+#include "coop/face_tone.h"
 #include "coop/clock.h"
 #include "coop/steer.h"
 #include "coop/talk_log.h"
+#include "config.h"
 #include "coop/item_stacks.h"
+#include "coop/gear_lockers.h"
+#include "coop/given_rounds.h"
+#include "coop/holds.h"
+#include "coop/far_area.h"
+#include "coop/party_perks.h"
 #include "dev/inspect_text.h"
 #include "dev/lab_channel.h"
 #include "dll_names.h"
@@ -24,8 +36,13 @@
 #include "net/steam_session.h"
 
 #include <cmath>
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#include <stdlib.h>
+#endif
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <thread>
@@ -65,7 +82,12 @@ namespace
         return false;
     }
 
-    constexpr uint16_t kTestPort = 27991;
+    uint16_t TestPort()
+    {
+        const uint16_t port = static_cast<uint16_t>(20000 + GetCurrentProcessId() % 20000);
+        return port == 27960 ? 27961 : port;
+    }
+    const uint16_t kTestPort = TestPort();
 }
 
 TEST(hello_round_trip)
@@ -77,6 +99,50 @@ TEST(hello_round_trip)
     CHECK(r.Type(t) && t == MsgType::Hello);
     CHECK(Decode(r, h));
     CHECK(h.version == kProtocolVersion && h.name == "Courier");
+}
+
+namespace
+{
+    bool PlayerCommandSurvives(PlayerCommandKind kind, uint8_t flags)
+    {
+        PlayerCommand c;
+        c.kind = kind;
+        c.form = 0x1234;
+        c.ref = 0x5678;
+        c.flags = flags;
+        Bytes b = Encode(c);
+        Reader r(b);
+        MsgType t;
+        PlayerCommand d;
+        return r.Type(t) && t == MsgType::PlayerCommand && Decode(r, d) && d.kind == kind && d.flags == flags;
+    }
+}
+
+TEST(player_command_flags_per_kind)
+{
+    for (int k = 1; k <= static_cast<int>(PlayerCommandKind::Last); ++k)
+    {
+        auto kind = static_cast<PlayerCommandKind>(k);
+        uint8_t allowed = PlayerCommandFlagsAllowed(kind);
+        CHECK(PlayerCommandSurvives(kind, 0));
+        CHECK(PlayerCommandSurvives(kind, allowed));
+        for (int bit = 0; bit < 8; ++bit)
+        {
+            uint8_t flags = static_cast<uint8_t>(1 << bit);
+            CHECK(PlayerCommandSurvives(kind, flags) == ((allowed & flags) != 0));
+        }
+        CHECK(!PlayerCommandSurvives(kind, 0x80));
+    }
+    CHECK(PlayerCommandFlagsAllowed(PlayerCommandKind::DisableControls) == 0x7F);
+    CHECK(PlayerCommandFlagsAllowed(PlayerCommandKind::EnableControls) == 0x7F);
+    CHECK(PlayerCommandFlagsAllowed(PlayerCommandKind::AddItem) == 0);
+    for (PlayerCommandKind k : {PlayerCommandKind::RemoveAllItems, PlayerCommandKind::RemoveAllTypedItems,
+             PlayerCommandKind::GiveAllItems, PlayerCommandKind::GiveAllTypedItems})
+    {
+        CHECK(PlayerCommandFlagsAllowed(k) == 0x71);
+        CHECK(PlayerCommandSurvives(k, static_cast<uint8_t>(5 << kCommandArgsShift | kCommandOnlyIfEmpty)));
+        CHECK(!PlayerCommandSurvives(k, 0x02));
+    }
 }
 
 TEST(truncated_messages_are_rejected)
@@ -589,6 +655,144 @@ TEST(downed_players_are_dragged_up_close_and_dont_bleed_out_meanwhile)
     host.Stop();
 }
 
+TEST(a_heal_message_has_two_players_a_skill_and_a_number)
+{
+    MsgType type;
+    net::HealAlly m;
+    Bytes ok = Encode(net::HealAlly{2, 0, coop::kStimpak, 65, true, 7});
+    Reader r1(ok);
+    CHECK(r1.Type(type) && type == MsgType::HealAlly && Decode(r1, m) && m.giver == 2 && m.target == 0 &&
+        m.item == coop::kStimpak && m.medicine == 65 && m.fastMetabolism && m.seq == 7);
+    auto bad = [&](net::HealAlly h) { Bytes b = Encode(h); Reader r(b); return r.Type(type) && !Decode(r, m); };
+    CHECK(bad(net::HealAlly{1, 1, coop::kStimpak, 10, false, 1}));
+    CHECK(bad(net::HealAlly{1, 2, coop::kStimpak, 101, false, 1}));
+    Bytes longer = Encode(net::HealAlly{1, 2, coop::kStimpak, 10, false, 1});
+    longer.push_back(0);
+    Reader r2(longer);
+    CHECK(r2.Type(type) && !Decode(r2, m));
+    net::HealRefused f;
+    Bytes refused = Encode(net::HealRefused{9, coop::kSuperStimpak});
+    Reader r3(refused);
+    CHECK(r3.Type(type) && type == MsgType::HealRefused && Decode(r3, f) && f.seq == 9 && f.item == coop::kSuperStimpak);
+}
+
+TEST(a_heal_counts_the_givers_medicine_and_fast_metabolism)
+{
+    auto about = [](float a, float b) { return a > b - 0.1f && a < b + 0.1f; };
+    CHECK(about(coop::HealAmount(coop::kStimpak, 15, false), 39));
+    CHECK(about(coop::HealAmount(coop::kStimpak, 65, false), 69));
+    CHECK(about(coop::HealAmount(coop::kStimpak, 65, true), 82.8f));
+    CHECK(about(coop::HealAmount(coop::kSuperStimpak, 0, false), 60) && about(coop::HealAmount(coop::kStimpak, 250, false), 90));
+    CHECK(about(coop::HealCorrection(coop::kStimpak, 65, false, 15, false), 30));
+    CHECK(about(coop::HealCorrection(coop::kStimpak, 15, false, 65, true), 39 - 82.8f));
+    CHECK(about(coop::HealCorrection(coop::kStimpak, 40, true, 40, true), 0));
+    CHECK(coop::HealAmount(0x0001519E, 50, false) == 0 && !coop::IsHealItem(0x0001519E));
+}
+
+TEST(heals_reach_the_target_once_and_refused_ones_come_back)
+{
+    coop::Coop host, a;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    uint8_t id = a.MyPlayerId();
+    host.SetMyHealth(50, 100);
+    host.SetMyPose({5, 1000, 0, 0, 0});
+    a.SetMyPose({5, 0, 0, 0, 0});
+    a.SetMyHealth(40, 100);
+    coop::Pose p;
+    CHECK(RunUntil({&host, &a}, [&] {
+        auto it = host.Remotes().find(id);
+        return it != host.Remotes().end() && it->second.health == 40 && it->second.motion.Sample(GetTickCount(), p) &&
+            a.Remotes().count(0) && a.Remotes().at(0).health == 50;
+    }));
+    net::HealAlly got;
+    uint32_t back = 0;
+
+    a.GiveHeal(0, coop::kStimpak, 50, false);
+    CHECK(RunUntil({&host, &a}, [&] { return a.TakeHealRefund(back); }) && back == coop::kStimpak);
+    CHECK(!host.TakeHeal(got));
+
+    host.SetMyPose({5, 100, 0, 0, 0});
+    RunUntil({&host, &a}, [&] { return false; }, 1100);
+    a.GiveHeal(0, coop::kSuperStimpak, 50, true);
+    CHECK(RunUntil({&host, &a}, [&] { return host.TakeHeal(got); }));
+    CHECK(got.giver == id && got.target == 0 && got.item == coop::kSuperStimpak && got.medicine == 50 &&
+        got.fastMetabolism && got.seq == 2);
+
+    a.GetSession().Send(1, Encode(got), true);
+    a.GiveHeal(0, coop::kStimpak, 50, false);
+    CHECK(RunUntil({&host, &a}, [&] { return a.TakeHealRefund(back); }) && back == coop::kStimpak);
+    RunUntil({&host, &a}, [&] { return false; }, 200);
+    CHECK(!host.TakeHeal(got) && !a.TakeHealRefund(back));
+
+    RunUntil({&host, &a}, [&] { return false; }, 1100);
+    a.GetSession().Send(1, Encode(net::HealAlly{id, 0, 0x0001519E, 50, false, 10}), true);
+    a.GetSession().Send(1, Encode(net::HealAlly{static_cast<uint8_t>(id + 1), 0, coop::kStimpak, 50, false, 11}), true);
+    RunUntil({&host, &a}, [&] { return false; }, 300);
+    CHECK(!host.TakeHeal(got) && !a.TakeHealRefund(back));
+
+    host.GiveHeal(id, coop::kStimpak, 100, false);
+    CHECK(RunUntil({&host, &a}, [&] { return a.TakeHeal(got); }));
+    CHECK(got.giver == 0 && got.target == id && got.medicine == 100);
+    a.SetMyHealth(100, 100);
+    CHECK(RunUntil({&host, &a}, [&] { return host.Remotes().at(id).health == 100; }));
+    RunUntil({&host, &a}, [&] { return false; }, 1100);
+    host.GiveHeal(id, coop::kStimpak, 100, false);
+    CHECK(host.TakeHealRefund(back) && back == coop::kStimpak);
+
+    a.SetMyHealth(0, 100);
+    CHECK(RunUntil({&host, &a}, [&] { return host.Remotes().at(id).Downed(); }));
+    RunUntil({&host, &a}, [&] { return false; }, 1100);
+    host.GiveHeal(id, coop::kStimpak, 100, false);
+    CHECK(host.TakeHealRefund(back));
+    a.Stop();
+    CHECK(RunUntil({&host}, [&] { return host.Remotes().empty(); }));
+    host.GiveHeal(id, coop::kStimpak, 100, false);
+    CHECK(host.TakeHealRefund(back));
+    CHECK(!a.TakeHeal(got));
+    host.Stop();
+}
+
+TEST(heals_arrive_once_under_lag_and_loss)
+{
+    coop::Coop host, a;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    uint8_t id = a.MyPlayerId();
+    a.GetSession().SetFakeLag({200, 0, 5});
+    host.GetSession().SetFakeLag({200, 0, 5});
+    host.SetMyHealth(10, 1000);
+    host.SetMyPose({5, 100, 0, 0, 0});
+    a.SetMyPose({5, 0, 0, 0, 0});
+    a.SetMyHealth(40, 100);
+    coop::Pose p;
+    CHECK(RunUntil({&host, &a}, [&] {
+        auto it = host.Remotes().find(id);
+        return it != host.Remotes().end() && it->second.motion.Sample(GetTickCount(), p) && a.Remotes().count(0);
+    }, 5000));
+    int heals = 0, refunds = 0;
+    net::HealAlly got;
+    uint32_t back = 0;
+    auto count = [&] {
+        while (host.TakeHeal(got))
+            ++heals;
+        while (a.TakeHealRefund(back))
+            ++refunds;
+        return false;
+    };
+    for (int i = 0; i < 5; ++i)
+    {
+        a.GiveHeal(0, coop::kStimpak, 30, false);
+        RunUntil({&host, &a}, count, 1300);
+    }
+    RunUntil({&host, &a}, count, 2000);
+    CHECK(heals + refunds == 5 && heals >= 3);
+    a.Stop();
+    host.Stop();
+}
+
 TEST(a_drag_ends_when_they_are_revived)
 {
     coop::Coop host, a;
@@ -824,6 +1028,44 @@ TEST(npc_states_round_trip_and_checks)
     CHECK(r.Type(t) && !Decode(r, out));
 }
 
+TEST(levelled_npcs_carry_the_hosts_roll)
+{
+    auto decodes = [](const NpcStates& in, NpcStates& out) {
+        Bytes b = Encode(in);
+        Reader r(b);
+        MsgType t;
+        return r.Type(t) && t == MsgType::NpcStates && Decode(r, out);
+    };
+    NpcStates in{1, 0xDA726, {{0x159615, 1, 2, 3, 0, coop::Pose::kWeaponOut, 0, 65, 65}}};
+    in.npcs[0].rolled = 0x14F3FD;
+    NpcStates out;
+    CHECK(decodes(in, out) && out.npcs[0].rolled == 0x14F3FD);
+    in.npcs[0].rolled = 0xFF000900;
+    CHECK(!decodes(in, out));
+
+    using coop::RollMatch;
+    CHECK(coop::CompareRolls(0x14F3FD, 0x157B25) == RollMatch::Different);
+    CHECK(coop::CompareRolls(0x14F3FD, 0x14F3FD) == RollMatch::Same);
+    CHECK(coop::CompareRolls(0, 0x157B25) == RollMatch::Unknown);
+    CHECK(coop::CompareRolls(0x14F3FD, 0) == RollMatch::Unknown);
+    CHECK(coop::MakeCopyFrom(0x159608, 0x14F3FD) == 0x14F3FD);
+    CHECK(coop::MakeCopyFrom(0x159608, 0) == 0x159608);
+
+    coop::Coop host, a;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    std::vector<NpcState> npcs{{0x159615, 1, 2, 3, 0, 0, 0, 65, 65}};
+    npcs[0].rolled = 0x14F3FD;
+    host.SetNpcs(0x777, npcs);
+    CHECK(RunUntil({&host, &a}, [&] { return a.Npcs().count(0x159615) && a.Npcs().at(0x159615).rolled == 0x14F3FD; }));
+    npcs[0].rolled = 0x157B25;
+    host.SetNpcs(0x777, npcs);
+    CHECK(RunUntil({&host, &a}, [&] { return a.Npcs().at(0x159615).rolled == 0x157B25; }, 500));
+    a.Stop();
+    host.Stop();
+}
+
 TEST(friends_see_the_hosts_npcs_and_forget_the_ones_it_stops_sharing)
 {
     coop::Coop host, a;
@@ -1041,7 +1283,7 @@ TEST(a_throw_leaving_the_hand_is_its_own_attack)
     Reader rn(none);
     CHECK(rn.Type(t) && !Decode(rn, a));
     Bytes odd = Encode(Attack{2, 1, false});
-    odd[3] = 2;
+    odd[3] = 3;
     Reader ro(odd);
     CHECK(ro.Type(t) && !Decode(ro, a));
 
@@ -1061,6 +1303,73 @@ TEST(a_throw_leaving_the_hand_is_its_own_attack)
     }));
     CHECK(atHost[0].shots == 1 && !atHost[0].release && atHost[1].release && atHost[1].playerId == a1.MyPlayerId());
     CHECK(atB[1].release && atB[1].playerId == a1.MyPlayerId());
+    a2.Stop();
+    a1.Stop();
+    host.Stop();
+}
+
+TEST(a_players_reload_is_shared_and_is_never_a_shot)
+{
+    MsgType t;
+    Attack a;
+    Bytes alone = Encode(Attack{2, 0, false, true});
+    Reader ra(alone);
+    CHECK(ra.Type(t) && Decode(ra, a) && a.reload && !a.release && a.shots == 0 && a.playerId == 2);
+    Bytes after = Encode(Attack{2, 3, false, true});
+    Reader rb(after);
+    CHECK(rb.Type(t) && Decode(rb, a) && a.reload && a.shots == 3);
+    Bytes plain = Encode(Attack{2, 1});
+    Reader rp(plain);
+    CHECK(rp.Type(t) && Decode(rp, a) && !a.reload && a.shots == 1);
+    Bytes thrown = Encode(Attack{2, 0, true, true});
+    Reader rt(thrown);
+    CHECK(rt.Type(t) && Decode(rt, a) && a.release && !a.reload && a.shots == 0);
+    Bytes many = Encode(Attack{2, static_cast<uint8_t>(kMaxShots + 1), false, true});
+    Reader rm(many);
+    CHECK(rm.Type(t) && !Decode(rm, a));
+    Bytes flags = Encode(Attack{2, 1, false, true});
+    flags[3] = 4;
+    Reader rf(flags);
+    CHECK(rf.Type(t) && !Decode(rf, a));
+
+    coop::Coop host, a1, a2;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a1.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(a2.Join("127.0.0.1", kTestPort, "B"));
+    std::vector<coop::Coop*> all{&host, &a1, &a2};
+    auto stopAll = [&] { a2.Stop(); a1.Stop(); host.Stop(); };
+    bool joined = RunUntil(all, [&] { return a1.Remotes().size() == 2 && a2.Remotes().size() == 2; });
+    CHECK(joined);
+    if (!joined)
+        return stopAll();
+    a1.Attack(0, false, true);
+    a1.Attack(1, false, true);
+    a1.Attack(0, true, true);
+    host.Attack(0, false, true);
+    std::vector<coop::AttackReport> atHost, atB, atA;
+    bool arrived = RunUntil(all, [&] {
+        for (auto& x : host.TakeAttacks()) atHost.push_back(x);
+        for (auto& x : a2.TakeAttacks()) atB.push_back(x);
+        for (auto& x : a1.TakeAttacks()) atA.push_back(x);
+        return atHost.size() == 3 && atB.size() == 4 && atA.size() == 1;
+    });
+    CHECK(arrived);
+    if (!arrived)
+        return stopAll();
+    CHECK(atHost[0].reload && atHost[0].shots == 0 && atHost[0].playerId == a1.MyPlayerId());
+    CHECK(atHost[1].reload && atHost[1].shots == 1);
+    CHECK(atHost[2].release && !atHost[2].reload);
+    std::vector<coop::AttackReport> fromA;
+    bool hostsReload = false;
+    for (auto& x : atB)
+    {
+        if (x.playerId == a1.MyPlayerId())
+            fromA.push_back(x);
+        hostsReload = hostsReload || (x.playerId == host.MyPlayerId() && x.reload && x.shots == 0);
+    }
+    CHECK(hostsReload && fromA.size() == 3);
+    CHECK(fromA.size() == 3 && fromA[0].reload && fromA[0].shots == 0 && fromA[1].reload && fromA[1].shots == 1 && !fromA[2].reload);
+    CHECK(atA[0].reload && atA[0].shots == 0 && atA[0].playerId == host.MyPlayerId());
     a2.Stop();
     a1.Stop();
     host.Stop();
@@ -1114,7 +1423,8 @@ TEST(friends_see_the_hosts_npcs_health_death_idles_and_attacks)
 
 TEST(lab_channel_answers_tools_line_by_line)
 {
-    const wchar_t* name = L"\\\\.\\pipe\\NVCoopLabTest";
+    const std::wstring pipeName = L"\\\\.\\pipe\\NVCoopLabTest-" + std::to_wstring(GetCurrentProcessId());
+    const wchar_t* name = pipeName.c_str();
     dev::LabChannel lab;
     CHECK(lab.Start(name));
     dev::LabChannel impostor;
@@ -1434,15 +1744,56 @@ TEST(puppet_jump_flag_is_not_copied_to_its_legs)
     CHECK(!(steer.Flags({0, 0, 0, 0, 0, 0, 0, 0x1000}) & 0x1000));
 }
 
-int main()
+#ifdef _MSC_VER
+static void InvalidParameter(const wchar_t*, const wchar_t*, const wchar_t*, unsigned, uintptr_t)
 {
+    std::fprintf(stderr, "\nThe C++ runtime found a bad parameter: the run stops\n");
+    std::_Exit(3);
+}
+
+static int RuntimeReport(int type, char* message, int*)
+{
+    if (type == _CRT_WARN)
+        return FALSE;
+    std::fprintf(stderr, "%s\nThe C++ runtime found a bad index, iterator or parameter: the run stops\n",
+        message ? message : "");
+    std::_Exit(3);
+}
+#endif
+
+int main(int argc, char** argv)
+{
+#ifdef _MSC_VER
+    _set_error_mode(_OUT_TO_STDERR);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+    _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, RuntimeReport);
+    _set_invalid_parameter_handler(InvalidParameter);
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+#endif
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    if (argc > 1 && std::strcmp(argv[1], "--dialog-check") == 0)
+    {
+        std::vector<int> none;
+        volatile size_t i = 1;
+        return none[i];
+    }
+    std::string failedTests;
     for (auto& t : Tests())
     {
         int before = g_failures;
         t.run();
         std::printf("%s %s\n", g_failures == before ? "ok  " : "FAIL", t.name);
+        if (g_failures != before)
+            failedTests += (failedTests.empty() ? "" : ", ") + std::string(t.name);
     }
-    std::printf(g_failures ? "\n%d check(s) failed\n" : "\nAll tests passed\n", g_failures);
+    if (g_failures)
+        std::printf("\n%d check(s) failed in: %s\n", g_failures, failedTests.c_str());
+    else
+        std::printf("\nAll tests passed\n");
     return g_failures ? 1 : 0;
 }
 
@@ -1657,6 +2008,189 @@ TEST(friend_container_is_matched_while_only_aimed_at)
     const std::vector<ItemCount> took{{0x15169, 1}};
     box.Look(took, changes);
     CHECK((changes.size() == 1 && changes[0].change == ItemCount{0x15169, -1}));
+}
+
+TEST(friend_container_counts_takes_made_just_before_its_screen_closed)
+{
+    coop::FriendContainer box;
+    std::vector<ContainerChange> changes;
+    const std::vector<ItemCount> body{{0x8ED03, 400}, {0x15169, 2}};
+    CHECK(box.View(0x1062A9, false));
+    box.Look(body, changes);
+    CHECK(!box.View(0x1062A9, true));
+    box.Look(body, changes);
+    CHECK(changes.empty());
+    box.Closing({}, changes);
+    CHECK(changes.size() == 2);
+    int64_t taken = 0;
+    for (const ContainerChange& c : changes)
+        taken += c.change.count;
+    CHECK(taken == -402 && changes[0].seq == 1 && changes[1].seq == 2);
+    changes.clear();
+    box.Closing({}, changes);
+    box.View(0x1062A9, false);
+    box.Look({{0x15169, 1}}, changes);
+    CHECK(changes.empty());
+    coop::FriendContainer aimed;
+    aimed.View(0x1062A9, false);
+    aimed.Look(body, changes);
+    aimed.Closing({}, changes);
+    CHECK(changes.empty());
+}
+
+TEST(fake_lag_setting_is_read_or_left_off)
+{
+    net::FakeLag lag;
+    CHECK(net::ParseFakeLag("200,0,5", lag) && lag.pingMs == 200 && lag.jitterMs == 0 && lag.lossPercent == 5);
+    CHECK(net::ParseFakeLag("100", lag) && lag.pingMs == 100 && !lag.jitterMs && !lag.lossPercent);
+    for (const char* bad : {"", "abc", "100,", "-5", "100,0,101", "99999", "1,2,3,4", "100 ms"})
+        CHECK(!net::ParseFakeLag(bad, lag) && !lag.On());
+    CHECK(!net::ParseFakeLag(nullptr, lag) && !lag.On());
+}
+
+TEST(gear_lockers_catch_a_joiner_up_without_taking_or_giving_twice)
+{
+    coop::GearLockers lockers;
+    const uint32_t tops = 0x00127D84, gomorrah = 0x0012795C, arena = 0x00136A26, other = 0x00123456;
+    lockers.Add(tops, true);
+    lockers.Add(gomorrah, true);
+    lockers.Add(arena, false);
+    CHECK(lockers.Is(tops) && lockers.TakenInLine(gomorrah) && !lockers.TakenInLine(arena) && !lockers.Is(other));
+    CHECK(!lockers.Is(0));
+    lockers.Add(0, true);
+    CHECK(lockers.All().size() == 3);
+
+    net::PlayerCommand take{net::PlayerCommandKind::RemoveAllTypedItems, coop::kHoldoutWeapons, tops, {1, 0, 40},
+        static_cast<uint8_t>(5 << net::kCommandArgsShift)};
+    lockers.Taken(take);
+    lockers.Taken(take);
+    net::PlayerCommand notLocker = take;
+    notLocker.ref = other;
+    lockers.Taken(notLocker);
+    net::PlayerCommand give{net::PlayerCommandKind::GiveAllItems, 0, other};
+    lockers.Taken(give);
+    CHECK(lockers.Active(tops) && !lockers.Active(other) && !lockers.Active(gomorrah));
+    auto holds = [&](uint32_t ref) { return ref == tops; };
+    std::vector<net::PlayerCommand> joiner = lockers.ForJoiner(holds);
+    CHECK(joiner.size() == 3);
+    int takes = 0, gives = 0;
+    for (const net::PlayerCommand& c : joiner)
+    {
+        if (c.ref == tops)
+        {
+            ++takes;
+            CHECK(c.kind == net::PlayerCommandKind::RemoveAllTypedItems && (c.flags & net::kCommandOnlyIfEmpty) &&
+                c.form == coop::kHoldoutWeapons && c.n[2] == 40 &&
+                ((c.flags & net::kCommandArgsMask) >> net::kCommandArgsShift) == 5);
+        }
+        else
+        {
+            ++gives;
+            CHECK(c.kind == net::PlayerCommandKind::GiveAllItems && !(c.flags & net::kCommandOnlyIfEmpty) &&
+                ((c.flags & net::kCommandArgsMask) >> net::kCommandArgsShift) == 1);
+        }
+    }
+    CHECK(takes == 1 && gives == 2);
+    joiner = lockers.ForJoiner([](uint32_t) { return false; });
+    CHECK(joiner.size() == 3);
+    for (const net::PlayerCommand& c : joiner)
+        CHECK(c.kind == net::PlayerCommandKind::GiveAllItems);
+    lockers.GivenBack(tops);
+    CHECK(!lockers.Active(tops));
+    joiner = lockers.ForJoiner(holds);
+    CHECK(joiner.size() == 2);
+    for (const net::PlayerCommand& c : joiner)
+        CHECK(c.ref != tops);
+
+    for (int type = 40; type < 50; ++type)
+        lockers.Taken({net::PlayerCommandKind::RemoveAllTypedItems, 0, arena, {1, 0, type}});
+    CHECK(lockers.ForJoiner([](uint32_t) { return true; }).size() == coop::GearLockers::kMaxTakesPerLocker);
+    for (uint32_t i = 1; i < 200; ++i)
+        lockers.Add(0x00200000 + i, false);
+    CHECK(lockers.All().size() == coop::GearLockers::kMaxLockers);
+    lockers.Clear();
+    CHECK(lockers.All().empty() && !lockers.Active(arena));
+}
+
+TEST(each_player_gets_their_own_honest_hearts_reward_box)
+{
+    coop::GearLockers lockers;
+    const uint32_t box = 0x02011602, tops = 0x00127D84;
+    lockers.AddReward(box);
+    lockers.Add(box, true);
+    lockers.Add(tops, true);
+    CHECK(lockers.IsPrivate(box) && lockers.IsReward(box) && !lockers.Is(box));
+    CHECK(lockers.IsPrivate(tops) && !lockers.IsReward(tops));
+    for (const net::PlayerCommand& c : lockers.ForJoiner([](uint32_t) { return false; }))
+        CHECK(c.ref != box);
+    net::PlayerCommand intoBox{net::PlayerCommandKind::RemoveAllItems, 0, box};
+    lockers.Taken(intoBox);
+    CHECK(!lockers.Active(box));
+
+    std::vector<coop::RewardItem> items(std::begin(coop::kHonestHeartsReward.items),
+        std::end(coop::kHonestHeartsReward.items));
+    CHECK(items.size() == 9 && coop::kHonestHeartsReward.stage == 10);
+    CHECK(coop::RewardToAdd(items, [](uint32_t) { return 0; }).size() == 9);
+    std::vector<coop::RewardItem> rest = coop::RewardToAdd(items, [](uint32_t id) {
+        return id == 0x00A3E0 || id == 0x010729 ? 1 : 0;
+    });
+    CHECK(rest.size() == 7);
+    for (const coop::RewardItem& i : rest)
+        CHECK(i.id != 0x00A3E0 && i.id != 0x010729 && i.health > 0.7f && i.health < 0.9f);
+    CHECK(coop::RewardToAdd(items, [](uint32_t) { return 1; }).empty());
+}
+
+TEST(a_gear_give_back_in_another_players_replayed_use_is_ours_after_the_replay)
+{
+    coop::GearLockers lockers;
+    const uint32_t tops = 0x00127D84, companionLocker = 0x00128595;
+    lockers.Add(tops, true);
+    using K = net::PlayerCommandKind;
+    using R = coop::GearLockers::InReplay;
+    net::PlayerCommand giveBack{K::GiveAllItems, 0, tops};
+    net::PlayerCommand giveTyped{K::GiveAllTypedItems, 0, tops};
+    net::PlayerCommand take{K::RemoveAllTypedItems, 0, tops};
+    net::PlayerCommand takeAll{K::RemoveAllItems, 0, tops};
+    net::PlayerCommand companion{K::GiveAllTypedItems, 0, companionLocker};
+    net::PlayerCommand item{K::AddItem, 0x0007EA24, tops};
+    CHECK(lockers.ForReplayedUse(giveBack) == R::OursAfter);
+    CHECK(lockers.ForReplayedUse(giveTyped) == R::OursAfter);
+    CHECK(lockers.ForReplayedUse(take) == R::NotDone);
+    CHECK(lockers.ForReplayedUse(takeAll) == R::NotDone);
+    CHECK(lockers.ForReplayedUse(companion) == R::NotDone);
+    CHECK(lockers.ForReplayedUse(item) == R::NotDone);
+    net::PlayerCommand none{K::GiveAllItems, 0, 0};
+    CHECK(lockers.ForReplayedUse(none) == R::NotDone);
+}
+
+TEST(holdout_weapons_kept_go_by_each_players_own_sneak)
+{
+    CHECK(coop::HoldoutListFor(coop::kHoldoutWeapons, 60) == coop::kImprovedHoldoutWeapons);
+    CHECK(coop::HoldoutListFor(coop::kImprovedHoldoutWeapons, 49.9f) == coop::kHoldoutWeapons);
+    CHECK(coop::HoldoutListFor(coop::kImprovedHoldoutWeapons, 50) == coop::kImprovedHoldoutWeapons);
+    CHECK(coop::HoldoutListFor(0x00179347, 10) == 0x00179347);
+    CHECK(coop::HoldoutListFor(0, 80) == 0);
+}
+
+TEST(rounds_given_with_harmless_guns_are_taken_back_but_not_its_own)
+{
+    coop::GivenRounds given;
+    CHECK(given.Empty());
+    given.Add(0x8ED03, 500);
+    given.Add(0x8ED03, 500);
+    given.Add(0x20772, 500);
+    given.Add(0, 500);
+    given.Add(0x29377, -5);
+    std::map<uint32_t, int32_t> has{{0x8ED03, 1012}, {0x20772, 300}};
+    auto back = given.TakeBack([&](uint32_t ammo) { return has.count(ammo) ? has[ammo] : 0; });
+    CHECK((back == std::vector<std::pair<uint32_t, int32_t>>{{0x8ED03, 1000}, {0x20772, 300}}));
+    CHECK(given.Empty());
+    CHECK(given.TakeBack([](uint32_t) { return 99; }).empty());
+    for (uint32_t i = 1; i <= coop::GivenRounds::kMaxKinds + 5; ++i)
+        given.Add(i, 1);
+    given.Add(1, INT32_MAX);
+    auto many = given.TakeBack([](uint32_t) { return INT32_MAX; });
+    CHECK(many.size() == coop::GivenRounds::kMaxKinds && many[0].second == INT32_MAX);
 }
 
 TEST(container_changes_reach_the_host_and_contents_reach_the_friend)
@@ -2331,6 +2865,14 @@ TEST(friends_follow_what_quest_scripts_do_to_the_host)
     CHECK(bad({net::PlayerCommandKind::AddItem, 0xFF000801, 0, {1}}));
     CHECK(bad({net::PlayerCommandKind::GiveAllItems, 0, 0x14}));
     CHECK(bad({net::PlayerCommandKind::AddItem, 0x15169, 0, {net::kMaxPlayerCommandNumber + 1}}));
+    net::PlayerCommand back{net::PlayerCommandKind::GiveAllTypedItems, 0x000F0F05, 0x00139B6B, {1, 1, 0},
+        static_cast<uint8_t>(3 << net::kCommandArgsShift)};
+    Bytes bb = Encode(back);
+    Reader rb(bb);
+    CHECK(rb.Type(t) && Decode(rb, c) && c.kind == net::PlayerCommandKind::GiveAllTypedItems && c.form == 0x000F0F05 &&
+        c.ref == 0x00139B6B && c.n[1] == 1 && c.flags == back.flags);
+    CHECK(net::IsWholeInventoryKind(c.kind) && !net::IsTakeKind(c.kind) && net::IsTakeKind(take.kind));
+    CHECK(bad({net::PlayerCommandKind::GiveAllTypedItems, 0xFF000801, 0x00139B6B}));
     Bytes odd = Encode(net::PlayerCommand{net::PlayerCommandKind::AddPerk, 0x31DB7});
     odd[1] = static_cast<uint8_t>(net::PlayerCommandKind::Last) + 1;
     Reader ro(odd);
@@ -2350,6 +2892,16 @@ TEST(friends_follow_what_quest_scripts_do_to_the_host)
     }));
     CHECK(got[0].kind == net::PlayerCommandKind::RemoveAllTypedItems && got[1].form == 0x01004E0D);
     CHECK(host.TakePlayerCommands().empty());
+    std::vector<uint8_t> welcomed = host.TakeWelcomed();
+    CHECK(welcomed.size() == 1 && welcomed[0] == buddy.MyPlayerId() && host.TakeWelcomed().empty());
+    host.SharePlayerCommandWith(77, back);
+    host.SharePlayerCommandWith(buddy.MyPlayerId(), back);
+    got.clear();
+    CHECK(RunUntil({&host, &buddy}, [&] {
+        for (auto& x : buddy.TakePlayerCommands()) got.push_back(x);
+        return !got.empty();
+    }));
+    CHECK(got.size() == 1 && got[0].kind == net::PlayerCommandKind::GiveAllTypedItems);
     buddy.Stop();
     host.Stop();
 }
@@ -3009,7 +3561,7 @@ TEST(the_mod_scan_finds_what_the_game_loads)
 {
     char temp[MAX_PATH];
     GetTempPathA(MAX_PATH, temp);
-    std::string data = std::string(temp) + "nvcoop_scan_test\\";
+    std::string data = std::string(temp) + "nvcoop_scan_test-" + std::to_string(GetCurrentProcessId()) + "\\";
     std::string dlls = data + "NVSE\\Plugins\\";
     CreateDirectoryA(data.c_str(), nullptr);
     CreateDirectoryA((data + "NVSE").c_str(), nullptr);
@@ -3110,7 +3662,7 @@ namespace
     {
         char temp[MAX_PATH];
         GetTempPathA(MAX_PATH, temp);
-        return std::string(temp) + name + "\\";
+        return std::string(temp) + name + "-" + std::to_string(GetCurrentProcessId()) + "\\";
     }
 
     void WriteFile(const std::string& path, const std::string& text)
@@ -3653,6 +4205,396 @@ TEST(ref_enable_messages_round_trip_and_checks)
     CHECK(!decodes({{0xFF000801, true}}, out));
 }
 
+TEST(object_state_messages_round_trip_and_checks)
+{
+    auto decodes = [](const std::vector<ObjectState>& in, std::vector<ObjectState>& out) {
+        Bytes b = Encode(in);
+        Reader r(b);
+        MsgType t;
+        return r.Type(t) && t == MsgType::ObjectStates && Decode(r, out);
+    };
+    ObjectState autoDoc{0x1011F67, true, 0x10, true, 3};
+    ObjectState speaker{0x1012345, true, kNoAnimGroup, false, 0};
+    std::vector<ObjectState> in{autoDoc, speaker}, out;
+    CHECK(decodes(in, out) && out == in);
+    CHECK(!decodes({}, out));
+    CHECK(!decodes({{0, true}}, out));
+    CHECK(!decodes({{0x14, true}}, out));
+    CHECK(!decodes({{0xFF000801, true}}, out));
+    CHECK(!decodes({{0x1011F67, false, kAnimGroupCount}}, out));
+    Bytes b = Encode(std::vector<ObjectState>{autoDoc});
+    b[6] = 4;
+    Reader r(b);
+    MsgType t;
+    CHECK(r.Type(t) && !Decode(r, out));
+    Bytes cut = Encode(std::vector<ObjectState>{autoDoc});
+    cut.pop_back();
+    Reader rc(cut);
+    CHECK(rc.Type(t) && !Decode(rc, out));
+    std::vector<ObjectState> many(kMaxObjectsPerMessage + 5, speaker);
+    CHECK(decodes(many, out) && out.size() == kMaxObjectsPerMessage);
+}
+
+TEST(host_objects_send_changes_then_everything_again)
+{
+    coop::HostObjects h;
+    CHECK(h.Take(1000).empty());
+    CHECK(h.Played(0x1011F67, false, 0x10, true));
+    CHECK(h.Destroyed(0x1011F67, true));
+    std::vector<ObjectState> s = h.Take(1100);
+    CHECK(s.size() == 1 && s[0].ref == 0x1011F67 && s[0].destroyed && s[0].group == 0x10 && s[0].init &&
+        s[0].plays == 1);
+    CHECK(h.Take(1200).empty());
+    CHECK(h.Destroyed(0x1011F67, true));
+    CHECK(h.Take(1300).empty());
+    CHECK(h.Destroyed(0x1012345, false));
+    s = h.Take(1400);
+    CHECK(s.size() == 1 && s[0].ref == 0x1012345 && !s[0].destroyed && s[0].group == kNoAnimGroup);
+    CHECK(h.Played(0x1011F67, true, 0x10, true));
+    s = h.Take(1500);
+    CHECK(s.size() == 1 && s[0].plays == 2);
+    CHECK(h.Played(0x1011F67, true, kAnimGroupCount, false));
+    CHECK(h.Take(1600).empty());
+    s = h.Take(1000 + coop::kObjectResendMs);
+    CHECK(s.size() == 2);
+    coop::HostObjects full;
+    for (uint32_t i = 0; i < coop::kMaxKnownObjects; ++i)
+        CHECK(full.Destroyed(0x100000 + i, true));
+    CHECK(!full.Destroyed(0x200000, true));
+    CHECK(full.Destroyed(0x100000, false));
+    h.Clear();
+    CHECK(h.Known() == 0);
+}
+
+TEST(friend_objects_follow_the_host)
+{
+    coop::FriendObjects f;
+    int model1 = 0, model2 = 0;
+    coop::LocalObject here{true, false, &model1};
+    auto look = [&](uint32_t) { return here; };
+    f.Heard({0x1011F67, true, 0x10, true, 1});
+    std::vector<coop::ObjectAction> a = f.Due(look);
+    CHECK(a.size() == 1 && a[0].setDestroyed && a[0].destroyed && a[0].play && a[0].group == 0x10 && a[0].init);
+    here.destroyed = true;
+    f.Heard({0x1011F67, true, 0x10, true, 1});
+    CHECK(f.Due(look).empty());
+    f.Heard({0x1011F67, true, 0x10, true, 2});
+    a = f.Due(look);
+    CHECK(a.size() == 1 && a[0].play && !a[0].setDestroyed);
+    here.model = &model2;
+    a = f.Due(look);
+    CHECK(a.size() == 1 && a[0].play);
+    here.model = nullptr;
+    here.destroyed = false;
+    a = f.Due(look);
+    CHECK(a.size() == 1 && a[0].setDestroyed && !a[0].play);
+    here = {};
+    CHECK(f.Due(look).empty());
+    coop::FriendObjects g;
+    g.Heard({0x1012345, true, kNoAnimGroup, false, 0});
+    coop::LocalObject speaker{true, true, &model1};
+    CHECK(g.Due([&](uint32_t) { return speaker; }).empty());
+    coop::FriendObjects full;
+    for (uint32_t i = 0; i < coop::kMaxKnownObjects + 3; ++i)
+        full.Heard({0x100000 + i, true});
+    CHECK(full.Known() == coop::kMaxKnownObjects);
+}
+
+TEST(object_health_and_hit_messages_check_their_numbers)
+{
+    MsgType t;
+    auto states = [](const std::vector<ObjectState>& in, std::vector<ObjectState>& out) {
+        Bytes b = Encode(in);
+        Reader r(b);
+        MsgType type;
+        return r.Type(type) && type == MsgType::ObjectStates && Decode(r, out);
+    };
+    ObjectState speaker{0x1006E9F, false, kNoAnimGroup, false, 0, 37.5f};
+    std::vector<ObjectState> out;
+    CHECK(states({speaker}, out) && out.size() == 1 && out[0].health == 37.5f);
+    speaker.health = 0;
+    CHECK(states({speaker}, out) && out[0].health == 0);
+    speaker.health = -5;
+    CHECK(!states({speaker}, out));
+    speaker.health = kMaxObjectHealth * 2;
+    CHECK(!states({speaker}, out));
+    auto lows = [](const std::vector<ObjectLow>& in, std::vector<ObjectLow>& out) {
+        Bytes b = Encode(in);
+        Reader r(b);
+        MsgType type;
+        return r.Type(type) && type == MsgType::ObjectLows && Decode(r, out);
+    };
+    std::vector<ObjectLow> l;
+    CHECK(lows({{0x1006E9F, 12.5f}, {0x1006E94, 0}}, l) && l.size() == 2 && l[0].health == 12.5f && l[1].health == 0);
+    CHECK(!lows({}, l));
+    CHECK(!lows({{0x1006E9F, -3}}, l));
+    CHECK(!lows({{0x1006E9F, kMaxObjectHealth + 1}}, l));
+    CHECK(!lows({{0x14, 5}}, l));
+    CHECK(!lows({{0xFF001234, 5}}, l));
+    std::vector<ObjectLow> many(kMaxObjectLowsPerMessage + 4, ObjectLow{0x1006E9F, 1});
+    CHECK(lows(many, l) && l.size() == kMaxObjectLowsPerMessage);
+    Writer w(MsgType::ObjectLows);
+    w.U8(1);
+    w.U32(0x1006E9F);
+    uint32_t nan = 0x7FC00000;
+    w.Block(&nan, 4);
+    Bytes b = w.Take();
+    Reader r(b);
+    CHECK(r.Type(t) && !Decode(r, l));
+}
+
+TEST(host_objects_share_damaged_objects_health)
+{
+    coop::HostObjects host;
+    host.Take(1000);
+    CHECK(host.Health(0x1006E9F, 100, 100, false));
+    CHECK(host.Known() == 0);
+    CHECK(host.Health(0x1006E9F, 60, 100, false));
+    std::vector<ObjectState> s = host.Take(1100);
+    CHECK(s.size() == 1 && s[0].health == 60 && s[0].group == kNoAnimGroup);
+    CHECK(host.Health(0x1006E9F, 60.2f, 100, false));
+    CHECK(host.Take(1200).empty());
+    CHECK(host.Health(0x1006E9F, 0, 100, true));
+    s = host.Take(1300);
+    CHECK(s.size() == 1 && s[0].health == 0 && s[0].destroyed);
+    CHECK(host.Health(0x1006E9F, 0, 100, true));
+    CHECK(host.Take(1350).empty());
+    CHECK(host.Health(0x1006E9F, 100, 100, false));
+    CHECK(host.Take(1400).size() == 1);
+    CHECK(host.Destroyed(0x1006E9F, true));
+    s = host.Take(1500);
+    CHECK(s.size() == 1 && s[0].destroyed && s[0].health == 100);
+}
+
+TEST(friend_objects_follow_damage)
+{
+    coop::FriendObjects f;
+    coop::LocalObject here{true, false, nullptr, 100};
+    auto look = [&](uint32_t) { return here; };
+    f.Heard({0x1006E9F, false, kNoAnimGroup, false, 0, 60});
+    std::vector<coop::ObjectAction> a = f.Due(look);
+    CHECK(a.size() == 1 && a[0].damage == 40 && !a[0].play && !a[0].setDestroyed);
+    here.health = 60;
+    CHECK(f.Due(look).empty());
+    here.health = 25;
+    CHECK(f.Due(look).empty());
+    here.health = 0;
+    here.destroyed = true;
+    CHECK(f.Due(look).empty());
+    f.Heard({0x1006E9F, true, kNoAnimGroup, false, 0, 0});
+    CHECK(f.Due(look).empty());
+    f.Heard({0x1006E9F, false, kNoAnimGroup, false, 0, 0});
+    a = f.Due(look);
+    CHECK(a.size() == 1 && a[0].setDestroyed && !a[0].destroyed);
+    here.destroyed = false;
+    f.Heard({0x1006E9F, false, kNoAnimGroup, false, 0, 60});
+    here.health = 60.3f;
+    CHECK(f.Due(look).empty());
+    here.health = kNoHealth;
+    f.Heard({0x1006E96, false, kNoAnimGroup, false, 0, 5});
+    for (const coop::ObjectAction& x : f.Due(look))
+        CHECK(x.damage == 0);
+}
+
+TEST(friend_objects_report_their_copies_going_lower)
+{
+    coop::FriendObjects f;
+    std::vector<net::ObjectLow> l = f.Lows({{0x12649B, 70, 100, 0}}, 1000);
+    CHECK(l.size() == 1 && l[0].ref == 0x12649B && l[0].health == 70);
+    CHECK(f.Lows({{0x12649B, 70, 100, 0}}, 1300).empty());
+    CHECK(f.Lows({{0x12649B, 60, 100, 0}}, 1100).empty());
+    l = f.Lows({{0x12649B, 60, 100, 0}}, 1300);
+    CHECK(l.size() == 1 && l[0].health == 60);
+    f.Heard({0x12649B, false, kNoAnimGroup, false, 0, 60});
+    CHECK(f.Lows({{0x12649B, 60, 100, 0}}, 2000).empty());
+    f.Heard({0x12649B, false, kNoAnimGroup, false, 0, 50});
+    CHECK(f.Lows({{0x12649B, 48.5f, 100, 2}}, 3000).empty());
+    l = f.Lows({{0x12649B, 30, 100, 2}}, 3100);
+    CHECK(l.size() == 1 && l[0].health == 30);
+    CHECK(f.Lows({{0x1006E9F, 100, 100, 0}}, 4000).empty());
+    CHECK(f.Lows({{0x1006E9F, -1, 0, 0}}, 4000).empty());
+    std::vector<coop::SeenObject> lots;
+    for (uint32_t i = 0; i < net::kMaxObjectLowsPerMessage + 5; ++i)
+        lots.push_back({0x100000 + i, 10, 100, 0});
+    CHECK(f.Lows(lots, 5000).size() == net::kMaxObjectLowsPerMessage);
+}
+
+TEST(terminal_use_messages_check_their_ids)
+{
+    auto decodes = [](const TerminalUse& in, TerminalUse& out) {
+        Bytes b = Encode(in);
+        Reader r(b);
+        MsgType t;
+        return r.Type(t) && t == MsgType::TerminalUse && Decode(r, out);
+    };
+    TerminalUse in{2, 0x1013B40, 0x1013B32, 0}, out;
+    CHECK(decodes(in, out) && out == in);
+    in.entry = kMaxTerminalEntries - 1;
+    CHECK(decodes(in, out) && out.entry == kMaxTerminalEntries - 1);
+    CHECK(!decodes({2, 0x1013B40, 0x1013B32, kMaxTerminalEntries}, out));
+    CHECK(!decodes({2, 0, 0x1013B32, 0}, out));
+    CHECK(!decodes({2, 0x14, 0x1013B32, 0}, out));
+    CHECK(!decodes({2, 0xFF000801, 0x1013B32, 0}, out));
+    CHECK(!decodes({2, 0x1013B40, 0, 0}, out));
+    CHECK(!decodes({2, 0x1013B40, 0xFF000802, 0}, out));
+    CHECK(!decodes({static_cast<uint8_t>(kMaxPlayerId + 1), 0x1013B40, 0x1013B32, 0}, out));
+    Bytes b = Encode(TerminalUse{2, 0x1013B40, 0x1013B32, 1});
+    b.pop_back();
+    Reader r(b);
+    MsgType t;
+    CHECK(r.Type(t) && !Decode(r, out));
+    Bytes extra = Encode(TerminalUse{2, 0x1013B40, 0x1013B32, 1});
+    extra.push_back(0);
+    Reader re(extra);
+    CHECK(re.Type(t) && !Decode(re, out));
+}
+
+TEST(activator_use_messages_check_their_ids)
+{
+    auto decodes = [](const ActivatorUse& in, ActivatorUse& out) {
+        Bytes b = Encode(in);
+        Reader r(b);
+        MsgType t;
+        return r.Type(t) && t == MsgType::ActivatorUse && Decode(r, out);
+    };
+    ActivatorUse in{1, 0x1011F67}, out;
+    CHECK(decodes(in, out) && out == in);
+    CHECK(!decodes({1, 0}, out));
+    CHECK(!decodes({1, 0x14}, out));
+    CHECK(!decodes({1, 0xFF000801}, out));
+    CHECK(!decodes({static_cast<uint8_t>(kMaxPlayerId + 1), 0x1011F67}, out));
+    Bytes b = Encode(ActivatorUse{1, 0x1011F67});
+    b.pop_back();
+    Reader r(b);
+    MsgType t;
+    CHECK(r.Type(t) && !Decode(r, out));
+    Bytes extra = Encode(ActivatorUse{1, 0x1011F67});
+    extra.push_back(0);
+    Reader re(extra);
+    CHECK(re.Type(t) && !Decode(re, out));
+}
+
+TEST(quest_command_messages_check_their_values)
+{
+    auto decodes = [](const QuestCommand& in, QuestCommand& out) {
+        Bytes b = Encode(in);
+        Reader r(b);
+        MsgType t;
+        return r.Type(t) && t == MsgType::QuestCommand && Decode(r, out);
+    };
+    using K = QuestCommandKind;
+    QuestCommand out;
+    QuestCommand done{K::CompleteObjective, 0x000F8892, 30, 1};
+    CHECK(decodes(done, out) && out == done);
+    QuestCommand stage{K::SetStage, 0x000F8892, 40, 0};
+    CHECK(decodes(stage, out) && out == stage);
+    QuestCommand shown{K::ShowObjective, 0x000F8892, 30, 0};
+    CHECK(decodes(shown, out) && out == shown);
+    QuestCommand complete{K::CompleteQuest, 0x000F8892, 0, 0};
+    CHECK(decodes(complete, out) && out == complete);
+    CHECK(!decodes({K::SetStage, 0, 40, 0}, out));
+    CHECK(!decodes({K::SetStage, 0xFF000801, 40, 0}, out));
+    CHECK(!decodes({K::SetStage, 0x000F8892, 256, 0}, out));
+    CHECK(!decodes({K::SetStage, 0x000F8892, 40, 1}, out));
+    CHECK(!decodes({K::CompleteObjective, 0x000F8892, kMaxObjectiveIndex + 1, 1}, out));
+    CHECK(!decodes({K::CompleteObjective, 0x000F8892, 30, 2}, out));
+    CHECK(!decodes({K::CompleteQuest, 0x000F8892, 1, 0}, out));
+    CHECK(!decodes({static_cast<K>(4), 0x000F8892, 0, 0}, out));
+    Bytes b = Encode(done);
+    b.pop_back();
+    Reader r(b);
+    MsgType t;
+    CHECK(r.Type(t) && !Decode(r, out));
+    Bytes extra = Encode(done);
+    extra.push_back(0);
+    Reader re(extra);
+    CHECK(re.Type(t) && !Decode(re, out));
+}
+
+TEST(script_blocks_are_read_from_compiled_scripts)
+{
+    std::vector<uint8_t> onActivate = {0x1D, 0x00, 0x02, 0x00, 0xAA, 0xBB, 0x10, 0x00, 0x06, 0x00, 0x02, 0x00, 1,
+        2, 3, 4, 0x1C, 0x00, 0x01, 0x00, 0x0D, 0x10, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00};
+    CHECK(coop::ScriptHasBlock(onActivate.data(), onActivate.size(), coop::kBlockOnActivate));
+    CHECK(!coop::ScriptHasBlock(onActivate.data(), onActivate.size(), 3));
+    std::vector<uint8_t> onAdd = onActivate;
+    onAdd[10] = 0x03;
+    CHECK(!coop::ScriptHasBlock(onAdd.data(), onAdd.size(), coop::kBlockOnActivate));
+    std::vector<uint8_t> cut(onActivate.begin(), onActivate.end() - 1);
+    CHECK(!coop::ScriptHasBlock(cut.data(), cut.size(), coop::kBlockOnActivate));
+    std::vector<uint8_t> tooLong = onActivate;
+    tooLong[8] = 0x40;
+    CHECK(!coop::ScriptHasBlock(tooLong.data(), tooLong.size(), coop::kBlockOnActivate));
+    CHECK(!coop::ScriptHasBlock(nullptr, 0, coop::kBlockOnActivate));
+}
+
+TEST(a_friends_object_scripts_quest_commands_go_to_the_host)
+{
+    using coop::QuestCommandHere;
+    coop::QuestCommandFacts f;
+    f.friendGame = f.objectScript = f.hostQuest = true;
+    CHECK(coop::ForQuestCommand(f) == QuestCommandHere::ToHost);
+    f.sentAsUse = true;
+    CHECK(coop::ForQuestCommand(f) == QuestCommandHere::NotHere);
+    f.sentAsUse = false;
+    f.replaying = true;
+    CHECK(coop::ForQuestCommand(f) == QuestCommandHere::NotHere);
+    f.replaying = false;
+    f.hostQuest = false;
+    CHECK(coop::ForQuestCommand(f) == QuestCommandHere::AsUsual);
+    f.hostQuest = true;
+    f.oursOrLine = true;
+    CHECK(coop::ForQuestCommand(f) == QuestCommandHere::AsUsual);
+    f.oursOrLine = false;
+    f.objectScript = false;
+    CHECK(coop::ForQuestCommand(f) == QuestCommandHere::AsUsual);
+    f.objectScript = true;
+    f.friendGame = false;
+    CHECK(coop::ForQuestCommand(f) == QuestCommandHere::AsUsual);
+}
+
+TEST(quest_commands_are_limited_and_not_repeated)
+{
+    coop::QuestCommandGate gate;
+    for (uint32_t i = 0; i < coop::QuestCommandGate::kPerSecond; ++i)
+        CHECK(gate.Take(1, 1000 + i));
+    CHECK(!gate.Take(1, 1500));
+    CHECK(gate.Take(2, 1500));
+    CHECK(gate.Take(1, 2001));
+    CHECK(!gate.Take(9, 2001));
+    coop::RecentQuestCommands sent;
+    CHECK(sent.ShouldSend(2, 0x000F8892, 30, 1, 1000));
+    CHECK(!sent.ShouldSend(2, 0x000F8892, 30, 1, 1000 + coop::RecentQuestCommands::kMs - 1));
+    CHECK(sent.ShouldSend(2, 0x000F8892, 30, 0, 1500));
+    CHECK(sent.ShouldSend(0, 0x000F8892, 40, 0, 1500));
+    CHECK(sent.ShouldSend(2, 0x000F8892, 30, 1, 1000 + coop::RecentQuestCommands::kMs));
+    for (uint32_t i = 0; i < coop::RecentQuestCommands::kKept; ++i)
+        sent.ShouldSend(1, 0x00100000 + i, 0, 1, 20000);
+    CHECK(sent.ShouldSend(2, 0x000F8892, 30, 1, 20001));
+}
+
+TEST(a_friends_quest_command_reaches_the_host_with_who_sent_it)
+{
+    coop::Coop host, a;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    QuestCommand bear{QuestCommandKind::CompleteObjective, 0x000F8892, 30, 1};
+    a.SendQuestCommand(bear);
+    std::vector<coop::Coop::QuestCommandFrom> got;
+    CHECK(RunUntil({&host, &a}, [&] {
+        for (auto& q : host.TakeQuestCommands())
+            got.push_back(q);
+        return !got.empty();
+    }));
+    CHECK(got.size() == 1 && got[0].playerId == a.MyPlayerId() && got[0].command == bear);
+    host.SendQuestCommand(bear);
+    RunUntil({&host, &a}, [&] { return false; }, 200);
+    CHECK(host.TakeQuestCommands().empty() && a.TakeQuestCommands().empty());
+    a.Stop();
+    host.Stop();
+}
+
 TEST(progress_watcher_shares_own_gains_only)
 {
     coop::ProgressWatcher w;
@@ -3950,6 +4892,103 @@ TEST(nearby_conversations_log_keeps_the_newest_lines_for_a_while)
     CHECK(shown.size() == 1 && shown[0].text == "Wraps");
     CHECK(coop::TalkLine("Easy Pete", "Who are you?") == "EASY PETE: Who are you?");
     CHECK(coop::TalkLine("", "Just text") == "Just text");
+}
+
+TEST(the_conversations_log_goes_where_its_set_and_stays_on_screen)
+{
+    auto at = [](float x, float y, float height) { return coop::PlaceTalkLog(x, y, 1700, 960, 600, height); };
+    coop::TalkLogCorner c = at(2, 25, 100);
+    CHECK(c.x == 34 && c.y == 240);
+    c = at(50, 50, 100);
+    CHECK(c.x == 850 && c.y == 480);
+    c = at(0, 0, 100);
+    CHECK(c.x == 8 && c.y == 8);
+    c = at(100, 100, 100);
+    CHECK(c.x == 1092 && c.y == 852);
+    c = at(100, 100, 300);
+    CHECK(c.y == 652);
+    c = at(0, 90, 2000);
+    CHECK(c.y == 8);
+    CHECK(coop::PlaceTalkLog(100, 0, 1700, 960, 1200, 100).x == 492);
+    CHECK(coop::PlaceTalkLog(100, 0, 1700, 960, 200, 100).x == 1492);
+
+    auto above = [](float hpX, float hpTop, float width, float height) {
+        return coop::PlaceTalkLogAboveHp(hpX, hpTop, 1700, 960, width, height);
+    };
+    c = above(100, 800, 600, 100);
+    CHECK(c.x == 100 && c.y == 692);
+    c = above(100, 800, 600, 300);
+    CHECK(c.x == 100 && c.y == 492);
+    CHECK(c.y + 300 + coop::kTalkLogAboveHp == 800);
+    c = above(100, 800, 600, 900);
+    CHECK(c.y == 8);
+    c = above(1500, 800, 600, 100);
+    CHECK(c.x == 1092);
+    c = above(-50, -20, 600, 100);
+    CHECK(c.x == 8 && c.y == 8);
+}
+
+TEST(the_conversations_preview_shows_as_many_lines_as_the_log_would)
+{
+    CHECK(coop::TalkLogPreview(4).size() == 4);
+    CHECK(coop::TalkLogPreview(1).size() == 1);
+    CHECK(coop::TalkLogPreview(0).empty());
+    CHECK(coop::TalkLogPreview(-1).empty());
+    CHECK(coop::TalkLogPreview(99).size() == coop::TalkLog::kMostLines);
+    bool slotUsed[coop::TalkLog::kMostLines] = {};
+    for (const coop::TalkLog::Shown& line : coop::TalkLogPreview(10))
+    {
+        CHECK(line.id != 0 && line.alpha == 1.0f && !line.text.empty());
+        CHECK(!slotUsed[line.id % coop::TalkLog::kMostLines]);
+        slotUsed[line.id % coop::TalkLog::kMostLines] = true;
+    }
+}
+
+TEST(the_conversations_log_settings_are_read_safely)
+{
+    std::string path = (std::filesystem::temp_directory_path() / ("nvcoop_test_talklog-" + std::to_string(GetCurrentProcessId()) + ".ini")).string();
+    auto write = [&](const char* text) {
+        if (FILE* f = nullptr; fopen_s(&f, path.c_str(), "wb") == 0 && f)
+        {
+            std::fputs(text, f);
+            std::fclose(f);
+        }
+    };
+    write("[Settings]\r\niTalkLogPlace=7\r\niTalkLogX=-5\r\niTalkLogY=250\r\niTalkLogWidth=50\r\n"
+        "iTalkLogAlign=3\r\nbTalkLogPreview=2\r\n");
+    Config c;
+    c.LoadPlayer(path);
+    CHECK(c.talkLogPlace == 0 && c.talkLogX == 2 && c.talkLogY == 25 && c.talkLogWidth == 600);
+    CHECK(c.talkLogAlign == 0 && !c.talkLogPreview);
+    write("[Settings]\r\niTalkLogPlace=1\r\niTalkLogX=100\r\niTalkLogY=0\r\niTalkLogWidth=1200.0000\r\n"
+        "iTalkLogAlign=1\r\nbTalkLogPreview=1\r\n");
+    c.LoadPlayer(path);
+    CHECK(c.talkLogPlace == 1 && c.talkLogX == 100 && c.talkLogY == 0 && c.talkLogWidth == 1200);
+    CHECK(c.talkLogAlign == 1 && c.talkLogPreview);
+    c.EndTalkLogPreview(path);
+    CHECK(!c.talkLogPreview);
+    Config again;
+    again.talkLogPreview = true;
+    again.LoadPlayer(path);
+    CHECK(!again.talkLogPreview);
+    std::filesystem::remove(path);
+}
+
+TEST(detached_quest_scripts_are_back_only_for_the_call)
+{
+    int a, b, other;
+    void* first = nullptr;
+    void* second = nullptr;
+    void* taken = &other;
+    std::vector<coop::DetachedSlot> detached{{&first, &a}, {&second, &b}, {&taken, &a}};
+    bool seen = coop::WithDetachedPutBack(detached, [&] { return first == &a && second == &b && taken == &other; });
+    CHECK(seen);
+    CHECK(first == nullptr && second == nullptr);
+    CHECK(taken == &other);
+    CHECK(!detached[0].putBack && !detached[1].putBack && !detached[2].putBack);
+    CHECK(coop::WithDetachedPutBack(detached, [&] { return first == &a; }) && first == nullptr);
+    std::vector<coop::DetachedSlot> none;
+    CHECK(coop::WithDetachedPutBack(none, [] { return 7; }) == 7);
 }
 
 TEST(only_the_games_own_quests_are_the_hosts_to_run)
@@ -4583,6 +5622,152 @@ TEST(mines_disarmed_or_gone_reach_everyone)
     host.Stop();
 }
 
+namespace
+{
+    void CheckNoSessionLeftovers(coop::Coop& c)
+    {
+        CHECK(c.GetRole() == coop::Role::None);
+        CHECK(c.Players().empty() && c.Remotes().empty() && c.Npcs().empty());
+        CHECK(c.Looks().empty() && c.Anims().empty() && c.PartyPerks().empty() && c.ModAnims().empty());
+        CHECK(c.TakeJoinAsks().empty());
+        CHECK(c.TakeHits().empty());
+        CHECK(c.TakePiles().empty());
+        CHECK(c.TakeMines().empty());
+        CHECK(c.TakeWelcomed().empty());
+        CHECK(c.TakeAttacks().empty());
+        CHECK(c.TakeChat().empty());
+        CHECK(c.TakeVoice().empty());
+        CHECK(c.TakeExplosions().empty());
+        CHECK(c.TakeCompanionOrders().empty());
+        CHECK(c.TakeContainerChanges().empty());
+        CHECK(c.TakeItemRefunds().empty());
+        CHECK(c.TakeItemTakes().empty() && c.TakeItemDrops().empty() && c.TakeItemMoves().empty());
+        CHECK(c.TakeDoorUses().empty());
+        CHECK(c.TakeNpcAttacks().empty());
+        CHECK(c.TakeRadioLines().empty());
+        CHECK(c.TakePlayerCommands().empty());
+        CHECK(c.TakeDesyncNotices().empty());
+        CHECK(c.TakeQuestStates().empty());
+        CHECK(c.TakeRefEnables().empty());
+        CHECK(c.TakeObjectStates().empty());
+        CHECK(c.TakeObjectLows().empty());
+        CHECK(c.TakeTerminalUses().empty());
+        CHECK(c.TakeActivatorUses().empty());
+        CHECK(c.TakeQuestCommands().empty());
+        CHECK(c.TakeProgress().empty());
+        CHECK(c.TakeReputations().empty());
+        CHECK(c.TakeReputationGains().empty());
+        CHECK(c.TakeTravelMarkers().empty());
+        CHECK(c.TakeTeleports().empty());
+        CHECK(c.TakeSubtitles().empty());
+        CHECK(c.TakeDialogueLines().empty());
+        CHECK(c.TakeSaveOrders().empty());
+        CHECK(c.TakeSaveAsks().empty());
+        CHECK(c.TakeWaitEvents().empty());
+        CHECK(c.TakeDamage() == 0);
+        CHECK(!c.TakeRevived());
+        CHECK(!c.TakeAskingHost());
+        CHECK(!c.TakeLoadRefused());
+        CHECK(!c.Frozen());
+        net::HealAlly heal;
+        CHECK(!c.TakeHeal(heal));
+        uint32_t item = 0;
+        CHECK(!c.TakeHealRefund(item));
+        net::GameOver over;
+        CHECK(!c.TakeGameOver(over));
+        coop::Pose pose;
+        uint8_t leader = 0;
+        CHECK(!c.TakeTravel(pose, leader));
+        net::GameTime time;
+        CHECK(!c.TakeGameTime(time));
+        int32_t xp = 0;
+        CHECK(!c.TakeHostXp(xp));
+    }
+}
+
+TEST(stop_forgets_everything_the_session_heard)
+{
+    coop::Coop host, ann, carl, bob;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(ann.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(carl.Join("127.0.0.1", kTestPort, "Carl"));
+    CHECK(RunUntil({&host, &ann, &carl}, [&] {
+        return ann.GetFriendState() == coop::FriendState::Joined && carl.GetFriendState() == coop::FriendState::Joined;
+    }));
+
+    ann.ReportHit(0x14, 25);
+    ann.ReportPile(0x0010706E, net::kPileGoo);
+    ann.SendChat("still here?");
+    ann.Attack(2);
+    ann.ReportMine(0x0010873F, net::kMineOff);
+    std::vector<coop::Coop::MineFrom> atCarl;
+    CHECK(RunUntil({&host, &ann, &carl}, [&] {
+        for (auto& x : carl.TakeMines()) atCarl.push_back(x);
+        return !atCarl.empty();
+    }));
+    host.SetAutoApprove(false);
+    CHECK(bob.Join("127.0.0.1", kTestPort, "Bob"));
+    CHECK(RunUntil({&host, &ann, &carl, &bob}, [&] {
+        for (const auto& [peer, p] : host.Players())
+            if (p.awaitingApproval)
+                return true;
+        return false;
+    }));
+
+    bob.Stop();
+    carl.Stop();
+    ann.Stop();
+    host.Stop();
+    CheckNoSessionLeftovers(host);
+    CheckNoSessionLeftovers(ann);
+    CheckNoSessionLeftovers(carl);
+    CheckNoSessionLeftovers(bob);
+
+    host.SetAutoApprove(true);
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(ann.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(RunUntil({&host, &ann}, [&] { return ann.GetFriendState() == coop::FriendState::Joined; }));
+    std::vector<uint8_t> welcomed = host.TakeWelcomed();
+    CHECK(welcomed.size() == 1);
+    CHECK(host.TakeHits().empty() && host.TakePiles().empty() && host.TakeMines().empty() &&
+        host.TakeJoinAsks().empty() && host.TakeChat().empty() && host.TakeAttacks().empty());
+    ann.ReportHit(0x15, 10);
+    std::vector<coop::HitReport> hits;
+    CHECK(RunUntil({&host, &ann}, [&] {
+        for (auto& h : host.TakeHits()) hits.push_back(h);
+        return !hits.empty();
+    }));
+    CHECK(hits.size() == 1 && hits[0].targetRef == 0x15 && hits[0].damage == 10);
+    ann.Stop();
+    host.Stop();
+}
+
+TEST(mod_server_clear_drops_jobs_and_pieces)
+{
+    std::string folder = TempFolder("nvcoop_modserver_clear");
+    CreateDirectoryA(folder.c_str(), nullptr);
+    std::string file = folder + "plugin.esp";
+    WriteFile(file, "TES4data");
+    coop::ModServer server;
+    coop::ModServer::Piece piece;
+    CHECK(server.Ask(7, 0, file, 0, 4));
+    bool got = false;
+    for (int i = 0; i < 300 && !(got = server.Take(piece)); ++i)
+        Sleep(10);
+    CHECK(got && piece.peer == 7 && piece.piece.ok && piece.piece.data.size() == 4);
+    CHECK(server.Ask(7, 1, file, 0, 4));
+    server.Clear();
+    Sleep(200);
+    CHECK(!server.Take(piece));
+    CHECK(server.Ask(9, 2, file, 4, 4));
+    got = false;
+    for (int i = 0; i < 300 && !(got = server.Take(piece)); ++i)
+        Sleep(10);
+    CHECK(got && piece.peer == 9 && piece.piece.index == 2 && piece.piece.ok);
+    DeleteFileA(file.c_str());
+    RemoveDirectoryA(folder.c_str());
+}
+
 TEST(friend_items_bring_back_what_our_save_lost)
 {
     using coop::LocalItem;
@@ -4824,6 +6009,84 @@ TEST(a_players_furniture_animation_reaches_the_others)
     CHECK(RunUntil({&host, &a, &b2, &late}, [&] { return late.Anims().count(coop::kHostPlayerId) == 1; }));
 }
 
+TEST(party_perks_reach_everyone_and_leave_with_their_player)
+{
+    MsgType t;
+    net::PartyPerks m;
+    Bytes b = Encode(net::PartyPerks{2, coop::kScrounger | coop::kCertifiedTech});
+    Reader r(b);
+    CHECK(r.Type(t) && t == MsgType::PartyPerks && Decode(r, m) && m.player == 2 &&
+        m.perks == (coop::kScrounger | coop::kCertifiedTech));
+    Bytes bad = Encode(net::PartyPerks{2, 0x10});
+    Reader rb(bad);
+    CHECK(rb.Type(t) && !Decode(rb, m));
+
+    coop::Coop host, a, b2;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(b2.Join("127.0.0.1", kTestPort, "Bob"));
+    CHECK(RunUntil({&host, &a, &b2}, [&] {
+        return a.GetFriendState() == coop::FriendState::Joined && b2.GetFriendState() == coop::FriendState::Joined;
+    }));
+    uint8_t ann = a.MyPlayerId();
+    a.SetMyPartyPerks(coop::kThemsGoodEatin);
+    CHECK(RunUntil({&host, &a, &b2}, [&] {
+        auto h = host.PartyPerks().find(ann), o = b2.PartyPerks().find(ann);
+        return h != host.PartyPerks().end() && h->second == coop::kThemsGoodEatin && o != b2.PartyPerks().end() &&
+            o->second == coop::kThemsGoodEatin;
+    }));
+    CHECK(a.PartyPerks().empty());
+    host.SetMyPartyPerks(coop::kFortuneFinder | 0x80);
+    CHECK(host.MyPartyPerks() == coop::kFortuneFinder);
+    CHECK(RunUntil({&host, &a, &b2}, [&] {
+        return a.PartyPerks().count(coop::kHostPlayerId) == 1 && b2.PartyPerks().count(coop::kHostPlayerId) == 1;
+    }));
+    coop::Coop late;
+    CHECK(late.Join("127.0.0.1", kTestPort, "Cat"));
+    CHECK(RunUntil({&host, &a, &b2, &late}, [&] {
+        return late.PartyPerks().count(coop::kHostPlayerId) == 1 && late.PartyPerks().count(ann) == 1;
+    }));
+    a.Stop();
+    CHECK(RunUntil({&host, &b2, &late}, [&] {
+        return !host.PartyPerks().count(ann) && !b2.PartyPerks().count(ann) && !late.PartyPerks().count(ann);
+    }));
+}
+
+TEST(party_perks_kill_loot_and_odds)
+{
+    using namespace coop;
+    CHECK(KillLoot(kThemsGoodEatin, 0, false, false) == kThemsGoodEatin);
+    CHECK(KillLoot(kThemsGoodEatin, 0, false, true) == 0);
+    CHECK(KillLoot(kCertifiedTech | kThemsGoodEatin, 0, false, true) == kCertifiedTech);
+    CHECK(KillLoot(kThemsGoodEatin, kThemsGoodEatin, true, false) == 0);
+    CHECK(KillLoot(kThemsGoodEatin, kThemsGoodEatin, false, false) == kThemsGoodEatin);
+    CHECK(KillLoot(kThemsGoodEatin, 0, true, false) == kThemsGoodEatin);
+    CHECK(KillLoot(kScrounger | kFortuneFinder, 0, false, false) == 0);
+
+    CHECK(OddsTarget(true, true, 100, 25, 100) < 0);
+    CHECK(OddsTarget(true, false, 25, 25, 100) < 0);
+    CHECK(OddsTarget(false, true, 100, 25, 100) == 25);
+    CHECK(OddsTarget(false, true, 25, 25, 100) < 0);
+    CHECK(OddsTarget(false, false, 25, 25, 100) == 100);
+    CHECK(OddsTarget(false, false, 100, 25, 100) < 0);
+    CHECK(OddsTarget(false, false, 60, 25, 100) < 0);
+
+    KillCredits k;
+    k.Hit(0x1234, 0, 1000);
+    k.Hit(0x1234, 2, 1500);
+    k.Hit(0x5678, 1, 1000);
+    CHECK(k.Recent(2000).size() == 2);
+    CHECK(k.Died(0x1234, 2000) == 2);
+    CHECK(k.Died(0x1234, 2000) == -1);
+    CHECK(k.Died(0x5678, 1000 + KillCredits::kCreditMs + 1) == -1);
+    k.Hit(0x9999, 1, 3000);
+    CHECK(k.Recent(3000 + KillCredits::kCreditMs + 1).empty());
+    for (uint32_t i = 1; i <= KillCredits::kMax + 10; ++i)
+        k.Hit(i, 1, 4000 + i);
+    CHECK(k.Size() == KillCredits::kMax);
+    CHECK(k.Died(1, 4200) == -1 && k.Died(KillCredits::kMax + 10, 4200) == 1);
+}
+
 TEST(a_players_speed_and_mod_animations_reach_the_others)
 {
     MsgType t;
@@ -4971,4 +6234,271 @@ TEST(a_stack_merged_away_is_seen_gone)
     coop::StackNode broken{&b, nullptr};
     broken.next = &broken;
     CHECK(coop::HoldsStack(&broken, &a));
+}
+
+TEST(a_replayed_use_leaves_the_other_player_alone)
+{
+    using coop::UseCommand;
+    coop::UseCommandFacts f;
+    CHECK(coop::ForUse(f) == UseCommand::AsUsual);
+    f.replaying = true;
+    CHECK(coop::ForUse(f) == UseCommand::AsUsual);
+    f.screenOrControls = f.controls = true;
+    CHECK(coop::ForUse(f) == UseCommand::NotHere);
+    f.ownUse = true;
+    CHECK(coop::ForUse(f) == UseCommand::NotHere);
+    coop::UseCommandFacts menu;
+    menu.replaying = true;
+    menu.opensScreen = true;
+    CHECK(coop::ForUse(menu) == UseCommand::NotHere);
+    coop::UseCommandFacts moved;
+    moved.replaying = true;
+    moved.onOurPlayer = true;
+    CHECK(coop::ForUse(moved) == UseCommand::NotHere);
+}
+
+TEST(our_own_use_keeps_its_controls_to_itself)
+{
+    using coop::UseCommand;
+    coop::UseCommandFacts f;
+    f.ownUse = true;
+    CHECK(coop::ForUse(f) == UseCommand::AsUsual);
+    f.screenOrControls = f.controls = true;
+    CHECK(coop::ForUse(f) == UseCommand::OursAlone);
+    f.friendGame = true;
+    CHECK(coop::ForUse(f) == UseCommand::OursAlone);
+    f.controls = false;
+    CHECK(coop::ForUse(f) == UseCommand::AsUsual);
+    f.friendGame = false;
+    CHECK(coop::ForUse(f) == UseCommand::OursAlone);
+    coop::UseCommandFacts trigger;
+    trigger.screenOrControls = trigger.controls = true;
+    CHECK(coop::ForUse(trigger) == UseCommand::AsUsual);
+}
+
+TEST(an_objects_own_explosion_isnt_sent)
+{
+    CHECK(coop::ShareExplosion(true, false, false));
+    CHECK(coop::ShareExplosion(false, true, false));
+    CHECK(!coop::ShareExplosion(false, false, false));
+    CHECK(!coop::ShareExplosion(true, false, true));
+    CHECK(!coop::ShareExplosion(false, true, true));
+}
+
+TEST(our_own_use_never_leaves_us_locked)
+{
+    using Step = coop::OwnUseLock::Step;
+    coop::OwnUseLock l;
+    CHECK(!l.On() && l.Update(1000, true, false) == Step::None);
+    l.Locked(1000, 0x0F);
+    CHECK(l.On() && l.Switches() == 0x0F);
+    CHECK(l.Update(5000, true, false) == Step::None);
+    CHECK(l.Update(9000, false, false) == Step::Over);
+    CHECK(!l.On() && !l.ConversationClosed());
+    l.Locked(10000, 0x01);
+    CHECK(l.ConversationClosed());
+    CHECK(l.Update(10000 + coop::OwnUseLock::kMs - 1, true, false) == Step::None);
+    CHECK(l.Update(10000 + coop::OwnUseLock::kMs, true, false) == Step::GiveBack);
+    l.Clear();
+    l.Locked(0xFFFFF000u, 0x01);
+    CHECK(l.Update(0xFFFFF000u + 30000, true, true) == Step::None);
+    CHECK(l.Update(0xFFFFF000u + 30000 + coop::OwnUseLock::kMs - 1, true, false) == Step::None);
+    CHECK(l.Update(0xFFFFF000u + 30000 + coop::OwnUseLock::kMs, true, false) == Step::GiveBack);
+}
+
+TEST(a_copy_is_unprotected_then_killed_at_the_next_look)
+{
+    using Do = coop::CopyKill::Do;
+    coop::CopyKill k;
+    CHECK(k.Step(1000, false) == Do::Unprotect);
+    CHECK(k.Step(1016, false) == Do::Kill);
+    CHECK(k.Step(1032, true) == Do::Nothing);
+    CHECK(k.Step(9000, true) == Do::Nothing);
+    CHECK(k.Tries() == 1);
+    coop::CopyKill dead;
+    CHECK(dead.Step(5, true) == Do::Nothing);
+    CHECK(dead.Tries() == 0);
+}
+
+TEST(a_copy_that_wont_stay_dead_is_left_alone_after_a_few_kills)
+{
+    using Do = coop::CopyKill::Do;
+    coop::CopyKill k;
+    uint32_t now = 0xFFFFF000u;
+    for (int i = 0; i < coop::CopyKill::kMaxTries; ++i)
+    {
+        CHECK(k.Step(now, false) == Do::Unprotect);
+        CHECK(k.Step(now + 16, false) == Do::Kill);
+        CHECK(k.Step(now + coop::CopyKill::kAgainMs - 1, false) == Do::Nothing);
+        now += coop::CopyKill::kAgainMs;
+    }
+    CHECK(k.Step(now, false) == Do::GiveUp);
+    CHECK(k.Step(now + 60000, false) == Do::Nothing);
+    CHECK(k.Tries() == coop::CopyKill::kMaxTries);
+}
+
+TEST(npcs_the_host_doesnt_share_are_held)
+{
+    coop::Holds holds;
+    coop::LocalActor ghoul{0xCD767}, shared{0xCD282}, player{0x14}, copy{0xFF000801}, dead{0xCD283}, off{0xCD284},
+        away{0xCD768}, unloaded{0xCD769};
+    shared.sharedByHost = true;
+    player.playerOrStandIn = true;
+    copy.ourCopy = true;
+    dead.alive = false;
+    off.enabled = false;
+    away.samePlace = false;
+    unloaded.loaded = false;
+    std::vector<coop::LocalActor> nearby{ghoul, shared, player, copy, dead, off, away, unloaded};
+    coop::Holds::Changes c = holds.Look(nearby, false);
+    CHECK(c.start == std::vector<uint32_t>{0xCD767} && c.release.empty());
+    CHECK(holds.IsHeld(0xCD767) && holds.Count() == 1);
+    CHECK(!holds.IsHeld(0xCD282) && !holds.IsHeld(0x14) && !holds.IsHeld(0xFF000801) && !holds.IsHeld(0xCD283));
+    c = holds.Look(nearby, false);
+    CHECK(c.start.empty() && c.release.empty());
+    nearby[0].sharedByHost = true;
+    c = holds.Look(nearby, false);
+    CHECK(c.start.empty() && c.release.size() == 1 && c.release[0].ref == 0xCD767 && !holds.IsHeld(0xCD767));
+    nearby[0].sharedByHost = false;
+    holds.Look(nearby, false);
+    c = holds.Look({}, false);
+    CHECK(c.release.size() == 1 && c.release[0].ref == 0xCD767 && holds.Count() == 0);
+    holds.Look(nearby, false);
+    c = holds.Look(nearby, true);
+    CHECK(c.release.size() == 1 && c.release[0].ref == 0xCD767 && c.start.empty());
+    holds.Look(nearby, false);
+    using Released = std::vector<coop::Holds::Released>;
+    const Released plain{{0xCD767, false}}, ghost{{0xCD767, true}};
+    CHECK(holds.ReleaseAll() == plain && holds.Count() == 0);
+    holds.Look(nearby, false);
+    holds.NoteGhost(0xCD767, true);
+    holds.NoteGhost(0xABCDEF, true);
+    c = holds.Look({}, false);
+    CHECK(c.release == ghost);
+    holds.Look(nearby, false);
+    nearby[0].sharedByHost = true;
+    CHECK(holds.Look(nearby, false).release == plain);
+    nearby[0].sharedByHost = false;
+    std::vector<coop::LocalActor> many;
+    for (uint32_t i = 1; i <= coop::Holds::kMaxHolds + 10; ++i)
+        many.push_back(coop::LocalActor{0x100000 + i});
+    CHECK(holds.Look(many, false).start.size() == coop::Holds::kMaxHolds);
+}
+
+TEST(far_cells_keep_a_ring_from_the_grid)
+{
+    CHECK(coop::NearGrid(-3, -8, -3, -8, 2));
+    CHECK(coop::NearGrid(-1, -10, -3, -8, 2));
+    CHECK(coop::NearGrid(0, -10, -3, -8, 2));
+    CHECK(coop::NearGrid(-6, -5, -3, -8, 2));
+    CHECK(!coop::NearGrid(1, -10, -3, -8, 2));
+    CHECK(!coop::NearGrid(-3, -12, -3, -8, 2));
+    CHECK(coop::NearGrid(-3, -4, -3, -8, 3));
+}
+
+TEST(far_cells_follow_friends)
+{
+    using coop::Cell;
+    std::set<Cell> ours;
+    std::vector<coop::FriendCell> friends{{1, 1, -10}};
+    for (int i = 0; i < 9; ++i)
+    {
+        coop::FarPlan p = coop::PlanFarCells(ours, friends, -5, -8, 2, 1800);
+        CHECK(p.attach.size() == 1 && p.detach.empty());
+        ours.insert(p.attach[0]);
+    }
+    CHECK(ours.size() == 9 && ours.count({0, -11}) && ours.count({2, -9}));
+    CHECK(coop::PlanFarCells(ours, friends, -5, -8, 2, 1800).attach.empty());
+    friends[0].x = 2;
+    coop::FarPlan p = coop::PlanFarCells(ours, friends, -5, -8, 2, 1800);
+    CHECK(p.detach.empty() && p.attach.size() == 1 && p.attach[0].first == 3);
+    friends[0].x = 3;
+    p = coop::PlanFarCells(ours, friends, -5, -8, 2, 1800);
+    CHECK(p.detach.size() == 3 && p.detach[0].first == 0);
+    p = coop::PlanFarCells(ours, friends, -2, -9, 2, 1800);
+    for (const Cell& c : p.detach)
+        CHECK(coop::NearGrid(c.first, c.second, -2, -9, 2) || c.first == 0);
+    CHECK(p.detach.size() >= 6);
+    std::set<Cell> none;
+    p = coop::PlanFarCells(none, friends, -5, -8, 2, 3400);
+    CHECK(p.attach.empty() && p.memoryFull);
+    p = coop::PlanFarCells(ours, {{1, 1, -10}}, -5, -8, 2, 3400);
+    CHECK(p.detach.empty());
+    CHECK(coop::PlanFarCells(none, {{1, -5, -8}}, -5, -8, 2, 1800).attach.empty());
+    std::vector<coop::FriendCell> four{{4, 20, 20}, {1, 10, 10}, {3, -20, -20}, {2, 15, -15}};
+    std::set<Cell> got;
+    for (int i = 0; i < 40; ++i)
+    {
+        coop::FarPlan q = coop::PlanFarCells(got, four, -5, -8, 2, 1800);
+        if (q.attach.empty())
+            break;
+        got.insert(q.attach[0]);
+    }
+    CHECK(got.size() == 27 && !got.count({20, 20}) && got.count({-20, -20}));
+}
+
+TEST(far_cells_stay_out_of_the_cell_buffer)
+{
+    int a, b, c, d;
+    int* buffer[5] = {&a, &b, &c, &d, nullptr};
+    CHECK(coop::TakeOutOfList(buffer, 5, &b));
+    CHECK(buffer[0] == &a && buffer[1] == &c && buffer[2] == &d && buffer[3] == nullptr && buffer[4] == nullptr);
+    CHECK(!coop::TakeOutOfList(buffer, 5, &b));
+    CHECK(coop::TakeOutOfList(buffer, 5, &a) && buffer[0] == &c);
+    int* full[3] = {&a, &b, &c};
+    CHECK(coop::TakeOutOfList(full, 3, &c) && full[2] == nullptr && full[1] == &b);
+    CHECK(!coop::TakeOutOfList<int*>(nullptr, 3, &a) && !coop::TakeOutOfList(full, 3, static_cast<int*>(nullptr)));
+}
+
+TEST(a_downed_player_gets_no_death_playback)
+{
+    CHECK(!coop::vats::DeathPlaybackAllowed(6));
+    CHECK(coop::vats::DeathPlaybackAllowed(1) && coop::vats::DeathPlaybackAllowed(2));
+    CHECK(coop::vats::DeathPlaybackAllowed(0) && coop::vats::DeathPlaybackAllowed(3) && coop::vats::DeathPlaybackAllowed(-1));
+}
+
+TEST(vats_keeps_the_players_own_field_of_view)
+{
+    CHECK(coop::vats::FovFloor(75.0f) == 75.0f && coop::vats::FovFloor(90.0f) == 90.0f);
+    CHECK(coop::vats::FovFloor(10.0f) == 10.0f && coop::vats::FovFloor(170.0f) == 170.0f);
+    CHECK(coop::vats::FovFloor(0.0f) == 0.0f && coop::vats::FovFloor(9.9f) == 0.0f && coop::vats::FovFloor(171.0f) == 0.0f);
+    CHECK(coop::vats::FovFloor(-75.0f) == 0.0f && coop::vats::FovFloor(std::numeric_limits<float>::quiet_NaN()) == 0.0f);
+    CHECK(coop::vats::FovFloor(std::numeric_limits<float>::infinity()) == 0.0f);
+    int zeroed = 0;
+    for (const coop::vats::GameSetting& setting : coop::vats::kSettings)
+    {
+        std::string name = setting.name;
+        if (name == "fVATSTargetFOVMultNear" || name == "fVATSTargetFOVMultFar")
+            zeroed += setting.value == 0.0f;
+        if (name == "fVATSTargetSelectCamPanTime" || name == "fVATSCamZoomInTime")
+            CHECK(setting.value == 0.25f);
+        if (name == "fVATSPlaybackDelay")
+            CHECK(setting.value == 0.04f);
+    }
+    CHECK(zeroed == 2);
+}
+
+TEST(friends_face_gets_its_skin_tone_on_each_head_the_game_builds)
+{
+    using coop::FaceTone;
+    FaceTone face;
+    CHECK(face.TimeToLook(1000) && !face.TimeToLook(1000 + FaceTone::kLookMs - 1) &&
+          face.TimeToLook(1000 + FaceTone::kLookMs));
+    CHECK(!face.Check(0, true, 1000));
+    CHECK(!face.Check(0x1000, false, 1000));
+    CHECK(face.Check(0x1000, true, 1000));
+    face.Made(0x1000, 1000);
+    CHECK(!face.Check(0x2000, true, 1000 + FaceTone::kSettleMs - 1));
+    CHECK(!face.Check(0x2000, true, 1000 + FaceTone::kEveryMs));
+    CHECK(!face.Check(0x2000, true, 999999));
+    CHECK(face.Check(0x3000, true, 1000000));
+    face.Made(0x3000, 1000000);
+    CHECK(!face.Check(0x3000, true, 1000000 + FaceTone::kSettleMs));
+    CHECK(!face.Check(0x4000, true, 1000000 + FaceTone::kSettleMs + 1));
+    CHECK(face.Check(0x4000, true, 1000000 + FaceTone::kEveryMs));
+    FaceTone wrap;
+    wrap.Made(0x1000, 0xFFFFFFFFu - FaceTone::kEveryMs + 1);
+    CHECK(!wrap.Check(0x1000, true, 0xFFFFFFFFu));
+    CHECK(!wrap.Check(0x2000, true, 0xFFFFFFFFu));
+    CHECK(wrap.Check(0x2000, true, 1));
 }

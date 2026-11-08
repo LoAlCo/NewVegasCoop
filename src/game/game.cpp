@@ -1,9 +1,15 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
 #include "game/game.h"
+#include "game/internal.h"
 #include "game/level_up.h"
+#include "game/perk_menu.h"
+#include "coop/gear_lockers.h"
+#include "coop/activator_uses.h"
 #include "coop/chat.h"
+#include "coop/quests.h"
 #include "coop/talk_log.h"
+#include "coop/vats_feel.h"
 #include "coop/balance.h"
 
 #include <algorithm>
@@ -12,9 +18,11 @@
 #include <atomic>
 #include <utility>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <mutex>
 #include <deque>
+#include <functional>
 #include <intrin.h>
 
 #include "coop/attack_versions.h"
@@ -37,1749 +45,6 @@ extern const _FormHeap_Free FormHeap_Free = reinterpret_cast<_FormHeap_Free>(gam
 
 namespace game
 {
-    namespace
-    {
-        NVSEScriptInterface* g_scripts = nullptr;
-        NVSEEventManagerInterface* g_events = nullptr;
-        NVSEArrayVarInterface* g_arrays = nullptr;
-        NVSEConsoleInterface* g_console = nullptr;
-        bool g_compiled = false;
-        Script* g_spawn = nullptr;
-        Script* g_bringToPlayer = nullptr;
-        Script* g_move = nullptr;
-        Script* g_travel = nullptr;
-        Script* g_remove = nullptr;
-        Script* g_playerFlags = nullptr;
-        Script* g_clone = nullptr;
-        Script* g_noTalk = nullptr;
-        Script* g_fire = nullptr;
-        std::array<Script*, coop::kAttackVersions> g_attackAnim{};
-        std::array<Script*, coop::kAttackVersions> g_throwAnim{};
-        std::array<Script*, coop::kAttackVersions> g_mineAnim{};
-        Script* g_placeAt = nullptr;
-        Script* g_rounds = nullptr;
-        std::map<uint32_t, TESForm*> g_harmless;
-        constexpr size_t kMaxHarmless = 256;
-        std::map<uint32_t, BGSProjectile*> g_harmlessProjectiles;
-        std::map<uint32_t, BGSExplosion*> g_harmlessExplosions;
-        std::map<uint32_t, BGSExplosion*> g_quietExplosions;
-        uint32_t g_myWeapon = 0;
-        int g_myRounds = -1;
-        int g_myAction = -1;
-        coop::ShotCounter g_myShots;
-        std::vector<uint32_t> g_standInBases;
-        constexpr size_t kMaxStandInBases = 32;
-        Script* g_turn = nullptr;
-        Script* g_equipped = nullptr;
-        Script* g_removeAllItems = nullptr;
-        Script* g_addAndEquip = nullptr;
-        Script* g_removeItem = nullptr;
-        Script* g_addItems = nullptr;
-        Script* g_alert = nullptr;
-        Script* g_restrain = nullptr;
-        Script* g_evaluate = nullptr;
-        Script* g_combatOff = nullptr;
-
-        constexpr int kEquipSlots = 20;
-        Script* g_notify = nullptr;
-        Script* g_notifyFor = nullptr;
-        Script* g_moveBy = nullptr;
-        Script* g_health = nullptr;
-        Script* g_level = nullptr;
-        Script* g_hit = nullptr;
-        Script* g_maxHealth = nullptr;
-        Script* g_changeHealth = nullptr;
-        Script* g_makeCompanion = nullptr;
-        Script* g_stopFighting = nullptr;
-        Script* g_kill = nullptr;
-        Script* g_playedIdle = nullptr;
-        Script* g_combatTarget = nullptr;
-        Script* g_forceTarget = nullptr;
-        Script* g_update3D = nullptr;
-        Script* g_isLocked = nullptr;
-        Script* g_pileKind = nullptr;
-        Script* g_makePile = nullptr;
-        Script* g_fovNow = nullptr;
-        Script* g_placeExtra = nullptr;
-        Script* g_thinAmmo = nullptr;
-        Script* g_playIdle = nullptr;
-        Script* g_setMaxHealth = nullptr;
-        Script* g_stopIdle = nullptr;
-        Script* g_npcRounds = nullptr;
-        Script* g_wornGear = nullptr;
-        Script* g_wearAt = nullptr;
-        Script* g_idleGroup = nullptr;
-        Script* g_forceStopIdle = nullptr;
-        Script* g_madeClear = nullptr;
-        Script* g_madeAdd = nullptr;
-        Script* g_madeCount = nullptr;
-        Script* g_madeGet = nullptr;
-        Script* g_resurrect = nullptr;
-        Script* g_unconscious = nullptr;
-        Script* g_controls = nullptr;
-        Script* g_controlPressed = nullptr;
-        Script* g_menuMode = nullptr;
-        Script* g_keyPressed = nullptr;
-        Script* g_chatHud = nullptr;
-        Script* g_chatShow = nullptr;
-        Script* g_onScreen = nullptr;
-        constexpr int kChatAboveSlots = 5;
-        Script* g_chatAbove[kChatAboveSlots] = {};
-        constexpr int kMarkSlots = 4;
-        Script* g_mark[kMarkSlots] = {};
-        Script* g_questStage = nullptr;
-        Script* g_tutorialTimer = nullptr;
-        Script* g_leaveTutorial = nullptr;
-        Script* g_activateBy = nullptr;
-        Script* g_starterGear = nullptr;
-        Script* g_effectTrait = nullptr;
-        Script* g_loadedOfType = nullptr;
-        Script* g_showMap = nullptr;
-        Script* g_questObject = nullptr;
-        Script* g_itemCount = nullptr;
-        Script* g_sitNearest = nullptr;
-        Script* g_reviveBar = nullptr;
-        constexpr int kTalkSlots = static_cast<int>(coop::TalkLog::kMostLines);
-        constexpr int kTalkEdges = 4;
-        Script* g_talkText[kTalkSlots] = {};
-        Script* g_talkPlace[kTalkSlots] = {};
-        Script* g_talkBack[kTalkSlots] = {};
-        Script* g_speedMult = nullptr;
-        Script* g_actorAlpha = nullptr;
-        Script* g_collision = nullptr;
-        TESForm* g_teleporter = nullptr;
-        Script* g_armorDR = nullptr;
-        Script* g_itemValue = nullptr;
-        Script* g_bodyPartLists = nullptr;
-        Script* g_bodyPartMult = nullptr;
-        Script* g_keyDisabled = nullptr;
-        Script* g_disableKey = nullptr;
-        Script* g_controlDisabled = nullptr;
-        Script* g_disableControl = nullptr;
-        Script* g_loadingScreen = nullptr;
-        Script* g_aiState = nullptr;
-        Script* g_print = nullptr;
-        Script* g_openState = nullptr;
-        Script* g_setOpen = nullptr;
-        Script* g_lock = nullptr;
-        Script* g_contents = nullptr;
-        Script* g_addItem = nullptr;
-        Script* g_activate = nullptr;
-        Script* g_refreshItems = nullptr;
-        Script* g_loadOrder = nullptr;
-        Script* g_objectiveShown = nullptr;
-        Script* g_objectiveDone = nullptr;
-        Script* g_completeQuest = nullptr;
-        Script* g_enable = nullptr;
-        Script* g_inDialogue = nullptr;
-        Script* g_closeMenu = nullptr;
-        Script* g_greet = nullptr;
-        Script* g_xp = nullptr;
-        Script* g_karma = nullptr;
-        Script* g_giveXp = nullptr;
-        Script* g_giveKarma = nullptr;
-        std::vector<EnableChange> g_enables;
-        constexpr size_t kMaxPendingEnables = 1024;
-
-        void RecordEnable(void* parameters, bool enabled)
-        {
-            auto** args = static_cast<void**>(parameters);
-            auto* ref = args ? static_cast<TESObjectREFR*>(args[0]) : nullptr;
-            if (ref && (ref->refID >> 24) != 0xFF && g_enables.size() < kMaxPendingEnables)
-                g_enables.push_back({ref->refID, enabled});
-        }
-
-        void OnEnable(TESObjectREFR*, void* parameters) { RecordEnable(parameters, true); }
-        void OnDisable(TESObjectREFR*, void* parameters) { RecordEnable(parameters, false); }
-        Script* g_placeItem = nullptr;
-        Script* g_itemCondition = nullptr;
-        Script* g_moveItem = nullptr;
-        Script* g_grabbed = nullptr;
-        Script* g_followers = nullptr;
-        Script* g_isTeammate = nullptr;
-        Script* g_crosshair = nullptr;
-        Script* g_limbsGone = nullptr;
-        NVSECommandTableInterface* g_cmdTable = nullptr;
-        Script* g_pcAddItem = nullptr;
-        Script* g_changeKind = nullptr;
-        Script* g_pcRemoveItem = nullptr;
-        Script* g_pcRemoveAll = nullptr;
-        Script* g_pcRemoveAllTyped = nullptr;
-        Script* g_pcGiveAll = nullptr;
-        Script* g_pcEquip = nullptr;
-        Script* g_pcUnequip = nullptr;
-        Script* g_pcAddPerk = nullptr;
-        Script* g_pcRemovePerk = nullptr;
-        Script* g_perkRanks = nullptr;
-        Script* g_pcAddNote = nullptr;
-        Script* g_pcRemoveNote = nullptr;
-        Script* g_pcAddImod = nullptr;
-        Script* g_pcRemoveImod = nullptr;
-        Script* g_pcDisable = nullptr;
-        Script* g_pcEnable = nullptr;
-        Script* g_pcCast = nullptr;
-        Script* g_pcAddPackage = nullptr;
-        Script* g_pcRemovePackage = nullptr;
-        Script* g_teammates = nullptr;
-        Script* g_isWaiting = nullptr;
-        Script* g_setWaiting = nullptr;
-        Script* g_followPackage = nullptr;
-        Script* g_givePackage = nullptr;
-        Script* g_dropPackage = nullptr;
-        Script* g_currentPackage = nullptr;
-        Script* g_inCombat = nullptr;
-        Script* g_wheelOpen = nullptr;
-        Script* g_isMobile = nullptr;
-        Script* g_disable = nullptr;
-
-        struct PendingHit { uint32_t refId; uint32_t attackerId; float healthAtHit; };
-        std::vector<PendingHit> g_myHits;
-        constexpr size_t kMaxPendingHits = 64;
-
-        constexpr float kRadToDeg = 57.2957795f;
-        constexpr int kPuppetAmmo = 500;
-
-        std::set<const Script*> g_ourScripts;
-
-        Script* Compile(const char* what, const std::string& text)
-        {
-            Script* s = g_scripts->CompileScript(text.c_str());
-            if (!s)
-                LOG_ERROR("Couldn't compile the %s script", what);
-            else
-                g_ourScripts.insert(s);
-            return s;
-        }
-
-        std::array<Script*, coop::kAttackVersions> CompileVersions(const char* what, const char* group)
-        {
-            const char* const kSuffixes[coop::kAttackVersions] = {"", "Up", "Down"};
-            std::array<Script*, coop::kAttackVersions> scripts{};
-            for (int i = 0; i < coop::kAttackVersions; ++i)
-                scripts[i] = Compile(what, std::string("Begin Function {}\n  PlayGroupAlt ") + group + kSuffixes[i] +
-                    " 1\nEnd\n");
-            return scripts;
-        }
-
-        uint32_t FloatArg(float f) { return *reinterpret_cast<uint32_t*>(&f); }
-
-        float Number(Script* script, TESObjectREFR* ref)
-        {
-            NVSEArrayVarInterface::Element result;
-            if (!g_compiled || !ref || !g_scripts->CallFunction(script, ref, nullptr, &result, 0))
-                return 0;
-            return static_cast<float>(result.GetNumber());
-        }
-
-        void OnHit(TESObjectREFR*, void* parameters)
-        {
-            auto** args = static_cast<void**>(parameters);
-            auto* victim = static_cast<TESObjectREFR*>(args[0]);
-            auto* attacker = static_cast<TESForm*>(args[1]);
-            if (!g_compiled || !IsActor(victim) || g_myHits.size() >= kMaxPendingHits)
-                return;
-            if (victim == Player())
-            {
-                if (!attacker || attacker == Player() || !IsActor(static_cast<TESObjectREFR*>(attacker)))
-                    return;
-            }
-            else
-            {
-                bool onStandIn = victim->baseForm && std::find(g_standInBases.begin(), g_standInBases.end(),
-                    victim->baseForm->refID) != g_standInBases.end();
-                if (!onStandIn && (!attacker || attacker != Player()))
-                    return;
-            }
-            for (const PendingHit& p : g_myHits)
-                if (p.refId == victim->refID)
-                    return;
-            float health = Health(victim);
-            if (health > 0)
-                g_myHits.push_back({victim->refID, attacker ? attacker->refID : 0, health});
-        }
-    }
-
-    bool Init(const NVSEInterface* nvse)
-    {
-        g_scripts = static_cast<NVSEScriptInterface*>(nvse->QueryInterface(kInterface_Script));
-        if (!g_scripts)
-            LOG_ERROR("xNVSE has no script interface (xNVSE too old?)");
-        g_events = static_cast<NVSEEventManagerInterface*>(nvse->QueryInterface(kInterface_EventManager));
-        if (!g_events)
-            LOG_ERROR("xNVSE has no event interface (xNVSE too old?)");
-        g_console = static_cast<NVSEConsoleInterface*>(nvse->QueryInterface(kInterface_Console));
-        g_arrays = static_cast<NVSEArrayVarInterface*>(nvse->QueryInterface(kInterface_ArrayVar));
-        g_cmdTable = static_cast<NVSECommandTableInterface*>(nvse->QueryInterface(kInterface_CommandTable));
-        return g_scripts && g_events;
-    }
-
-    bool ListenForHits()
-    {
-        if (g_events && g_events->SetNativeEventHandler("OnHit", OnHit))
-            return true;
-        LOG_ERROR("Couldn't listen for hits");
-        return false;
-    }
-
-    bool ListenForEnables()
-    {
-        if (g_events && g_events->SetNativeEventHandler("OnEnable", OnEnable) &&
-            g_events->SetNativeEventHandler("OnDisable", OnDisable))
-            return true;
-        LOG_ERROR("Couldn't listen for things being switched on and off");
-        return false;
-    }
-
-    bool CompileScripts()
-    {
-        if (g_compiled || !g_scripts)
-            return g_compiled;
-
-        using namespace ids;
-        g_spawn = Compile("place",
-            "ref rBase\n"
-            "ref rNew\n"
-            "Begin Function {rBase}\n"
-            "  set rNew to PlaceAtMe rBase 1\n"
-            "  SetFunctionValue rNew\n"
-            "End\n");
-        g_clone = Compile("copy form",
-            "ref rBase\n"
-            "ref rCopy\n"
-            "Begin Function {rBase}\n"
-            "  set rCopy to TempCloneForm rBase\n"
-            "  SetFunctionValue rCopy\n"
-            "End\n");
-        g_noTalk = Compile("no talking",
-            "Begin OnActivate\n"
-            "  return\n"
-            "End\n");
-        if (g_noTalk)
-            g_noTalk->info.type = Script::eType_Object;
-        g_fire = Compile("fire weapon",
-            "ref rWeapon\n"
-            "Begin Function {rWeapon}\n"
-            "  FireWeapon rWeapon\n"
-            "End\n");
-        g_throwAnim = CompileVersions("throw animation", "AttackThrow");
-        g_mineAnim = CompileVersions("mine animation", "PlaceMine");
-        g_placeAt = Compile("place at",
-            "ref rForm\n"
-            "ref rWhere\n"
-            "float fX\n"
-            "float fY\n"
-            "float fZ\n"
-            "Begin Function {rForm, rWhere, fX, fY, fZ}\n"
-            "  PlaceAtCell rForm 1 rWhere fX fY fZ\n"
-            "End\n");
-        g_attackAnim = CompileVersions("attack animation", "AttackRight");
-        g_rounds = Compile("rounds",
-            "int iRounds\n"
-            "Begin Function {}\n"
-            "  set iRounds to GetPlayerCurrentAmmoRounds\n"
-            "  SetFunctionValue iRounds\n"
-            "End\n");
-        g_npcRounds = Compile("NPC rounds",
-            "int iRounds\n"
-            "Begin Function {}\n"
-            "  set iRounds to GetCurrentAmmoRounds\n"
-            "  SetFunctionValue iRounds\n"
-            "End\n");
-        g_turn = Compile("turn",
-            "float fAngle\n"
-            "Begin Function {fAngle}\n"
-            "  SetAngle z fAngle\n"
-            "End\n");
-        g_bringToPlayer = Compile("bring to player",
-            "ref rTo\n"
-            "Begin Function {rTo}\n"
-            "  MoveTo rTo\n"
-            "End\n");
-        g_move = Compile("move",
-            "float fX\n"
-            "float fY\n"
-            "float fZ\n"
-            "float fAngle\n"
-            "Begin Function {fX, fY, fZ, fAngle}\n"
-            "  SetPos x fX\n"
-            "  SetPos y fY\n"
-            "  SetPos z fZ\n"
-            "  SetAngle z fAngle\n"
-            "End\n");
-        g_travel = Compile("travel",
-            "ref rPlace\n"
-            "float fX\n"
-            "float fY\n"
-            "float fZ\n"
-            "float fAngle\n"
-            "Begin Function {rPlace, fX, fY, fZ, fAngle}\n"
-            "  MoveToCell rPlace fX fY fZ\n"
-            "  SetAngle z fAngle\n"
-            "End\n");
-        g_playerFlags = Compile("stance flags",
-            "int iFlags\n"
-            "Begin Function {}\n"
-            "  set iFlags to 0\n"
-            "  if IsWeaponOut\n"
-            "    set iFlags to 1\n"
-            "  endif\n"
-            "  if IsSneaking\n"
-            "    set iFlags to iFlags + 2\n"
-            "  endif\n"
-            "  set iFlags to iFlags + GetSitting * 4\n"
-            "  SetFunctionValue iFlags\n"
-            "End\n");
-        g_equipped = Compile("equipped item",
-            "int iSlot\n"
-            "ref rItem\n"
-            "Begin Function {iSlot}\n"
-            "  set rItem to GetEquippedObject iSlot\n"
-            "  SetFunctionValue rItem\n"
-            "End\n");
-        g_removeAllItems = Compile("remove all items",
-            "Begin Function {}\n"
-            "  RemoveAllItems\n"
-            "End\n");
-        g_addAndEquip = Compile("add and equip",
-            "ref rItem\n"
-            "Begin Function {rItem}\n"
-            "  AddItem rItem 1 1\n"
-            "  EquipItem rItem 1 1\n"
-            "End\n");
-        g_addItems = Compile("add items",
-            "ref rItem\n"
-            "int iCount\n"
-            "Begin Function {rItem, iCount}\n"
-            "  AddItem rItem iCount 1\n"
-            "End\n");
-        g_alert = Compile("alert",
-            "int iAlert\n"
-            "Begin Function {iAlert}\n"
-            "  SetAlert iAlert\n"
-            "End\n");
-        g_restrain = Compile("restrain",
-            "int iOn\n"
-            "Begin Function {iOn}\n"
-            "  SetRestrained iOn\n"
-            "End\n");
-        g_combatOff = Compile("combat off",
-            "int iOff\n"
-            "Begin Function {iOff}\n"
-            "  SetCombatDisabled iOff\n"
-            "  if iOff\n"
-            "    SetTeammateUsingAmmo 0\n"
-            "  else\n"
-            "    SetTeammateUsingAmmo 1\n"
-            "  endif\n"
-            "  if iOff && IsInCombat\n"
-            "    StopCombat\n"
-            "  endif\n"
-            "End\n");
-        g_evaluate = Compile("evaluate package",
-            "Begin Function {}\n"
-            "  EvaluatePackage\n"
-            "End\n");
-        g_wornGear = Compile("worn gear",
-            "array_var aItems\n"
-            "ref rItem\n"
-            "int i\n"
-            "float fFull\n"
-            "float fNow\n"
-            "int iHealth\n"
-            "Begin Function {}\n"
-            "  let aItems := ar_Construct \"array\"\n"
-            "  while i < 20\n"
-            "    let rItem := GetEquippedObject i\n"
-            "    if IsFormValid rItem\n"
-            "      set fFull to GetHealth rItem\n"
-            "      set iHealth to 255\n"
-            "      if fFull > 0\n"
-            "        set fNow to GetEquippedCurrentHealth i\n"
-            "        set iHealth to fNow / fFull * 100 + 0.5\n"
-            "        if iHealth > 100\n"
-            "          set iHealth to 100\n"
-            "        elseif iHealth < 0\n"
-            "          set iHealth to 0\n"
-            "        endif\n"
-            "      endif\n"
-            "      ar_Append aItems rItem\n"
-            "      ar_Append aItems iHealth\n"
-            "    endif\n"
-            "    let i += 1\n"
-            "  loop\n"
-            "  SetFunctionValue aItems\n"
-            "End\n");
-        g_wearAt = Compile("wear at condition",
-            "ref rItem\n"
-            "int iHealth\n"
-            "ref rWorn\n"
-            "int i\n"
-            "float fHealth\n"
-            "Begin Function {rItem, iHealth}\n"
-            "  if GetEquipped rItem == 0\n"
-            "    AddItem rItem 1 1\n"
-            "    EquipItem rItem 1 1\n"
-            "  endif\n"
-            "  set fHealth to GetHealth rItem\n"
-            "  set fHealth to fHealth * iHealth / 100\n"
-            "  while i < 20\n"
-            "    let rWorn := GetEquippedObject i\n"
-            "    if eval (rWorn == rItem)\n"
-            "      SetEquippedCurrentHealth fHealth i\n"
-            "      break\n"
-            "    endif\n"
-            "    let i += 1\n"
-            "  loop\n"
-            "End\n");
-        g_removeItem = Compile("remove item",
-            "ref rItem\n"
-            "Begin Function {rItem}\n"
-            "  RemoveItem rItem 1 1\n"
-            "End\n");
-        g_remove = Compile("remove",
-            "Begin Function {}\n"
-            "  Disable\n"
-            "  MarkForDelete\n"
-            "End\n");
-        g_notify = Compile("notify",
-            "string_var sText\n"
-            "Begin Function {sText}\n"
-            "  MessageEx \"%z\" sText\n"
-            "End\n");
-        g_notifyFor = Compile("notify for a while",
-            "string_var sText\n"
-            "float fSeconds\n"
-            "Begin Function {sText, fSeconds}\n"
-            "  MessageExAlt fSeconds \"%z\" sText\n"
-            "End\n");
-        g_moveBy = Compile("move by",
-            "float fX\n"
-            "float fY\n"
-            "float fZ\n"
-            "float fAngle\n"
-            "Begin Function {fX, fY, fZ, fAngle}\n"
-            "  MoveTo player fX fY fZ\n"
-            "  SetAngle z fAngle\n"
-            "End\n");
-        g_health = Compile("health",
-            "float fHealth\n"
-            "Begin Function {}\n"
-            "  set fHealth to GetActorValue Health\n"
-            "  SetFunctionValue fHealth\n"
-            "End\n");
-        g_maxHealth = Compile("max health",
-            "float fHealth\n"
-            "Begin Function {}\n"
-            "  set fHealth to GetBaseActorValue Health\n"
-            "  SetFunctionValue fHealth\n"
-            "End\n");
-        g_level = Compile("level",
-            "int iLevel\n"
-            "Begin Function {}\n"
-            "  set iLevel to GetLevel\n"
-            "  SetFunctionValue iLevel\n"
-            "End\n");
-        g_changeHealth = Compile("change health",
-            "float fAmount\n"
-            "float fLoss\n"
-            "Begin Function {fAmount}\n"
-            "  if fAmount < 0\n"
-            "    set fLoss to 0 - fAmount\n"
-            "    DamageActorValue Health fLoss\n"
-            "  else\n"
-            "    RestoreActorValue Health fAmount\n"
-            "  endif\n"
-            "End\n");
-        g_makeCompanion = Compile("make companion",
-            "ref rFaction\n"
-            "Begin Function {rFaction}\n"
-            "  SetActorValue Health 10000\n"
-            "  SetIgnoreFriendlyHits 1\n"
-            "  SetActorValue Aggression 0\n"
-            "  SetActorValue Assistance 0\n"
-            "  SetActorValue Confidence 4\n"
-            "  SetCombatDisabled 1\n"
-            "  if rFaction\n"
-            "    AddToFaction rFaction 0\n"
-            "  endif\n"
-            "End\n");
-        g_stopFighting = Compile("stop fighting",
-            "Begin Function {}\n"
-            "  if IsInCombat\n"
-            "    StopCombat\n"
-            "  endif\n"
-            "End\n");
-        g_kill = Compile("kill",
-            "int iLimb\n"
-            "ref rSelf\n"
-            "Begin Function {iLimb}\n"
-            "  SetActorRefEssential 0\n"
-            "  SetGhost 0\n"
-            "  set rSelf to GetSelf\n"
-            "  Kill rSelf iLimb\n"
-            "End\n");
-        g_limbsGone = Compile("limbs gone",
-            "int i\n"
-            "int iBit\n"
-            "int iMask\n"
-            "Begin Function {}\n"
-            "  set iBit to 1\n"
-            "  while i < 15\n"
-            "    if IsLimbGone i\n"
-            "      set iMask to iMask + iBit\n"
-            "    endif\n"
-            "    set iBit to iBit * 2\n"
-            "    set i to i + 1\n"
-            "  loop\n"
-            "  SetFunctionValue iMask\n"
-            "End\n");
-        g_unconscious = Compile("unconscious",
-            "int iOn\n"
-            "Begin Function {iOn}\n"
-            "  SetUnconscious iOn\n"
-            "End\n");
-        g_controls = Compile("player controls",
-            "int iOn\n"
-            "Begin Function {iOn}\n"
-            "  if iOn\n"
-            "    EnablePlayerControls\n"
-            "  else\n"
-            "    DisablePlayerControls 1 1 1 0 0 1 1\n"
-            "  endif\n"
-            "End\n");
-        g_menuMode = Compile("menu mode",
-            "int iMenu\n"
-            "Begin Function {}\n"
-            "  set iMenu to MenuMode\n"
-            "  SetFunctionValue iMenu\n"
-            "End\n");
-        g_loadingScreen = Compile("loading screen",
-            "int iMenu\n"
-            "Begin Function {}\n"
-            "  set iMenu to MenuMode 1007\n"
-            "  SetFunctionValue iMenu\n"
-            "End\n");
-        g_keyPressed = Compile("key pressed",
-            "int iKey\n"
-            "int iPressed\n"
-            "Begin Function {iKey}\n"
-            "  if MenuMode == 0\n"
-            "    set iPressed to IsKeyPressed iKey\n"
-            "  endif\n"
-            "  SetFunctionValue iPressed\n"
-            "End\n");
-        g_chatHud = Compile("chat hud",
-            "string_var sXml\n"
-            "Begin Function {sXml}\n"
-            "  InjectUIComponent \"HUDMainMenu\" \"%z\" sXml\n"
-            "End\n");
-        g_chatShow = Compile("chat show",
-            "string_var sText\n"
-            "int iShow\n"
-            "Begin Function {sText, iShow}\n"
-            "  SetUIStringEx \"HUDMainMenu/NVCoopChat/NVCoopChatText/string\" \"%z\" sText\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopChat/visible\" iShow\n"
-            "End\n");
-        for (const char* call : {"WorldToScreen fX fY fZ 0 0 150 2 rWho", "JGLegacyWorldToScreen \"fX\" \"fY\" \"fZ\" 0 0 150 2 rWho",
-                 "WorldToScreen \"fX\" \"fY\" \"fZ\" 0 0 150 2 rWho"})
-        {
-            if (g_onScreen)
-                break;
-            g_onScreen = g_scripts->CompileScript((std::string(
-                "ref rWho\n"
-                "float fX\n"
-                "float fY\n"
-                "float fZ\n"
-                "int iOn\n"
-                "array_var aOut\n"
-                "Begin Function {rWho}\n"
-                "  set iOn to ") + call + "\n"
-                "  let aOut := ar_List iOn fX fY\n"
-                "  SetFunctionValue aOut\n"
-                "End\n").c_str());
-            if (g_onScreen)
-            {
-                g_ourScripts.insert(g_onScreen);
-                LOG_INFO("Chat: places on screen with Johnny Guitar's \"%s\"", call);
-            }
-        }
-        if (!g_onScreen)
-            LOG_ERROR("Couldn't compile the on screen script (Johnny Guitar's WorldToScreen): no chat above heads");
-        for (int slot = 0; slot < kMarkSlots; ++slot)
-        {
-            std::string path = "HUDMainMenu/NVCoopMark" + std::to_string(slot);
-            g_mark[slot] = Compile("friend marker",
-                "string_var sName\n"
-                "float fX\n"
-                "float fY\n"
-                "int iShow\n"
-                "int iRed\n"
-                "Begin Function {sName, fX, fY, iShow, iRed}\n"
-                "  if iShow == 2\n"
-                "    SetUIStringEx \"" + path + "/string\" \"%z%rv\" sName\n"
-                "    if iRed\n"
-                "      SetUIFloat \"" + path + "/systemcolor\" 0\n"
-                "      SetUIFloat \"" + path + "/red\" 255\n"
-                "      SetUIFloat \"" + path + "/green\" 60\n"
-                "      SetUIFloat \"" + path + "/blue\" 40\n"
-                "    else\n"
-                "      SetUIFloat \"" + path + "/systemcolor\" 1\n"
-                "    endif\n"
-                "  endif\n"
-                "  if iShow\n"
-                "    SetUIFloat \"" + path + "/user0\" fX\n"
-                "    SetUIFloat \"" + path + "/user1\" fY\n"
-                "  endif\n"
-                "  SetUIFloat \"" + path + "/visible\" iShow\n"
-                "End\n");
-        }
-        for (int slot = 0; slot < kChatAboveSlots; ++slot)
-        {
-            std::string path = "HUDMainMenu/NVCoopAbove" + std::to_string(slot);
-            g_chatAbove[slot] = Compile("chat above",
-                "string_var sText\n"
-                "float fX\n"
-                "float fY\n"
-                "int iShow\n"
-                "Begin Function {sText, fX, fY, iShow}\n"
-                "  if iShow == 2\n"
-                "    SetUIStringEx \"" + path + "/string\" \"%z\" sText\n"
-                "  endif\n"
-                "  if iShow\n"
-                "    SetUIFloat \"" + path + "/user0\" fX\n"
-                "    SetUIFloat \"" + path + "/user1\" fY\n"
-                "  endif\n"
-                "  SetUIFloat \"" + path + "/visible\" iShow\n"
-                "End\n");
-        }
-        g_tutorialTimer = Compile("tutorial timer",
-            "int iRun\n"
-            "Begin Function {iRun}\n"
-            "  set VCG01.bRunTimer to iRun\n"
-            "End\n");
-        g_questStage = Compile("quest stage",
-            "ref rQuest\n"
-            "int iStage\n"
-            "Begin Function {rQuest}\n"
-            "  set iStage to -1\n"
-            "  if GetQuestRunning rQuest\n"
-            "    set iStage to GetStage rQuest\n"
-            "  endif\n"
-            "  SetFunctionValue iStage\n"
-            "End\n");
-        g_leaveTutorial = Compile("leave tutorial",
-            "ref rTutorial\n"
-            "ref rSunny\n"
-            "ref rDoor\n"
-            "ref rPipBoy\n"
-            "ref rGlove\n"
-            "ref rSuit\n"
-            "ref rNote\n"
-            "Begin Function {rTutorial, rSunny, rDoor, rPipBoy, rGlove, rSuit, rNote}\n"
-            "  player.RemoveScriptPackage\n"
-            "  player.PlayGroup Idle 1\n"
-            "  EnablePlayerControls\n"
-            "  player.AddItem rPipBoy 1 1\n"
-            "  player.AddItem rGlove 1 1\n"
-            "  player.EquipItem rPipBoy 0 1\n"
-            "  player.EquipItem rGlove 0 1\n"
-            "  ResetPipBoyManager\n"
-            "  player.AddItem rSuit 1 1\n"
-            "  player.EquipItem rSuit 0 1\n"
-            "  AddNote rNote\n"
-            "  rDoor.SetDestroyed 0\n"
-            "  SetStage rTutorial 200\n"
-            "  SetStage rSunny 5\n"
-            "End\n");
-        g_activateBy = Compile("activate by player",
-            "ref rWhat\n"
-            "int iMoveHere\n"
-            "Begin Function {rWhat, iMoveHere}\n"
-            "  if iMoveHere\n"
-            "    player.PlayGroup Idle 1\n"
-            "    rWhat.MoveTo player\n"
-            "    rWhat.Activate player 1\n"
-            "  else\n"
-            "    rWhat.Activate player\n"
-            "  endif\n"
-            "End\n");
-        g_starterGear = Compile("starter gear",
-            "ref rStimpak\n"
-            "ref rCaps\n"
-            "ref rLockpick\n"
-            "ref r9mm\n"
-            "ref r9mmAmmo\n"
-            "ref rLaser\n"
-            "ref rCells\n"
-            "ref rDynamite\n"
-            "ref rRazor\n"
-            "ref rGloves\n"
-            "Begin Function {rStimpak, rCaps, rLockpick, r9mm, r9mmAmmo, rLaser, rCells, rDynamite, rRazor, rGloves}\n"
-            "  player.AddItem rStimpak 4\n"
-            "  player.AddItem rCaps 18\n"
-            "  if IsPlayerTagSkill Lockpick\n"
-            "    player.AddItem rLockpick 12\n"
-            "  else\n"
-            "    player.AddItem rLockpick 6\n"
-            "  endif\n"
-            "  if IsPlayerTagSkill Guns\n"
-            "    player.AddItem r9mm 1\n"
-            "    player.AddItem r9mmAmmo 60\n"
-            "  elseif IsPlayerTagSkill EnergyWeapons\n"
-            "    player.AddItem rLaser 1\n"
-            "    player.AddItem rCells 25\n"
-            "  elseif IsPlayerTagSkill Explosives\n"
-            "    player.AddItem rDynamite 8\n"
-            "  else\n"
-            "    player.AddItem r9mm 1\n"
-            "    player.AddItem r9mmAmmo 30\n"
-            "  endif\n"
-            "  if IsPlayerTagSkill MeleeWeapons\n"
-            "    player.AddItem rRazor 1\n"
-            "  elseif IsPlayerTagSkill Unarmed\n"
-            "    player.AddItem rGloves 1\n"
-            "  endif\n"
-            "End\n");
-        g_effectTrait = Compile("effect trait",
-            "ref rItem\n"
-            "int iEffect\n"
-            "int iTrait\n"
-            "int iValue\n"
-            "int iWas\n"
-            "Begin Function {rItem, iEffect, iTrait, iValue}\n"
-            "  set iWas to GetNthEffectTraitNumeric rItem iEffect iTrait\n"
-            "  if iValue >= 0\n"
-            "    SetNthEffectTraitNumeric rItem iEffect iTrait iValue\n"
-            "  endif\n"
-            "  SetFunctionValue iWas\n"
-            "End\n");
-        g_loadedOfType = Compile("loaded of type",
-            "int iType\n"
-            "array_var aForms\n"
-            "Begin Function {iType}\n"
-            "  let aForms := GetLoadedTypeArray iType\n"
-            "  SetFunctionValue aForms\n"
-            "End\n");
-        g_showMap = Compile("show map",
-            "ref rMarker\n"
-            "Begin Function {rMarker}\n"
-            "  ShowMap rMarker 1\n"
-            "End\n");
-        g_questObject = Compile("quest object",
-            "ref rItem\n"
-            "Begin Function {rItem}\n"
-            "  SetQuestObject rItem 1\n"
-            "End\n");
-        g_itemCount = Compile("item count",
-            "ref rItem\n"
-            "int iCount\n"
-            "Begin Function {rItem}\n"
-            "  set iCount to GetItemCount rItem\n"
-            "  SetFunctionValue iCount\n"
-            "End\n");
-        g_collision = Compile("collision",
-            "int iOn\n"
-            "Begin Function {iOn}\n"
-            "  ToggleObjectCollision iOn\n"
-            "End\n");
-        g_speedMult = Compile("speed mult",
-            "int iMult\n"
-            "Begin Function {iMult}\n"
-            "  SetSpeedMult iMult\n"
-            "End\n");
-        g_actorAlpha = Compile("actor alpha",
-            "float fAlpha\n"
-            "Begin Function {fAlpha}\n"
-            "  SetActorAlpha fAlpha\n"
-            "End\n");
-        g_reviveBar = Compile("revive bar",
-            "string_var sText\n"
-            "int iShow\n"
-            "Begin Function {sText, iShow}\n"
-            "  if iShow\n"
-            "    SetUIStringEx \"HUDMainMenu/NVCoopRevive/string\" \"%z\" sText\n"
-            "  endif\n"
-            "  SetUIFloat \"HUDMainMenu/NVCoopRevive/visible\" iShow\n"
-            "End\n");
-        for (int slot = 0; slot < kTalkSlots; ++slot)
-        {
-            std::string n = std::to_string(slot);
-            std::string text = "HUDMainMenu/NVCoopTalk" + n;
-            std::string edge = "HUDMainMenu/NVCoopTalkEdge" + n + "x";
-            std::string line = "HUDMainMenu/NVCoopTalkLine" + n;
-            std::string bar = "HUDMainMenu/NVCoopTalkBar" + n;
-            std::string setText = "  SetUIStringEx \"" + text + "/string\" \"%z\" sText\n";
-            for (int e = 0; e < kTalkEdges; ++e)
-                setText += "  SetUIStringEx \"" + edge + std::to_string(e) + "/string\" \"%z\" sText\n";
-            g_talkText[slot] = Compile("talk log text",
-                "string_var sText\n"
-                "float fBright\n"
-                "float fRed\n"
-                "float fGreen\n"
-                "float fBlue\n"
-                "Begin Function {sText, fBright, fRed, fGreen, fBlue}\n" + setText +
-                "  SetUIFloat \"" + text + "/brightness\" fBright\n"
-                "  SetUIFloat \"" + text + "/red\" fRed\n"
-                "  SetUIFloat \"" + text + "/green\" fGreen\n"
-                "  SetUIFloat \"" + text + "/blue\" fBlue\n"
-                "End\n");
-            std::string placeEdges;
-            for (int e = 0; e < kTalkEdges; ++e)
-            {
-                std::string path = edge + std::to_string(e);
-                placeEdges += std::string("  set fX to ") + (e % 2 ? "30 + fOff" : "30 - fOff") + "\n"
-                    "  set fEdgeY to fY " + (e / 2 ? "+" : "-") + " fOff\n"
-                    "  SetUIFloat \"" + path + "/x\" fX\n"
-                    "  SetUIFloat \"" + path + "/y\" fEdgeY\n"
-                    "  SetUIFloat \"" + path + "/wrapwidth\" fWrap\n"
-                    "  SetUIFloat \"" + path + "/alpha\" fEdge\n"
-                    "  SetUIFloat \"" + path + "/visible\" " + (e == 3 ? "iLast" : "iShow") + "\n";
-            }
-            g_talkPlace[slot] = Compile("talk log place",
-                "float fY\n"
-                "float fWrap\n"
-                "float fAlpha\n"
-                "float fEdge\n"
-                "float fOff\n"
-                "int iEdges\n"
-                "float fX\n"
-                "float fEdgeY\n"
-                "int iShow\n"
-                "int iLast\n"
-                "Begin Function {fY, fWrap, fAlpha, fEdge, fOff, iEdges}\n"
-                "  set iShow to fAlpha > 0\n"
-                "  SetUIFloat \"" + text + "/y\" fY\n"
-                "  SetUIFloat \"" + text + "/wrapwidth\" fWrap\n"
-                "  SetUIFloat \"" + text + "/alpha\" fAlpha\n"
-                "  SetUIFloat \"" + text + "/visible\" iShow\n"
-                "  set iShow to 0\n"
-                "  if fEdge > 0\n"
-                "    if iEdges > 0\n"
-                "      set iShow to 1\n"
-                "    endif\n"
-                "  endif\n"
-                "  set iLast to iShow\n"
-                "  if iEdges == 2\n"
-                "    set iShow to 0\n"
-                "  endif\n" + placeEdges +
-                "End\n");
-            g_talkBack[slot] = Compile("talk log back",
-                "float fLineY\n"
-                "float fLineWidth\n"
-                "float fLine\n"
-                "float fBarY\n"
-                "float fBarHeight\n"
-                "float fBarWidth\n"
-                "float fBar\n"
-                "int iShow\n"
-                "Begin Function {fLineY, fLineWidth, fLine, fBarY, fBarHeight, fBarWidth, fBar}\n"
-                "  set iShow to fLine > 0\n"
-                "  SetUIFloat \"" + line + "/y\" fLineY\n"
-                "  SetUIFloat \"" + line + "/width\" fLineWidth\n"
-                "  SetUIFloat \"" + line + "/alpha\" fLine\n"
-                "  SetUIFloat \"" + line + "/visible\" iShow\n"
-                "  set iShow to fBar > 0\n"
-                "  SetUIFloat \"" + bar + "/y\" fBarY\n"
-                "  SetUIFloat \"" + bar + "/height\" fBarHeight\n"
-                "  SetUIFloat \"" + bar + "/width\" fBarWidth\n"
-                "  SetUIFloat \"" + bar + "/alpha\" fBar\n"
-                "  SetUIFloat \"" + bar + "/visible\" iShow\n"
-                "End\n");
-        }
-        g_sitNearest = Compile("sit nearest",
-            "ref rActor\n"
-            "ref rChair\n"
-            "ref rBest\n"
-            "float fBest\n"
-            "float fDistance\n"
-            "array_var aRefs\n"
-            "int i\n"
-            "Begin Function {rActor}\n"
-            "  let aRefs := GetRefs 39 1\n"
-            "  set fBest to 999999\n"
-            "  while i < ar_Size aRefs\n"
-            "    let rChair := aRefs[i]\n"
-            "    set fDistance to rActor.GetDistance rChair\n"
-            "    if fDistance < fBest\n"
-            "      set fBest to fDistance\n"
-            "      set rBest to rChair\n"
-            "    endif\n"
-            "    set i to i + 1\n"
-            "  loop\n"
-            "  if rBest\n"
-            "    rBest.Activate rActor\n"
-            "  endif\n"
-            "  SetFunctionValue rBest\n"
-            "End\n");
-        g_armorDR = Compile("armor DR",
-            "ref rArmor\n"
-            "int iDR\n"
-            "Begin Function {rArmor}\n"
-            "  set iDR to GetArmorAR rArmor\n"
-            "  SetFunctionValue iDR\n"
-            "End\n");
-        g_itemValue = Compile("item value",
-            "ref rItem\n"
-            "int iValue\n"
-            "Begin Function {rItem}\n"
-            "  set iValue to GetValue rItem\n"
-            "  SetFunctionValue iValue\n"
-            "End\n");
-        g_bodyPartLists = Compile("body part lists",
-            "array_var aLists\n"
-            "Begin Function {}\n"
-            "  let aLists := GetLoadedTypeArray 87\n"
-            "  SetFunctionValue aLists\n"
-            "End\n");
-        g_bodyPartMult = Compile("body part damage",
-            "ref rList\n"
-            "int iPart\n"
-            "float fValue\n"
-            "float fWas\n"
-            "Begin Function {rList, iPart, fValue}\n"
-            "  set fWas to GetBodyPartTraitNumeric rList iPart 1\n"
-            "  if fValue >= 0\n"
-            "    SetBodyPartTraitNumeric rList iPart 1 fValue\n"
-            "  endif\n"
-            "  SetFunctionValue fWas\n"
-            "End\n");
-        g_keyDisabled = Compile("key disabled",
-            "int iKey\n"
-            "int iOff\n"
-            "Begin Function {iKey}\n"
-            "  set iOff to IsKeyDisabled iKey\n"
-            "  SetFunctionValue iOff\n"
-            "End\n");
-        g_disableKey = Compile("disable key",
-            "int iKey\n"
-            "int iOff\n"
-            "Begin Function {iKey, iOff}\n"
-            "  if iOff\n"
-            "    DisableKey iKey\n"
-            "  else\n"
-            "    EnableKey iKey\n"
-            "  endif\n"
-            "End\n");
-        g_controlDisabled = Compile("control disabled",
-            "int iControl\n"
-            "int iOff\n"
-            "Begin Function {iControl}\n"
-            "  set iOff to IsControlDisabled iControl\n"
-            "  SetFunctionValue iOff\n"
-            "End\n");
-        g_disableControl = Compile("disable control",
-            "int iControl\n"
-            "int iOff\n"
-            "Begin Function {iControl, iOff}\n"
-            "  if iOff\n"
-            "    DisableControl iControl\n"
-            "  else\n"
-            "    EnableControl iControl\n"
-            "  endif\n"
-            "End\n");
-        g_controlPressed = Compile("control pressed",
-            "int iControl\n"
-            "int iPressed\n"
-            "Begin Function {iControl}\n"
-            "  set iPressed to IsControlPressed iControl\n"
-            "  SetFunctionValue iPressed\n"
-            "End\n");
-        g_hit = Compile("hit",
-            "ref rTarget\n"
-            "ref rBy\n"
-            "float fDamage\n"
-            "Begin Function {rTarget, rBy, fDamage}\n"
-            "  rTarget.DamageActorValue Health fDamage\n"
-            "  if rTarget.GetDead == 0 && rTarget.IsInCombat == 0\n"
-            "    rTarget.StartCombat rBy\n"
-            "  endif\n"
-            "End\n");
-        g_placeExtra = Compile("place extra enemy",
-            "ref rBase\n"
-            "ref rTarget\n"
-            "ref rNew\n"
-            "Begin Function {rBase, rTarget}\n"
-            "  set rNew to PlaceAtMe rBase 1 600 1\n"
-            "  if rNew\n"
-            "    rNew.StartCombat rTarget\n"
-            "  endif\n"
-            "  SetFunctionValue rNew\n"
-            "End\n");
-        g_thinAmmo = Compile("thin ammo",
-            "int iKept\n"
-            "int iN\n"
-            "int i\n"
-            "ref rItem\n"
-            "int iHave\n"
-            "int iGone\n"
-            "int iTotal\n"
-            "Begin Function {iKept}\n"
-            "  set iN to GetNumItems\n"
-            "  set i to 0\n"
-            "  while i < iN\n"
-            "    set rItem to GetInventoryObject i\n"
-            "    if GetObjectType rItem == 41\n"
-            "      set iHave to GetItemCount rItem\n"
-            "      set iGone to iHave - iHave * iKept / 100\n"
-            "      if iGone > 0\n"
-            "        RemoveItem rItem iGone 1\n"
-            "        let iTotal += iGone\n"
-            "      endif\n"
-            "    endif\n"
-            "    let i += 1\n"
-            "  loop\n"
-            "  SetFunctionValue iTotal\n"
-            "End\n");
-        g_fovNow = Compile("field of view",
-            "int iWhich\n"
-            "float fFov\n"
-            "Begin Function {iWhich}\n"
-            "  set fFov to GetPlayerCamFOV iWhich\n"
-            "  SetFunctionValue fFov\n"
-            "End\n");
-        g_update3D = Compile("update 3D",
-            "Begin Function {}\n"
-            "  Update3D\n"
-            "End\n");
-        g_forceTarget = Compile("force target",
-            "ref rTarget\n"
-            "ref rNow\n"
-            "Begin Function {rTarget}\n"
-            "  if rTarget\n"
-            "    if GetDead\n"
-            "      return\n"
-            "    endif\n"
-            "    set rNow to GetCombatTarget\n"
-            "    if rNow != rTarget\n"
-            "      if IsInCombat\n"
-            "        StopCombat\n"
-            "      endif\n"
-            "      StartCombat rTarget\n"
-            "    endif\n"
-            "    SetCombatDisabled 1 rTarget\n"
-            "  else\n"
-            "    SetCombatDisabled 0\n"
-            "  endif\n"
-            "End\n");
-
-        g_aiState = Compile("AI state",
-            "int iBits\n"
-            "Begin Function {}\n"
-            "  set iBits to IsWeaponOut + IsSneaking * 2 + IsInCombat * 4 + GetRestrained * 8\n"
-            "  set iBits to iBits + GetKnockedState * 16 + GetSitting * 128\n"
-            "  set iBits to iBits + (GetCurrentAIPackage + 1) * 2048 + (GetCurrentAIProcedure + 1) * 262144\n"
-            "  SetFunctionValue iBits\n"
-            "End\n");
-        g_combatTarget = Compile("combat target",
-            "ref rTarget\n"
-            "Begin Function {}\n"
-            "  set rTarget to GetCombatTarget\n"
-            "  SetFunctionValue rTarget\n"
-            "End\n");
-        g_playedIdle = Compile("played idle",
-            "ref rIdle\n"
-            "Begin Function {}\n"
-            "  set rIdle to GetPlayedIdle\n"
-            "  SetFunctionValue rIdle\n"
-            "End\n");
-        g_playIdle = Compile("play idle",
-            "ref rIdle\n"
-            "Begin Function {rIdle}\n"
-            "  PlayIdleEx rIdle\n"
-            "End\n");
-        g_setMaxHealth = Compile("set max health",
-            "float fHealth\n"
-            "Begin Function {fHealth}\n"
-            "  SetActorValue Health fHealth\n"
-            "End\n");
-        g_stopIdle = Compile("stop idle",
-            "Begin Function {}\n"
-            "  StopIdle\n"
-            "End\n");
-        g_idleGroup = Compile("idle group",
-            "Begin Function {}\n"
-            "  PlayGroupAlt Idle 1\n"
-            "End\n");
-        g_forceStopIdle = Compile("force stop idle",
-            "Begin Function {}\n"
-            "  ForceStopIdle\n"
-            "End\n");
-        g_madeClear = Compile("forget made characters",
-            "Begin Function {}\n"
-            "  AuxVarErase \"_NVCoopMade\"\n"
-            "End\n");
-        g_madeAdd = Compile("note a made character",
-            "ref rMade\n"
-            "Begin Function {rMade}\n"
-            "  AuxVarSetRef \"_NVCoopMade\" rMade -1\n"
-            "End\n");
-        g_madeCount = Compile("count made characters",
-            "int iCount\n"
-            "Begin Function {}\n"
-            "  set iCount to AuxVarSize \"_NVCoopMade\"\n"
-            "  SetFunctionValue iCount\n"
-            "End\n");
-        g_madeGet = Compile("a made character",
-            "int iIndex\n"
-            "ref rMade\n"
-            "Begin Function {iIndex}\n"
-            "  set rMade to AuxVarGetRef \"_NVCoopMade\" iIndex\n"
-            "  SetFunctionValue rMade\n"
-            "End\n");
-        g_resurrect = Compile("resurrect",
-            "Begin Function {}\n"
-            "  ResurrectActor 1\n"
-            "End\n");
-
-        g_print = Compile("console print",
-            "string_var sText\n"
-            "Begin Function {sText}\n"
-            "  PrintToConsole \"%z\" sText\n"
-            "End\n");
-
-        g_openState = Compile("door open state",
-            "int iState\n"
-            "Begin Function {}\n"
-            "  set iState to GetOpenState\n"
-            "  SetFunctionValue iState\n"
-            "End\n");
-        g_setOpen = Compile("open door",
-            "int iOpen\n"
-            "Begin Function {iOpen}\n"
-            "  SetOpenState iOpen\n"
-            "End\n");
-        g_pileKind = Compile("pile kind",
-            "int iKind\n"
-            "Begin Function {}\n"
-            "  if HasMagicEffect GooificationEffect || HasMagicEffect GooificationEffectShader\n"
-            "    set iKind to 1\n"
-            "  elseif HasMagicEffect LaserDisintegrationEffect\n"
-            "    set iKind to 2\n"
-            "  elseif HasMagicEffect AlienDisintegrationEffect\n"
-            "    set iKind to 3\n"
-            "  endif\n"
-            "  SetFunctionValue iKind\n"
-            "End\n");
-        g_makePile = Compile("make pile",
-            "int iKind\n"
-            "Begin Function {iKind}\n"
-            "  if iKind == 1\n"
-            "    CastImmediateOnSelf PlasmaEffect\n"
-            "  elseif iKind == 2\n"
-            "    CastImmediateOnSelf LaserDisintegrationFXSpell\n"
-            "  elseif iKind == 3\n"
-            "    CastImmediateOnSelf AlienDisintegrationFXSpell\n"
-            "  endif\n"
-            "End\n");
-        g_isLocked = Compile("is locked",
-            "int iLocked\n"
-            "Begin Function {}\n"
-            "  set iLocked to GetLocked\n"
-            "  SetFunctionValue iLocked\n"
-            "End\n");
-        g_lock = Compile("lock door",
-            "int iLocked\n"
-            "int iLevel\n"
-            "Begin Function {iLocked, iLevel}\n"
-            "  if iLocked\n"
-            "    Lock iLevel\n"
-            "  else\n"
-            "    Unlock\n"
-            "  endif\n"
-            "End\n");
-
-        g_contents = Compile("contents",
-            "array_var aItems\n"
-            "array_var aRefs\n"
-            "ref rItem\n"
-            "ref rStack\n"
-            "int i\n"
-            "int n\n"
-            "int j\n"
-            "int m\n"
-            "float fFull\n"
-            "float fNow\n"
-            "int iHealth\n"
-            "Begin Function {}\n"
-            "  let aItems := ar_Construct \"array\"\n"
-            "  set n to GetNumItems\n"
-            "  while i < n\n"
-            "    let rItem := GetInventoryObject i\n"
-            "    set fFull to GetHealth rItem\n"
-            "    if fFull > 0\n"
-            "      let aRefs := GetInvRefsForItem rItem\n"
-            "      set m to ar_Size aRefs\n"
-            "      set j to 0\n"
-            "      while j < m\n"
-            "        let rStack := aRefs[j]\n"
-            "        set fNow to rStack.GetCurrentHealth\n"
-            "        set iHealth to fNow / fFull * 100 + 0.5\n"
-            "        if iHealth > 100\n"
-            "          set iHealth to 100\n"
-            "        elseif iHealth < 0\n"
-            "          set iHealth to 0\n"
-            "        endif\n"
-            "        ar_Append aItems rItem\n"
-            "        ar_Append aItems (rStack.GetRefCount)\n"
-            "        ar_Append aItems iHealth\n"
-            "        ar_Append aItems (rStack.GetWeaponRefModFlags)\n"
-            "        let j += 1\n"
-            "      loop\n"
-            "    else\n"
-            "      ar_Append aItems rItem\n"
-            "      ar_Append aItems (GetItemCount rItem)\n"
-            "      ar_Append aItems 255\n"
-            "      ar_Append aItems 0\n"
-            "    endif\n"
-            "    let i += 1\n"
-            "  loop\n"
-            "  SetFunctionValue aItems\n"
-            "End\n");
-        g_changeKind = Compile("change item kind",
-            "ref rItem\n"
-            "int iCount\n"
-            "int iHealth\n"
-            "int iMods\n"
-            "array_var aRefs\n"
-            "ref rStack\n"
-            "int j\n"
-            "int m\n"
-            "int iHave\n"
-            "int iStackHealth\n"
-            "float fFull\n"
-            "Begin Function {rItem, iCount, iHealth, iMods}\n"
-            "  set fFull to GetHealth rItem\n"
-            "  if iCount > 0\n"
-            "    if iMods == 0\n"
-            "      AddItemAlt rItem iCount iHealth 0 1\n"
-            "    else\n"
-            "      while iCount > 0\n"
-            "        AddItemAlt rItem 1 iHealth 0 1\n"
-            "        let aRefs := GetInvRefsForItem rItem\n"
-            "        set m to ar_Size aRefs\n"
-            "        set j to 0\n"
-            "        while j < m\n"
-            "          let rStack := aRefs[j]\n"
-            "          set iStackHealth to rStack.GetCurrentHealth / fFull * 100 + 0.5\n"
-            "          if rStack.GetWeaponRefModFlags == 0 && iStackHealth == iHealth && rStack.GetRefCount == 1\n"
-            "            rStack.SetWeaponRefModFlags iMods\n"
-            "            set j to m\n"
-            "          endif\n"
-            "          let j += 1\n"
-            "        loop\n"
-            "        let iCount -= 1\n"
-            "      loop\n"
-            "    endif\n"
-            "  elseif iCount < 0\n"
-            "    set iCount to 0 - iCount\n"
-            "    let aRefs := GetInvRefsForItem rItem\n"
-            "    set m to ar_Size aRefs\n"
-            "    set j to 0\n"
-            "    while j < m && iCount > 0\n"
-            "      let rStack := aRefs[j]\n"
-            "      set iStackHealth to rStack.GetCurrentHealth / fFull * 100 + 0.5\n"
-            "      if iStackHealth > 100\n"
-            "        set iStackHealth to 100\n"
-            "      endif\n"
-            "      if rStack.GetWeaponRefModFlags == iMods && iStackHealth == iHealth\n"
-            "        set iHave to rStack.GetRefCount\n"
-            "        if iHave > iCount\n"
-            "          set iHave to iCount\n"
-            "        endif\n"
-            "        rStack.RemoveMeIRAlt iHave 0\n"
-            "        let iCount -= iHave\n"
-            "      endif\n"
-            "      let j += 1\n"
-            "    loop\n"
-            "  endif\n"
-            "End\n");
-        g_addItem = Compile("add or remove item",
-            "ref rItem\n"
-            "int iCount\n"
-            "Begin Function {rItem, iCount}\n"
-            "  if iCount > 0\n"
-            "    AddItem rItem iCount 1\n"
-            "  elseif iCount < 0\n"
-            "    set iCount to 0 - iCount\n"
-            "    RemoveItem rItem iCount 1\n"
-            "  endif\n"
-            "End\n");
-        g_activate = Compile("activate",
-            "Begin Function {}\n"
-            "  Activate player\n"
-            "End\n");
-        g_refreshItems = Compile("refresh items",
-            "Begin Function {}\n"
-            "  RefreshItemsList\n"
-            "End\n");
-
-        g_placeItem = Compile("place item",
-            "ref rBase\n"
-            "int iCount\n"
-            "float fX\n"
-            "float fY\n"
-            "float fZ\n"
-            "int iHealth\n"
-            "ref rNew\n"
-            "float fHealth\n"
-            "Begin Function {rBase, iCount, fX, fY, fZ, iHealth}\n"
-            "  set rNew to PlaceAtMe rBase 1\n"
-            "  if iCount > 1\n"
-            "    rNew.SetRefCount iCount\n"
-            "  endif\n"
-            "  if iHealth < 100\n"
-            "    set fHealth to GetHealth rBase\n"
-            "    set fHealth to fHealth * iHealth / 100\n"
-            "    rNew.SetCurrentHealth fHealth\n"
-            "  endif\n"
-            "  rNew.SetPos x fX\n"
-            "  rNew.SetPos y fY\n"
-            "  rNew.SetPos z fZ\n"
-            "  SetFunctionValue rNew\n"
-            "End\n");
-        g_itemCondition = Compile("item condition",
-            "ref rBase\n"
-            "float fFull\n"
-            "float fNow\n"
-            "int iHealth\n"
-            "int iMods\n"
-            "Begin Function {}\n"
-            "  let rBase := GetBaseObject\n"
-            "  set fFull to GetHealth rBase\n"
-            "  set iHealth to 255\n"
-            "  if fFull > 0\n"
-            "    set fNow to GetCurrentHealth\n"
-            "    set iHealth to fNow / fFull * 100 + 0.5\n"
-            "    if iHealth > 100\n"
-            "      set iHealth to 100\n"
-            "    elseif iHealth < 0\n"
-            "      set iHealth to 0\n"
-            "    endif\n"
-            "  endif\n"
-            "  set iMods to GetWeaponRefModFlags\n"
-            "  set iHealth to iHealth + iMods * 256\n"
-            "  SetFunctionValue iHealth\n"
-            "End\n");
-        g_moveItem = Compile("move item",
-            "float fX\n"
-            "float fY\n"
-            "float fZ\n"
-            "float fRX\n"
-            "float fRY\n"
-            "float fRZ\n"
-            "Begin Function {fX, fY, fZ, fRX, fRY, fRZ}\n"
-            "  SetPosEx fX fY fZ\n"
-            "  SetAngleEx fRX fRY fRZ\n"
-            "End\n");
-        g_followers = Compile("followers",
-            "array_var aTeam\n"
-            "array_var aOut\n"
-            "array_var aEntry\n"
-            "ref rMate\n"
-            "Begin Function {}\n"
-            "  let aOut := ar_Construct \"array\"\n"
-            "  let aTeam := GetTeammates\n"
-            "  if eval (ar_Size aTeam) > 0\n"
-            "    foreach aEntry <- aTeam\n"
-            "      let rMate := aEntry[\"value\"]\n"
-            "      if eval (rMate.HasVariable \"Waiting\")\n"
-            "        if eval (rMate.GetVariable \"Waiting\") != 0\n"
-            "          continue\n"
-            "        endif\n"
-            "      endif\n"
-            "      ar_Append aOut rMate\n"
-            "    loop\n"
-            "  endif\n"
-            "  SetFunctionValue aOut\n"
-            "End\n");
-        g_crosshair = Compile("crosshair ref",
-            "Begin Function {}\n"
-            "  SetFunctionValue GetCrosshairRef\n"
-            "End\n");
-        g_isTeammate = Compile("is teammate",
-            "Begin Function {}\n"
-            "  SetFunctionValue GetPlayerTeammate\n"
-            "End\n");
-        g_teammates = Compile("teammates",
-            "array_var aTeam\n"
-            "Begin Function {}\n"
-            "  let aTeam := GetTeammates\n"
-            "  if eval (ar_Size aTeam) < 1\n"
-            "    let aTeam := ar_Construct \"array\"\n"
-            "  endif\n"
-            "  SetFunctionValue aTeam\n"
-            "End\n");
-        g_isWaiting = Compile("is waiting",
-            "int iOn\n"
-            "Begin Function {}\n"
-            "  if eval (HasVariable \"Waiting\")\n"
-            "    if eval (GetVariable \"Waiting\") != 0\n"
-            "      set iOn to 1\n"
-            "    endif\n"
-            "  endif\n"
-            "  SetFunctionValue iOn\n"
-            "End\n");
-        g_setWaiting = Compile("set waiting",
-            "int iOn\n"
-            "Begin Function {iOn}\n"
-            "  if eval (HasVariable \"Waiting\")\n"
-            "    SetVariable \"Waiting\" iOn\n"
-            "  endif\n"
-            "  EVP\n"
-            "End\n");
-        g_followPackage = Compile("follow package",
-            "ref rPack\n"
-            "ref rTarget\n"
-            "ref rCopy\n"
-            "Begin Function {rPack, rTarget}\n"
-            "  let rCopy := TempCloneForm rPack\n"
-            "  if rCopy\n"
-            "    SetPackageTargetReference rCopy rTarget\n"
-            "  endif\n"
-            "  SetFunctionValue rCopy\n"
-            "End\n");
-        g_givePackage = Compile("give package",
-            "ref rPack\n"
-            "Begin Function {rPack}\n"
-            "  AddScriptPackage rPack\n"
-            "  EVP\n"
-            "End\n");
-        g_dropPackage = Compile("drop package",
-            "Begin Function {}\n"
-            "  RemoveScriptPackage\n"
-            "  EVP\n"
-            "End\n");
-        g_currentPackage = Compile("current package",
-            "ref rPack\n"
-            "Begin Function {}\n"
-            "  let rPack := GetCurrentPackage\n"
-            "  SetFunctionValue rPack\n"
-            "End\n");
-        g_inCombat = Compile("in combat",
-            "Begin Function {}\n"
-            "  SetFunctionValue IsInCombat\n"
-            "End\n");
-        g_wheelOpen = Compile("companion wheel open",
-            "int iOpen\n"
-            "Begin Function {}\n"
-            "  set iOpen to MenuMode 1075\n"
-            "  SetFunctionValue iOpen\n"
-            "End\n");
-        g_pcAddItem = Compile("pc add item",
-            "ref rItem\n"
-            "int iCount\n"
-            "int iHide\n"
-            "Begin Function {rItem, iCount, iHide}\n"
-            "  AddItem rItem iCount iHide\n"
-            "End\n");
-        g_pcRemoveItem = Compile("pc remove item",
-            "ref rItem\n"
-            "int iCount\n"
-            "int iHide\n"
-            "Begin Function {rItem, iCount, iHide}\n"
-            "  RemoveItem rItem iCount iHide\n"
-            "End\n");
-        g_pcRemoveAll = Compile("pc remove all",
-            "ref rTo\n"
-            "Begin Function {rTo}\n"
-            "  RemoveAllItems rTo\n"
-            "End\n");
-        g_pcRemoveAllTyped = Compile("pc remove all typed",
-            "ref rTo\n"
-            "int iA\n"
-            "int iB\n"
-            "int iType\n"
-            "Begin Function {rTo, iA, iB, iType}\n"
-            "  RemoveAllTypedItems rTo iA iB iType\n"
-            "End\n");
-        g_pcGiveAll = Compile("pc give all",
-            "Begin Function {}\n"
-            "  RemoveAllItems player\n"
-            "End\n");
-        g_pcEquip = Compile("pc equip",
-            "ref rItem\n"
-            "int iA\n"
-            "int iB\n"
-            "Begin Function {rItem, iA, iB}\n"
-            "  EquipItem rItem iA iB\n"
-            "End\n");
-        g_pcUnequip = Compile("pc unequip",
-            "ref rItem\n"
-            "int iA\n"
-            "int iB\n"
-            "Begin Function {rItem, iA, iB}\n"
-            "  UnequipItem rItem iA iB\n"
-            "End\n");
-        g_pcAddPerk = Compile("pc add perk",
-            "ref rPerk\n"
-            "Begin Function {rPerk}\n"
-            "  AddPerk rPerk\n"
-            "End\n");
-        g_pcRemovePerk = Compile("pc remove perk",
-            "ref rPerk\n"
-            "Begin Function {rPerk}\n"
-            "  RemovePerk rPerk\n"
-            "End\n");
-        g_perkRanks = Compile("perk ranks",
-            "ref rPerk\n"
-            "int iRanks\n"
-            "Begin Function {rPerk}\n"
-            "  let iRanks := (HasPerkRank rPerk 0) + 256 * (HasPerkRank rPerk 1)\n"
-            "  SetFunctionValue iRanks\n"
-            "End\n");
-        g_pcAddNote = Compile("pc add note",
-            "ref rNote\n"
-            "Begin Function {rNote}\n"
-            "  AddNote rNote\n"
-            "End\n");
-        g_pcRemoveNote = Compile("pc remove note",
-            "ref rNote\n"
-            "Begin Function {rNote}\n"
-            "  RemoveNote rNote\n"
-            "End\n");
-        g_pcAddImod = Compile("pc add imod",
-            "ref rMod\n"
-            "Begin Function {rMod}\n"
-            "  ApplyImageSpaceModifier rMod\n"
-            "End\n");
-        g_pcRemoveImod = Compile("pc remove imod",
-            "ref rMod\n"
-            "Begin Function {rMod}\n"
-            "  RemoveImageSpaceModifier rMod\n"
-            "End\n");
-        g_pcDisable = Compile("pc disable controls",
-            "int i1\n"
-            "int i2\n"
-            "int i3\n"
-            "int i4\n"
-            "int i5\n"
-            "int i6\n"
-            "int i7\n"
-            "Begin Function {i1, i2, i3, i4, i5, i6, i7}\n"
-            "  DisablePlayerControls i1 i2 i3 i4 i5 i6 i7\n"
-            "End\n");
-        g_pcEnable = Compile("pc enable controls",
-            "int i1\n"
-            "int i2\n"
-            "int i3\n"
-            "int i4\n"
-            "int i5\n"
-            "int i6\n"
-            "int i7\n"
-            "Begin Function {i1, i2, i3, i4, i5, i6, i7}\n"
-            "  EnablePlayerControls i1 i2 i3 i4 i5 i6 i7\n"
-            "End\n");
-        g_pcCast = Compile("pc cast on self",
-            "ref rSpell\n"
-            "Begin Function {rSpell}\n"
-            "  CastImmediateOnSelf rSpell\n"
-            "End\n");
-        g_pcAddPackage = Compile("pc add package",
-            "ref rPack\n"
-            "Begin Function {rPack}\n"
-            "  AddScriptPackage rPack\n"
-            "End\n");
-        g_pcRemovePackage = Compile("pc remove package",
-            "Begin Function {}\n"
-            "  RemoveScriptPackage\n"
-            "End\n");
-        g_isMobile = Compile("is mobile",
-            "Begin Function {}\n"
-            "  SetFunctionValue IsMobile\n"
-            "End\n");
-        g_grabbed = Compile("grabbed item",
-            "ref rItem\n"
-            "Begin Function {}\n"
-            "  set rItem to GetPlayerGrabbedRef\n"
-            "  SetFunctionValue rItem\n"
-            "End\n");
-        g_disable = Compile("disable",
-            "Begin Function {}\n"
-            "  Disable\n"
-            "End\n");
-
-        g_objectiveShown = Compile("objective shown",
-            "ref rQuest\n"
-            "int iObjective\n"
-            "int iOn\n"
-            "Begin Function {rQuest, iObjective, iOn}\n"
-            "  SetObjectiveDisplayed rQuest iObjective iOn\n"
-            "End\n");
-        g_objectiveDone = Compile("objective done",
-            "ref rQuest\n"
-            "int iObjective\n"
-            "int iOn\n"
-            "Begin Function {rQuest, iObjective, iOn}\n"
-            "  SetObjectiveCompleted rQuest iObjective iOn\n"
-            "End\n");
-        g_completeQuest = Compile("complete quest",
-            "ref rQuest\n"
-            "Begin Function {rQuest}\n"
-            "  CompleteQuest rQuest\n"
-            "End\n");
-        g_enable = Compile("enable",
-            "Begin Function {}\n"
-            "  Enable\n"
-            "End\n");
-        g_inDialogue = Compile("in dialogue",
-            "int iIn\n"
-            "Begin Function {}\n"
-            "  set iIn to MenuMode 1009\n"
-            "  SetFunctionValue iIn\n"
-            "End\n");
-        g_closeMenu = Compile("close menu",
-            "Begin Function {}\n"
-            "  CloseActiveMenu\n"
-            "End\n");
-        g_greet = Compile("greet",
-            "Begin Function {}\n"
-            "  StartConversation player\n"
-            "End\n");
-        g_xp = Compile("xp",
-            "float fV\n"
-            "Begin Function {}\n"
-            "  set fV to GetActorValue XP\n"
-            "  SetFunctionValue fV\n"
-            "End\n");
-        g_karma = Compile("karma",
-            "float fV\n"
-            "Begin Function {}\n"
-            "  set fV to GetActorValue Karma\n"
-            "  SetFunctionValue fV\n"
-            "End\n");
-        g_giveXp = Compile("give xp",
-            "int iXp\n"
-            "Begin Function {iXp}\n"
-            "  RewardXPExact iXp\n"
-            "End\n");
-        g_giveKarma = Compile("give karma",
-            "int iKarma\n"
-            "Begin Function {iKarma}\n"
-            "  RewardKarma iKarma\n"
-            "End\n");
-        g_loadOrder = Compile("load order",
-            "array_var aMods\n"
-            "int i\n"
-            "int n\n"
-            "Begin Function {}\n"
-            "  let aMods := ar_Construct \"array\"\n"
-            "  set n to GetNumLoadedMods\n"
-            "  while i < n\n"
-            "    ar_Append aMods (GetNthModName i)\n"
-            "    let i += 1\n"
-            "  loop\n"
-            "  SetFunctionValue aMods\n"
-            "End\n");
-
-        g_compiled = g_spawn && g_bringToPlayer && g_move && g_travel && g_moveBy && g_notifyFor && g_remove && g_notify && g_playerFlags && g_clone &&
-            g_turn && g_equipped && g_removeAllItems && g_addAndEquip && g_removeItem && g_health &&
-            g_hit && g_maxHealth && g_changeHealth && g_makeCompanion && g_stopFighting && g_kill && g_unconscious && g_controls &&
-            g_controlPressed && g_menuMode;
-        if (g_compiled)
-            LOG_INFO("Game scripts ready");
-        return g_compiled;
-    }
-
     TESObjectREFR* Player()
     {
         return *reinterpret_cast<TESObjectREFR**>(addr::kThePlayer);
@@ -1939,8 +204,6 @@ namespace game
         return Place(base);
     }
 
-    namespace
-    {
         void SetName(String& s, const char* name)
         {
             size_t len = 0;
@@ -1956,12 +219,6 @@ namespace game
             s.m_data = text;
             s.m_dataLen = s.m_bufLen = static_cast<UInt16>(len);
         }
-    }
-
-    namespace
-    {
-        bool LooksOntoBase(TESForm* base, const net::PlayerLooks& looks, int& shared);
-    }
 
     TESObjectREFR* SpawnStandIn(const char* name, const net::PlayerLooks* looks)
     {
@@ -2389,7 +646,7 @@ namespace game
         }
     }
 
-    bool AddAndEquip(TESObjectREFR* ref, uint32_t formId)
+    bool AddAndEquip(TESObjectREFR* ref, uint32_t formId, coop::GivenRounds* given)
     {
         TESForm* item = LookupForm(formId);
         if (!g_compiled || !ref || !item || !(item->IsArmor() || item->IsWeapon()))
@@ -2403,7 +660,11 @@ namespace game
             if (ammo && ammo->typeID == kFormType_BGSListForm)
                 ammo = static_cast<BGSListForm*>(ammo)->GetNthForm(0);
             if (ammo && ammo->typeID == kFormType_TESAmmo)
+            {
                 g_scripts->CallFunctionAlt(g_addItems, ref, 2, ammo, static_cast<uint32_t>(kPuppetAmmo));
+                if (given)
+                    given->Add(ammo->refID, kPuppetAmmo);
+            }
         }
         return true;
     }
@@ -2432,6 +693,7 @@ namespace game
         uint32_t weaponId = weapon ? weapon->refID : 0;
         int shots = 0;
         bool gun = weapon && IsGun(weapon);
+        bool reloadStarted = false;
         int action = CurrentAction(player);
         bool attackStarted = action == HighProcess::kAnimAction_Attack && g_myAction != HighProcess::kAnimAction_Attack;
         if (gun)
@@ -2444,7 +706,7 @@ namespace game
                 gone = static_cast<uint32_t>((g_myRounds - rounds + perShot - 1) / perShot);
             }
             g_myRounds = rounds;
-            bool reloadStarted = IsReloadAction(action) && !IsReloadAction(g_myAction);
+            reloadStarted = IsReloadAction(action) && !IsReloadAction(g_myAction);
             shots = static_cast<int>(g_myShots.Look(attackStarted, IsAttackPhase(action), gone, reloadStarted));
         }
         else
@@ -2461,7 +723,9 @@ namespace game
             LOG_DEBUG("We attacked: %d %s with %08X", shots, gun ? "shots" : "swing", weaponId);
         if (release)
             LOG_DEBUG("Our throw left our hand (%08X)", weaponId);
-        return {static_cast<uint8_t>(shots < 255 ? shots : 255), release};
+        if (reloadStarted)
+            LOG_DEBUG("We started reloading %08X (%d rounds in it now)", weaponId, g_myRounds);
+        return {static_cast<uint8_t>(shots < 255 ? shots : 255), release, reloadStarted};
     }
 
     void PlayAttack(TESObjectREFR* ref, const std::vector<uint32_t>& worn, uint8_t shots)
@@ -2555,115 +819,6 @@ namespace game
 
     namespace
     {
-        constexpr int kQuestions = 16;
-        struct Question
-        {
-            bool open = false;
-            volatile int button = -1;
-            uint32_t askedAt = 0;
-            char text[1024];
-            std::string buttons[10];
-        };
-        Question g_questions[kQuestions];
-
-        template <int N>
-        void QuestionClosed()
-        {
-            g_questions[N].button = reinterpret_cast<uint8_t(__cdecl*)()>(addr::kTakeMessageBoxButton)();
-        }
-        template <int... N>
-        constexpr std::array<void (*)(), sizeof...(N)> Closers(std::integer_sequence<int, N...>)
-        {
-            return {&QuestionClosed<N>...};
-        }
-        const std::array<void (*)(), kQuestions> kClosers = Closers(std::make_integer_sequence<int, kQuestions>());
-
-        char g_message[1024];
-        void MessageClosed() { reinterpret_cast<uint8_t(__cdecl*)()>(addr::kTakeMessageBoxButton)(); }
-
-        using ShowFn = bool(__cdecl*)(const char*, uint32_t, uint32_t, void (*)(), uint32_t, uint32_t, float, float,
-            ...);
-
-        bool Show(int id)
-        {
-            Question& q = g_questions[id];
-            const char* b[11] = {};
-            for (size_t i = 0; i < 10 && !q.buttons[i].empty(); ++i)
-                b[i] = q.buttons[i].c_str();
-            return reinterpret_cast<ShowFn>(addr::kShowMessageBox)(q.text, 0, 0, kClosers[id], 0, 0x17, 0.f, 0.f,
-                b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], nullptr);
-        }
-
-        bool ShowPlain(const std::string& text)
-        {
-            std::snprintf(g_message, sizeof(g_message), "%s", text.c_str());
-            return reinterpret_cast<ShowFn>(addr::kShowMessageBox)(g_message, 0, 0, &MessageClosed, 0, 0x17, 0.f, 0.f,
-                "OK", nullptr);
-        }
-
-        struct Waiting
-        {
-            int id;
-            std::string text;
-            uint32_t refusedSince = 0;
-        };
-        std::deque<Waiting> g_waiting;
-        constexpr uint32_t kGiveUpMs = 10000;
-
-        bool BoxFree()
-        {
-            auto* manager = *reinterpret_cast<const uint8_t* const*>(addr::kInterfaceManager);
-            return manager && *manager && !*reinterpret_cast<void* const*>(addr::kMessageMenu) &&
-                !*reinterpret_cast<const uint8_t*>(addr::kMessageBoxBusy);
-        }
-
-        bool Ask(int id, const std::string& text, const std::vector<std::string>& buttons)
-        {
-            if (id < 0 || id >= kQuestions)
-                return false;
-            Question& q = g_questions[id];
-            std::snprintf(q.text, sizeof(q.text), "%s", text.c_str());
-            for (size_t i = 0; i < 10; ++i)
-                q.buttons[i] = i < buttons.size() ? buttons[i] : std::string();
-            q.button = -1;
-            q.askedAt = GetTickCount();
-            q.open = true;
-            bool queued = false;
-            for (const Waiting& w : g_waiting)
-                queued |= w.id == id;
-            if (!queued)
-                g_waiting.push_back({id, ""});
-            RetryMessageBoxes();
-            return true;
-        }
-    }
-
-    void RetryMessageBoxes()
-    {
-        if (g_waiting.empty() || !BoxFree())
-            return;
-        Waiting& w = g_waiting.front();
-        bool shown = w.id >= 0 ? Show(w.id) : ShowPlain(w.text);
-        if (shown)
-        {
-            g_waiting.pop_front();
-            return;
-        }
-        uint32_t now = GetTickCount();
-        if (!w.refusedSince)
-            w.refusedSince = now;
-        else if (now - w.refusedSince > kGiveUpMs)
-        {
-            LOG_WARN("A box (question %d) the game wouldn't show for %u s: given up", w.id, kGiveUpMs / 1000);
-            if (w.id >= 0)
-                g_questions[w.id].button = kNeverShown;
-            g_waiting.pop_front();
-        }
-    }
-
-    namespace
-    {
-        uint8_t* HookStart(uintptr_t function, const uint8_t* expect, size_t length, const void* to);
         uint8_t* g_loadSave = nullptr;
         bool (*g_mayLoad)(const std::string&) = nullptr;
 
@@ -2694,174 +849,6 @@ namespace game
             g_loadSave = HookStart(addr::kLoadSave, kStart, sizeof(kStart), reinterpret_cast<const void*>(&LoadSaveHook));
         }
         return g_loadSave != nullptr;
-    }
-
-    bool AskYesNo(const std::string& text, int id) { return Ask(id, text, {"Yes", "No"}); }
-
-    void ShowMessage(const std::string& text)
-    {
-        g_waiting.push_back({-1, text});
-        RetryMessageBoxes();
-    }
-
-    bool AskChoice(const std::string& text, const std::vector<std::string>& buttons, int id)
-    {
-        return Ask(id, text, buttons);
-    }
-
-    bool QuestionOpen()
-    {
-        for (const Question& q : g_questions)
-            if (q.open && GetTickCount() - q.askedAt < 120000)
-                return true;
-        return false;
-    }
-
-    namespace
-    {
-        void SetTileText(void* tile, const std::string& text)
-        {
-            using SetString = void(__thiscall*)(void*, uint32_t, const char*, bool);
-            reinterpret_cast<SetString>(addr::kTileSetString)(tile, addr::kTileValueString, text.c_str(), true);
-        }
-    }
-
-    std::string MessageText()
-    {
-        auto* menu = *reinterpret_cast<uint8_t* const*>(addr::kMessageMenu);
-        void* tile = menu ? *reinterpret_cast<void* const*>(menu + addr::kMessageMenuText) : nullptr;
-        if (!tile)
-            return "";
-        using GetValue = const uint8_t*(__thiscall*)(void*, uint32_t);
-        const uint8_t* value = reinterpret_cast<GetValue>(addr::kTileGetValue)(tile, addr::kTileValueString);
-        const char* now = value ? *reinterpret_cast<const char* const*>(value + 0xC) : nullptr;
-        return now ? now : "";
-    }
-
-    bool MessageShows(const std::string& text) { return !text.empty() && MessageText() == text; }
-
-    bool SetMessageText(const std::string& text)
-    {
-        auto* menu = *reinterpret_cast<uint8_t* const*>(addr::kMessageMenu);
-        void* tile = menu ? *reinterpret_cast<void* const*>(menu + addr::kMessageMenuText) : nullptr;
-        if (!tile)
-            return false;
-        SetTileText(tile, text);
-        return true;
-    }
-
-    bool SetMessageButton(int index, const std::string& label)
-    {
-        auto* menu = *reinterpret_cast<uint8_t* const*>(addr::kMessageMenu);
-        if (!menu)
-            return false;
-        auto* node = menu + addr::kMessageMenuButtons + 4;
-        for (int i = 0; node && i < index; ++i)
-            node = *reinterpret_cast<uint8_t* const*>(node + 4);
-        auto* item = node ? *reinterpret_cast<uint8_t* const*>(node) : nullptr;
-        void* tile = item ? *reinterpret_cast<void* const*>(item) : nullptr;
-        if (!tile)
-            return false;
-        SetTileText(tile, label);
-        return true;
-    }
-
-    int TakeChoice(int id)
-    {
-        if (id < 0 || id >= kQuestions || !g_questions[id].open || g_questions[id].button == -1)
-            return -1;
-        int choice = g_questions[id].button;
-        g_questions[id].open = false;
-        g_questions[id].button = -1;
-        LOG_DEBUG("Question %d answered with button %d", id, choice);
-        return choice;
-    }
-
-    void DropQuestion(int id)
-    {
-        if (id < 0 || id >= kQuestions || !g_questions[id].open)
-            return;
-        Question& q = g_questions[id];
-        q.open = false;
-        q.button = -1;
-        for (auto it = g_waiting.begin(); it != g_waiting.end(); ++it)
-            if (it->id == id)
-            {
-                g_waiting.erase(it);
-                return;
-            }
-        if (MessageShows(q.text))
-            CloseMenu();
-    }
-
-    void OpenLoadMenu()
-    {
-        reinterpret_cast<void(__cdecl*)()>(addr::kLoadOption)();
-    }
-
-    bool RunInBackground(bool on)
-    {
-        auto* value = reinterpret_cast<uint8_t*>(addr::kAlwaysActiveSetting + 4);
-        bool was = *value != 0;
-        *value = on ? 1 : 0;
-        return was;
-    }
-
-    void QuitGame()
-    {
-        reinterpret_cast<void(__cdecl*)()>(addr::kExitGameOption)();
-    }
-
-    int TakeAnswer(int id)
-    {
-        int choice = TakeChoice(id);
-        return choice == kNeverShown ? 0 : choice < 0 ? -1 : choice == 0 ? 1 : 0;
-    }
-
-    bool RunConsoleLine(const char* line, TESObjectREFR* on)
-    {
-        if (!g_console || !line)
-            return false;
-        if (g_console->version >= 3 && g_console->RunScriptLine2)
-            return g_console->RunScriptLine2(line, on, false);
-        return g_console->RunScriptLine(line, on);
-    }
-
-    std::string Evaluate(const char* expression)
-    {
-        if (!g_scripts || !expression || !*expression)
-            return "nothing to work out";
-        std::string text = std::string("Begin Function {}\n  SetFunctionValue ") + expression + "\nEnd\n";
-        Script* script = g_scripts->CompileScript(text.c_str());
-        if (script)
-            g_ourScripts.insert(script);
-        if (!script)
-            return "couldn't compile it (the game's console says why)";
-        NVSEArrayVarInterface::Element result;
-        if (!g_scripts->CallFunction(script, Player(), nullptr, &result, 0))
-            return "couldn't run it";
-        char out[320];
-        switch (result.GetType())
-        {
-        case NVSEArrayVarInterface::Element::kType_Numeric:
-            std::snprintf(out, sizeof(out), "%g", result.GetNumber());
-            break;
-        case NVSEArrayVarInterface::Element::kType_Form:
-        {
-            TESForm* form = result.GetTESForm();
-            const char* name = form && form->GetIsReference() ? Name(static_cast<TESObjectREFR*>(form)) : "";
-            std::snprintf(out, sizeof(out), "form %08X%s%s", form ? form->refID : 0, *name ? " " : "", name);
-            break;
-        }
-        case NVSEArrayVarInterface::Element::kType_String:
-            std::snprintf(out, sizeof(out), "\"%.300s\"", result.GetString() ? result.GetString() : "");
-            break;
-        case NVSEArrayVarInterface::Element::kType_Array:
-            return "an array (not shown)";
-        default:
-            return "no value";
-        }
-        return out;
     }
 
     void NoteMadeCharacters(const std::vector<uint32_t>& refIds)
@@ -2944,24 +931,24 @@ namespace game
         return action >= HighProcess::kAnimAction_Attack && action <= HighProcess::kAnimAction_Attack_Throw_Release;
     }
 
+    DWORD g_mainThread = 0;
+    void NoteThread(const char* hook, std::atomic<int>& said)
+    {
+        bool main = GetCurrentThreadId() == g_mainThread;
+        int which = main ? 1 : 2;
+        if (!g_mainThread || (said.fetch_or(which) & which))
+            return;
+        if (main)
+            LOG_DEBUG("%s runs on the game's main thread", hook);
+        else
+            LOG_WARN("%s ran on another thread than the game's main one", hook);
+    }
+
     namespace
     {
         uintptr_t g_explosionInit = 0;
         std::vector<SeenExplosion> g_explosions;
         std::mutex g_explosionsLock;
-
-        DWORD g_mainThread = 0;
-        void NoteThread(const char* hook, std::atomic<int>& said)
-        {
-            bool main = GetCurrentThreadId() == g_mainThread;
-            int which = main ? 1 : 2;
-            if (!g_mainThread || (said.fetch_or(which) & which))
-                return;
-            if (main)
-                LOG_DEBUG("%s runs on the game's main thread", hook);
-            else
-                LOG_WARN("%s ran on another thread than the game's main one", hook);
-        }
 
         bool IsOurHarmless(const TESForm* form)
         {
@@ -2990,7 +977,11 @@ namespace game
             std::lock_guard<std::mutex> lock(g_explosionsLock);
             if (g_explosions.size() >= 32)
                 return;
-            g_explosions.push_back({explosion->baseForm->refID, at.space, at.x, at.y, at.z, source && source == Player()});
+            uint8_t sourceType = source && source->baseForm ? source->baseForm->typeID : 0;
+            bool objectsOwn = (sourceType == kFormType_TESObjectACTI || sourceType == kFormType_BGSTalkingActivator) &&
+                ObjectFullHealth(source) > 0;
+            g_explosions.push_back({explosion->baseForm->refID, at.space, at.x, at.y, at.z, source && source == Player(),
+                objectsOwn});
             LOG_DEBUG("Explosion %08X (%08X) at %.0f, %.0f, %.0f by %08X", explosion->refID, explosion->baseForm->refID,
                 at.x, at.y, at.z, source ? source->refID : 0);
         }
@@ -3093,7 +1084,6 @@ namespace game
 
     namespace
     {
-        using TypeTest = bool (*)(uint8_t type, uint8_t wanted);
 
         bool SameType(uint8_t type, uint8_t wanted) { return type == wanted; }
 
@@ -3125,10 +1115,6 @@ namespace game
             }
         }
 
-        template <typename T> T At(const void* base, uint32_t offset)
-        {
-            return *reinterpret_cast<const T*>(static_cast<const char*>(base) + offset);
-        }
     }
 
     void RefsNear(TypeTest test, uint8_t baseType, std::vector<TESObjectREFR*>& out, float range)
@@ -3269,168 +1255,6 @@ namespace game
         std::snprintf(line, sizeof(line), "fov %.0f %.0f", want, hands.GetNumber());
         RunConsoleLine(line);
         LOG_INFO("Field of view: %.0f (the game's own: %.0f)", want, s_world);
-        return true;
-    }
-
-    namespace
-    {
-        namespace npcl
-        {
-            constexpr uint32_t kFlags = 0x34, kBaseData = 0x30, kRace = 0x110, kFaceGen = 0x134, kFaceGenSize = 0x20,
-                kFaceValues = 0x0C, kFaceCount = 0x18, kHair = 0x1B8, kHairLength = 0x1BC, kEyes = 0x1C0,
-                kHairColor = 0x1D8, kHeadParts = 0x1DC;
-            constexpr uint32_t kFaceCounts[3] = {50, 30, 50};
-        }
-
-        uint32_t IdAt(const void* npc, uint32_t offset)
-        {
-            const TESForm* form = At<const TESForm*>(npc, offset);
-            return form ? form->refID : 0;
-        }
-
-        template <typename T>
-        T* FormOfType(uint32_t id, uint8_t type)
-        {
-            TESForm* form = id ? LookupForm(id) : nullptr;
-            return form && form->typeID == type ? reinterpret_cast<T*>(form) : nullptr;
-        }
-    }
-
-    bool ReadMyLooks(net::PlayerLooks& out)
-    {
-        TESObjectREFR* player = Player();
-        const TESForm* npc = player ? player->baseForm : nullptr;
-        if (!npc || npc->typeID != kFormType_TESNPC)
-            return false;
-        out = net::PlayerLooks{};
-        out.female = (At<uint32_t>(npc, npcl::kFlags) & 1) != 0;
-        out.race = IdAt(npc, npcl::kRace);
-        out.hair = IdAt(npc, npcl::kHair);
-        out.eyes = IdAt(npc, npcl::kEyes);
-        float length = At<float>(npc, npcl::kHairLength);
-        out.hairLength = std::isfinite(length) && length >= 0 && length <= 10 ? length : 0;
-        out.hairColor = At<uint32_t>(npc, npcl::kHairColor);
-        size_t at = 0;
-        for (int i = 0; i < 3; ++i)
-        {
-            const uint8_t* data = reinterpret_cast<const uint8_t*>(npc) + npcl::kFaceGen + i * npcl::kFaceGenSize;
-            const float* values = *reinterpret_cast<const float* const*>(data + npcl::kFaceValues);
-            uint32_t count = *reinterpret_cast<const uint32_t*>(data + npcl::kFaceCount);
-            for (uint32_t j = 0; j < npcl::kFaceCounts[i]; ++j, ++at)
-            {
-                float v = values && count == npcl::kFaceCounts[i] ? values[j] : 0;
-                out.face[at] = std::isfinite(v) && v > -net::kMaxFaceValue && v < net::kMaxFaceValue ? v : 0;
-            }
-        }
-        const uint8_t* node = reinterpret_cast<const uint8_t*>(npc) + npcl::kHeadParts;
-        for (int n = 0; node && n < 32 && out.headParts.size() < net::kMaxHeadParts; ++n)
-        {
-            if (const TESForm* part = *reinterpret_cast<const TESForm* const*>(node))
-                if ((part->refID >> 24) != 0xFF)
-                    out.headParts.push_back(part->refID);
-            node = *reinterpret_cast<const uint8_t* const*>(node + 4);
-        }
-        for (const char* c = Name(player); *c && out.name.size() < net::kMaxNameLength; ++c)
-            out.name += static_cast<unsigned char>(*c) < 0x20 || *c == 0x7F ? '?' : *c;
-        if ((out.race >> 24) == 0xFF) out.race = 0;
-        if ((out.hair >> 24) == 0xFF) out.hair = 0;
-        if ((out.eyes >> 24) == 0xFF) out.eyes = 0;
-        return true;
-    }
-
-    namespace
-    {
-        bool LooksOntoBase(TESForm* base, const net::PlayerLooks& looks, int& shared)
-        {
-        if (!base || base->typeID != kFormType_TESNPC ||
-            std::find(g_standInBases.begin(), g_standInBases.end(), base->refID) == g_standInBases.end())
-            return false;
-        auto* npc = reinterpret_cast<uint8_t*>(base);
-        if (!looks.name.empty())
-            SetName(static_cast<TESActorBase*>(base)->fullName.name, looks.name.c_str());
-        if (TESForm* race = FormOfType<TESForm>(looks.race, kFormType_TESRace))
-            if ((At<uint32_t>(race, addr::kRaceFlags) & (addr::kRacePlayable | addr::kRaceChild)) == addr::kRacePlayable)
-                *reinterpret_cast<TESForm**>(npc + npcl::kRace) = race;
-        if (((At<uint32_t>(npc, npcl::kFlags) & 1) != 0) != looks.female)
-            reinterpret_cast<void(__thiscall*)(void*, uint32_t, uint32_t, uint32_t)>(addr::kSetActorBaseFlag)(
-                npc + npcl::kBaseData, 1, looks.female ? 1 : 0, 1);
-        if (TESForm* hair = FormOfType<TESForm>(looks.hair, kFormType_TESHair))
-            *reinterpret_cast<TESForm**>(npc + npcl::kHair) = hair;
-        if (TESForm* eyes = FormOfType<TESForm>(looks.eyes, kFormType_TESEyes))
-            *reinterpret_cast<TESForm**>(npc + npcl::kEyes) = eyes;
-        *reinterpret_cast<float*>(npc + npcl::kHairLength) = looks.hairLength;
-        *reinterpret_cast<uint32_t*>(npc + npcl::kHairColor) = looks.hairColor;
-        const uint8_t* traveler = reinterpret_cast<const uint8_t*>(LookupForm(ids::kStandInBase));
-        size_t at = 0;
-        for (int i = 0; i < 3; ++i)
-        {
-            uint8_t* data = npc + npcl::kFaceGen + i * npcl::kFaceGenSize;
-            float*& values = *reinterpret_cast<float**>(data + npcl::kFaceValues);
-            uint32_t count = *reinterpret_cast<uint32_t*>(data + npcl::kFaceCount);
-            if (count != npcl::kFaceCounts[i])
-            {
-                at += npcl::kFaceCounts[i];
-                continue;
-            }
-            const float* theirs = traveler ? *reinterpret_cast<const float* const*>(
-                traveler + npcl::kFaceGen + i * npcl::kFaceGenSize + npcl::kFaceValues) : nullptr;
-            if (!values || values == theirs)
-            {
-                ++shared;
-                values = static_cast<float*>(reinterpret_cast<void*(__cdecl*)(UInt32)>(addr::kFormHeapAllocate)(
-                    count * sizeof(float)));
-                if (!values)
-                    return false;
-            }
-            for (uint32_t j = 0; j < count; ++j)
-                values[j] = looks.face[at++];
-        }
-        uint8_t* node = npc + npcl::kHeadParts;
-        *reinterpret_cast<void**>(node) = nullptr;
-        *reinterpret_cast<void**>(node + 4) = nullptr;
-        bool first = true;
-        for (uint32_t id : looks.headParts)
-        {
-            TESForm* part = FormOfType<TESForm>(id, kFormType_BGSHeadPart);
-            if (!part)
-                continue;
-            if (!first)
-            {
-                auto* next = static_cast<uint8_t*>(reinterpret_cast<void*(__cdecl*)(UInt32)>(addr::kFormHeapAllocate)(8));
-                if (!next)
-                    break;
-                *reinterpret_cast<void**>(next + 4) = nullptr;
-                *reinterpret_cast<void**>(node + 4) = next;
-                node = next;
-            }
-            *reinterpret_cast<TESForm**>(node) = part;
-            first = false;
-        }
-        return true;
-        }
-    }
-
-    bool ApplyLooks(TESObjectREFR* standIn, const net::PlayerLooks& looks)
-    {
-        TESForm* base = standIn ? standIn->baseForm : nullptr;
-        bool wasFemale = base && (At<uint32_t>(base, npcl::kFlags) & 1) != 0;
-        int shared = 0;
-        if (!LooksOntoBase(base, looks, shared))
-            return false;
-        if (wasFemale != looks.female && g_update3D)
-        {
-            g_scripts->CallFunctionAlt(g_update3D, standIn, 0);
-            LOG_INFO("Looks: %08X is now %s: its body loaded again", standIn->refID, looks.female ? "female" : "male");
-            return true;
-        }
-        bool& egt = *reinterpret_cast<bool*>(addr::kLoadFaceGenEgt);
-        bool wasEgt = egt;
-        egt = true;
-        reinterpret_cast<void(__thiscall*)(TESObjectREFR*)>(addr::kRemakeHead)(standIn);
-        egt = wasEgt;
-        LOG_INFO("Looks: %08X made to look like its player (%s, race %08X, hair %08X, %zu head parts%s)", standIn->refID,
-            looks.female ? "female" : "male", looks.race, looks.hair, looks.headParts.size(),
-            shared ? "; its face's numbers were the Traveler's: given its own" : "");
         return true;
     }
 
@@ -3682,35 +1506,66 @@ namespace game
         return text;
     }
 
-    std::vector<std::pair<uint32_t, void*>> DetachQuestScripts(bool (*accept)(uint32_t id, const void* context),
-        const void* context)
+    namespace
     {
-        std::vector<std::pair<uint32_t, void*>> detached;
+        std::vector<coop::DetachedSlot> g_detachedQuestScripts;
+        Cmd_Execute g_hasScriptCommand = nullptr;
+        bool g_inHasScriptCommand = false;
+
+        bool HasScriptCommandWithQuestScripts(COMMAND_ARGS)
+        {
+            if (g_inHasScriptCommand)
+                return g_hasScriptCommand(PASS_COMMAND_ARGS);
+            g_inHasScriptCommand = true;
+            bool done = coop::WithDetachedPutBack(g_detachedQuestScripts, [&] {
+                return g_hasScriptCommand(PASS_COMMAND_ARGS);
+            });
+            g_inHasScriptCommand = false;
+            return done;
+        }
+
+        void GuardHasScriptCommand()
+        {
+            if (g_hasScriptCommand || !g_cmdTable)
+                return;
+            auto* info = const_cast<CommandInfo*>(g_cmdTable->GetByName("HasScriptCommand"));
+            if (!info || !info->execute)
+                return LOG_WARN("Quests: no HasScriptCommand to guard");
+            g_hasScriptCommand = info->execute;
+            info->execute = HasScriptCommandWithQuestScripts;
+            LOG_INFO("Quests: HasScriptCommand sees detached quests' scripts while it reads");
+        }
+    }
+
+    size_t DetachQuestScripts(bool (*accept)(uint32_t id, const void* context), const void* context)
+    {
+        GuardHasScriptCommand();
         const void* data = *reinterpret_cast<const void* const*>(addr::kDataHandler);
         if (!data)
-            return detached;
+            return 0;
+        size_t detached = 0;
         ForEachIn(static_cast<const char*>(data) + layout::kDataHandlerQuests, [&](void* quest)
         {
             void** slot = reinterpret_cast<void**>(static_cast<char*>(quest) + layout::kQuestScript);
             uint32_t id = static_cast<TESForm*>(quest)->refID;
             if (*slot && accept(id, context))
             {
-                detached.push_back({id, *slot});
+                g_detachedQuestScripts.push_back({slot, *slot});
                 *slot = nullptr;
+                ++detached;
             }
         });
         return detached;
     }
 
-    void PutBackQuestScripts(const std::vector<std::pair<uint32_t, void*>>& scripts)
+    size_t PutBackQuestScripts()
     {
-        for (auto& [id, script] : scripts)
-            if (TESForm* quest = QuestById(id))
-            {
-                void** slot = reinterpret_cast<void**>(reinterpret_cast<char*>(quest) + layout::kQuestScript);
-                if (!*slot)
-                    *slot = script;
-            }
+        size_t count = g_detachedQuestScripts.size();
+        for (const coop::DetachedSlot& d : g_detachedQuestScripts)
+            if (!*d.slot)
+                *d.slot = d.script;
+        g_detachedQuestScripts.clear();
+        return count;
     }
 
     std::vector<std::pair<uint32_t, double>> QuestVariables(uint32_t id)
@@ -3855,284 +1710,6 @@ namespace game
     bool IsTalking(const TESObjectREFR* actor)
     {
         return actor && At<uint8_t>(actor, layout::kIsTalking) != 0;
-    }
-
-    namespace
-    {
-        struct Armed
-        {
-            const TESForm* topic = nullptr;
-            const TESForm* info = nullptr;
-            const TESObjectREFR* speaker = nullptr;
-            int response = 0;
-            uint32_t until = 0;
-        };
-        Armed g_armed;
-        constexpr uint32_t kArmedMs = 3000;
-        struct Said { const TESObjectREFR* speaker; const TESForm* info; uint32_t until; };
-        std::vector<Said> g_said;
-        constexpr uint32_t kSaidMs = 120000;
-        uintptr_t g_pickLine = 0;
-
-        bool IsArmed(const void* topic, const void* speaker)
-        {
-            return g_armed.info && topic == g_armed.topic && speaker == g_armed.speaker &&
-                static_cast<int32_t>(GetTickCount() - g_armed.until) < 0;
-        }
-
-        std::map<uint32_t, RadioLineStart> g_radioNow;
-        std::vector<RadioLineStart> g_radioStarts;
-        bool g_radioFromHost = false;
-        struct HostRadio
-        {
-            uint32_t info = 0, part = 0, seq = 0;
-            std::vector<net::RadioPick> run;
-            uint32_t hostStart = 0;
-            uint32_t since = 0;
-            uint32_t lastPush = 0;
-            size_t handing = 0;
-            bool handed = false;
-            bool runUsed = false;
-            int rebuilds = 0;
-            bool aligned = false;
-        };
-        std::map<uint32_t, HostRadio> g_hostRadio;
-
-        struct RadioNode { void* item; RadioNode* next; };
-        struct RadioReceiver { TESObjectREFR* radio; Sound sound; Sound staticSound; bool shouldPlay, justStarted,
-            inRange, isActor; };
-        struct RadioConversation { RadioNode items; RadioNode* current; };
-        struct RadioItem { RadioNode responses; RadioNode* current; TESForm* info; TESForm* topic; };
-        struct RadioStation
-        {
-            TESObjectREFR* station;
-            RadioConversation* conversation;
-            void* nextConversation;
-            uint32_t itemStart;
-            int32_t itemDuration;
-            uint8_t power, targetPower;
-            uint8_t pad16[2];
-            uint32_t flags;
-            RadioNode users;
-        };
-        static_assert(offsetof(RadioReceiver, staticSound) == 0x10 && offsetof(RadioReceiver, shouldPlay) == 0x1C);
-        static_assert(offsetof(RadioItem, info) == 0x0C && offsetof(RadioItem, topic) == 0x10);
-        static_assert(offsetof(RadioStation, itemDuration) == 0x10 && offsetof(RadioStation, users) == 0x1C);
-
-        bool ReadStation(const RadioStation* st, RadioLineStart& out)
-        {
-            const RadioConversation* conv = st->conversation;
-            if (!conv || !conv->current || !conv->current->item)
-                return false;
-            out.station = st->station->refID;
-            out.run.clear();
-            out.line = 0;
-            for (const RadioNode* n = &conv->items; n && out.run.size() < net::kMaxRadioRun; n = n->next)
-            {
-                auto* item = static_cast<const RadioItem*>(n->item);
-                if (!item || !item->info)
-                    continue;
-                if (n == conv->current)
-                    out.line = out.run.size();
-                out.run.push_back({item->topic ? item->topic->refID : 0, item->info->refID});
-            }
-            auto* item = static_cast<const RadioItem*>(conv->current->item);
-            if (!item->info)
-                return false;
-            out.info = item->info->refID;
-            out.part = 0;
-            if (item->current)
-                for (const RadioNode* n = &item->responses; n && n != item->current && out.part < 64; n = n->next)
-                    ++out.part;
-            return true;
-        }
-
-        size_t FindInRun(const std::vector<net::RadioPick>& run, uint32_t info, size_t from = 0)
-        {
-            for (size_t i = from; i < run.size(); ++i)
-                if (run[i].info == info)
-                    return i;
-            return std::string::npos;
-        }
-
-        void* __fastcall PickLineHook(void* topic, void*, void* a, void* b, void* c, uint32_t d, uint32_t e, uint32_t f)
-        {
-            if (IsArmed(topic, b))
-                return const_cast<TESForm*>(g_armed.info);
-            using Fn = void*(__thiscall*)(void*, void*, void*, void*, uint32_t, uint32_t, uint32_t);
-            auto* speaker = static_cast<TESObjectREFR*>(b);
-            if (g_radioFromHost && topic && speaker && speaker->baseForm &&
-                speaker->baseForm->typeID == kFormType_BGSTalkingActivator)
-            {
-                auto it = g_hostRadio.find(speaker->refID);
-                uint32_t id = static_cast<TESForm*>(topic)->refID;
-                if (it != g_hostRadio.end() && !it->second.runUsed)
-                {
-                    HostRadio& h = it->second;
-                    if (h.handed && h.handing < h.run.size() && h.run[h.handing].topic != id)
-                    {
-                        ++h.handing;
-                        h.handed = false;
-                    }
-                    for (size_t i = h.handing; i < h.run.size(); ++i)
-                        if (h.run[i].topic == id)
-                            if (void* info = TopicInfo(h.run[i].info))
-                            {
-                                h.handing = i;
-                                h.handed = true;
-                                return info;
-                            }
-                }
-            }
-            return reinterpret_cast<Fn>(g_pickLine)(topic, a, b, c, d, e, f);
-        }
-
-        uint8_t* g_firstResponse = nullptr;
-        uint8_t* g_setEndCallback = nullptr;
-        std::map<uint32_t, Sound> g_voices;
-        std::mutex g_voicesLock;
-
-        void __fastcall SetEndCallbackHook(Sound* sound, void*, uintptr_t function, uint32_t argument)
-        {
-            if ((function == addr::kSayEnded || function == addr::kSpeechEnded) && sound)
-            {
-                static std::atomic<int> s_saidThread{0};
-                NoteThread("The voice hook", s_saidThread);
-                std::lock_guard<std::mutex> lock(g_voicesLock);
-                if (g_voices.size() >= 256 && !g_voices.count(argument))
-                    g_voices.clear();
-                g_voices[argument] = *sound;
-            }
-            reinterpret_cast<void(__thiscall*)(Sound*, uintptr_t, uint32_t)>(g_setEndCallback)(sound, function, argument);
-        }
-
-        bool __fastcall FirstResponseHook(void* item)
-        {
-            bool any = reinterpret_cast<bool(__thiscall*)(void*)>(g_firstResponse)(item);
-            const TESForm* info = item ? At<const TESForm*>(item, layout::kDialogueItemInfo) : nullptr;
-            if (!any || !g_armed.info || info != g_armed.info || !g_armed.response ||
-                static_cast<int32_t>(GetTickCount() - g_armed.until) >= 0)
-                return any;
-            using Current = void*(__thiscall*)(void*);
-            auto current = reinterpret_cast<Current>(addr::kDialogueItemCurrentResponse);
-            auto next = reinterpret_cast<bool(__thiscall*)(void*)>(addr::kDialogueItemNextResponse);
-            void* response = current(item);
-            for (int i = 0; response && i < 32 &&
-                 At<uint32_t>(response, layout::kResponseNumber) != static_cast<uint32_t>(g_armed.response); ++i)
-            {
-                if (!next(item))
-                    return reinterpret_cast<bool(__thiscall*)(void*)>(g_firstResponse)(item);
-                response = current(item);
-            }
-            LOG_DEBUG("Dialogue: %s starts at response %u (wanted %d)", g_armed.speaker ?
-                Name(g_armed.speaker) : "?", response ? At<uint32_t>(response, layout::kResponseNumber) : 0,
-                g_armed.response);
-            return response != nullptr;
-        }
-
-        uint8_t* HookStart(uintptr_t function, const uint8_t* expect, size_t length, const void* to)
-        {
-            auto* at = reinterpret_cast<uint8_t*>(function);
-            if (length < 5 || length > 16 || std::memcmp(at, expect, length) != 0)
-                return nullptr;
-            auto* back = static_cast<uint8_t*>(VirtualAlloc(nullptr, 32, MEM_COMMIT | MEM_RESERVE,
-                PAGE_EXECUTE_READWRITE));
-            if (!back)
-                return nullptr;
-            std::memcpy(back, at, length);
-            back[length] = 0xE9;
-            int32_t rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(at + length) -
-                reinterpret_cast<uintptr_t>(back + length + 5));
-            std::memcpy(back + length + 1, &rel, 4);
-            DWORD old;
-            if (!VirtualProtect(at, length, PAGE_EXECUTE_READWRITE, &old))
-                return nullptr;
-            at[0] = 0xE9;
-            rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(to) - reinterpret_cast<uintptr_t>(at + 5));
-            std::memcpy(at + 1, &rel, 4);
-            for (size_t k = 5; k < length; ++k)
-                at[k] = 0x90;
-            VirtualProtect(at, length, old, &old);
-            FlushInstructionCache(GetCurrentProcess(), at, length);
-            return back;
-        }
-
-        uintptr_t HookCall(uintptr_t site, const void* to)
-        {
-            auto* at = reinterpret_cast<uint8_t*>(site);
-            if (at[0] != 0xE8)
-                return 0;
-            int32_t rel;
-            std::memcpy(&rel, at + 1, 4);
-            uintptr_t was = site + 5 + rel;
-            DWORD old;
-            if (!VirtualProtect(at, 5, PAGE_EXECUTE_READWRITE, &old))
-                return 0;
-            rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(to) - (site + 5));
-            std::memcpy(at + 1, &rel, 4);
-            VirtualProtect(at, 5, old, &old);
-            FlushInstructionCache(GetCurrentProcess(), at, 5);
-            return was;
-        }
-    }
-
-    namespace
-    {
-        void __fastcall SkipTimeChange(void*, void*, float, bool) {}
-    }
-
-    namespace
-    {
-        uint8_t* g_setSpeed = nullptr;
-
-        void __fastcall WatchedSpeedChange(void* timer, void*, float speed, bool now)
-        {
-            static float lastSpeed = -1.0f;
-            static uintptr_t lastCaller = 0;
-            uintptr_t caller = reinterpret_cast<uintptr_t>(_ReturnAddress()) - 5;
-            if (speed != lastSpeed || caller != lastCaller)
-                LOG_INFO("Speed: %g asked by the game code at %08X%s", speed, static_cast<unsigned>(caller),
-                    now ? " (now)" : "");
-            lastSpeed = speed;
-            lastCaller = caller;
-            using Fn = void(__thiscall*)(void*, float, bool);
-            reinterpret_cast<Fn>(g_setSpeed)(timer, speed, now);
-        }
-    }
-
-    bool WatchSpeedChanges()
-    {
-        if (!g_setSpeed)
-        {
-            static const uint8_t kStart[6] = {0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x08};
-            g_setSpeed = HookStart(addr::kSetTimeMultiplier, kStart, sizeof(kStart),
-                reinterpret_cast<const void*>(&WatchedSpeedChange));
-        }
-        return g_setSpeed != nullptr;
-    }
-
-    void SetWorldSpeed(float speed)
-    {
-        using Fn = void(__thiscall*)(void*, float, bool);
-        reinterpret_cast<Fn>(addr::kSetTimeMultiplier)(reinterpret_cast<void*>(addr::kTimeGlobal), speed, true);
-    }
-
-    int KeepVatsAtFullSpeed()
-    {
-        static int skipped = -1;
-        if (skipped >= 0)
-            return skipped;
-        skipped = 0;
-        for (uintptr_t site : addr::kVatsTimeCalls)
-        {
-            uintptr_t was = HookCall(site, reinterpret_cast<const void*>(&SkipTimeChange));
-            if (was)
-                ++skipped;
-            if (was && was != addr::kSetTimeMultiplier)
-                LOG_INFO("VATS: another plugin changes the speed at %08X too (%08X); co-op skips it",
-                    static_cast<unsigned>(site), static_cast<unsigned>(was));
-        }
-        return skipped;
     }
 
     namespace
@@ -4348,365 +1925,6 @@ namespace game
             LOG_INFO("Main menu: another plugin makes its options too (%08X); ours are added after",
                 static_cast<unsigned>(g_makeOptions));
         return g_makeOptions != 0;
-    }
-
-    bool InstallSayHooks()
-    {
-        if (g_pickLine)
-            return true;
-        uintptr_t pick = HookCall(addr::kPickLineCall, reinterpret_cast<const void*>(&PickLineHook));
-        if (!pick)
-            return false;
-        g_pickLine = pick;
-        if (pick != 0x0061A790)
-            LOG_INFO("Dialogue: another plugin hooks the game's line picking too (%08X); ours passes on to it",
-                static_cast<unsigned>(pick));
-        static const uint8_t kStart[7] = {0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC};
-        g_firstResponse = HookStart(addr::kDialogueItemFirstResponse, kStart, sizeof(kStart),
-            reinterpret_cast<const void*>(&FirstResponseHook));
-        static const uint8_t kSoundStart[6] = {0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x0C};
-        if (!g_mainThread)
-            g_mainThread = GetCurrentThreadId();
-        g_setEndCallback = HookStart(addr::kSoundHandleSetEndCallback, kSoundStart, sizeof(kSoundStart),
-            reinterpret_cast<const void*>(&SetEndCallbackHook));
-        return g_firstResponse && g_setEndCallback;
-    }
-
-    std::vector<RadioLineStart> TakeRadioLineStarts() { return std::move(g_radioStarts); }
-
-    bool TunePipboyRadio(TESObjectREFR* station)
-    {
-        if (!station || !station->baseForm || station->baseForm->typeID != kFormType_BGSTalkingActivator)
-            return false;
-        auto setOn = reinterpret_cast<void(__cdecl*)(bool)>(addr::kRadioSetOn);
-        if (*reinterpret_cast<const uint8_t*>(addr::kRadioOn))
-            setOn(false);
-        setOn(true);
-        reinterpret_cast<void(__cdecl*)(TESObjectREFR*, bool)>(addr::kRadioSetStation)(station, true);
-        return true;
-    }
-
-    void RadioFromHost(bool on)
-    {
-        g_radioFromHost = on;
-        if (!on)
-            g_hostRadio.clear();
-    }
-
-    void HostRadioLine(const net::RadioLine& line)
-    {
-        if (g_hostRadio.size() >= 64 && !g_hostRadio.count(line.station))
-            return;
-        HostRadio& h = g_hostRadio[line.station];
-        if (h.seq == line.seq && h.info == line.info)
-            return;
-        if (h.run.size() != line.run.size() ||
-            !std::equal(h.run.begin(), h.run.end(), line.run.begin(),
-                [](const net::RadioPick& x, const net::RadioPick& y) { return x.info == y.info && x.topic == y.topic; }))
-        {
-            h.run = line.run;
-            h.handing = 0;
-            h.handed = false;
-            h.runUsed = false;
-            h.rebuilds = 0;
-        }
-        h.info = line.info;
-        h.part = line.part;
-        h.seq = line.seq;
-        h.hostStart = GetTickCount() - line.elapsed;
-        h.aligned = false;
-    }
-
-    void UpdateRadios()
-    {
-        uint32_t now = GetTickCount();
-        if (g_radioNow.size() > 128)
-            g_radioNow.clear();
-        auto seek = reinterpret_cast<void(__thiscall*)(Sound*, uint32_t)>(addr::kSoundHandleSeek);
-        int stations = 0;
-        for (auto* node = reinterpret_cast<RadioNode*>(addr::kActiveRadioStations); node && stations < 64;
-             node = node->next, ++stations)
-        {
-            auto* st = static_cast<RadioStation*>(node->item);
-            RadioLineStart read;
-            if (!st || !st->station || !ReadStation(st, read))
-                continue;
-            RadioLineStart& was = g_radioNow[read.station];
-            bool moved = read.info != was.info || read.part != was.part || read.line != was.line;
-            if (moved)
-            {
-                was = read;
-                if (g_radioStarts.size() < 64)
-                    g_radioStarts.push_back(read);
-            }
-            if (!g_radioFromHost)
-                continue;
-            auto it = g_hostRadio.find(read.station);
-            if (it == g_hostRadio.end())
-                continue;
-            HostRadio& h = it->second;
-            if (moved)
-                h.since = now;
-            size_t hostLine = FindInRun(read.run, h.info);
-            if (hostLine != std::string::npos && !h.runUsed)
-            {
-                h.runUsed = true;
-                RadioLineStart got = read;
-                got.fromHost = true;
-                if (g_radioStarts.size() < 64)
-                    g_radioStarts.push_back(got);
-            }
-            bool canPush = st->itemDuration > 0 && now - h.lastPush > 500;
-            if (hostLine == std::string::npos)
-            {
-                if (canPush && h.rebuilds < 2)
-                {
-                    ++h.rebuilds;
-                    h.lastPush = now;
-                    h.handing = 0;
-                    h.handed = false;
-                    h.runUsed = false;
-                    RadioNode* last = &st->conversation->items;
-                    while (last->next && last->next->item)
-                        last = last->next;
-                    st->conversation->current = last;
-                    st->itemDuration = 1;
-                    st->itemStart = 0;
-                    LOG_DEBUG("Radio: station %08X builds the host's run (%zu lines, %08X now)", read.station,
-                        h.run.size(), h.info);
-                }
-                continue;
-            }
-            if (read.line < hostLine || (read.line == hostLine && read.part < h.part))
-            {
-                if (canPush)
-                {
-                    h.lastPush = now;
-                    if (hostLine > read.line + 1)
-                    {
-                        size_t index = 0;
-                        for (RadioNode* n = &st->conversation->items; n; n = n->next)
-                            if (n->item && static_cast<const RadioItem*>(n->item)->info && index++ == hostLine - 1)
-                            {
-                                st->conversation->current = n;
-                                break;
-                            }
-                    }
-                    st->itemDuration = 1;
-                    st->itemStart = 0;
-                    LOG_DEBUG("Radio: station %08X goes on to the host's %08X part %u (from line %zu part %u)",
-                        read.station, h.info, h.part, read.line, read.part);
-                }
-                continue;
-            }
-            if (read.line != hostLine || read.part != h.part || h.aligned || now - h.since < 200 ||
-                st->itemDuration <= 1)
-                continue;
-            h.aligned = true;
-            uint32_t target = now - h.hostStart;
-            if (target < 1000 || target + 1000 >= static_cast<uint32_t>(st->itemDuration) || st->itemStart <= target)
-                continue;
-            st->itemStart -= target;
-            int receivers = 0, sought = 0;
-            bool pipboy = *reinterpret_cast<RadioStation**>(addr::kPipboyRadioStation) == st &&
-                *reinterpret_cast<const uint8_t*>(addr::kRadioOn);
-            if (pipboy)
-                reinterpret_cast<void(__cdecl*)(TESObjectREFR*, bool)>(addr::kRadioSetStation)(st->station, true);
-            for (RadioNode* u = &st->users; u && receivers < 32; u = u->next, ++receivers)
-                if (auto* r = static_cast<RadioReceiver*>(u->item); r && IsPlaying(r->sound))
-                {
-                    seek(&r->sound, target);
-                    ++sought;
-                }
-            LOG_DEBUG("Radio: station %08X caught up with the host's %08X part %u, %u ms in (Pip-Boy %d, %d radios)",
-                read.station, h.info, h.part, target, pipboy, sought);
-        }
-    }
-
-    bool SaidForOthers(const TESObjectREFR* speaker, const void* info)
-    {
-        uint32_t now = GetTickCount();
-        for (const Said& s : g_said)
-            if (s.speaker == speaker && s.info == info && static_cast<int32_t>(now - s.until) < 0)
-                return true;
-        return false;
-    }
-
-    bool SayLine(TESObjectREFR* speaker, uint32_t topicId, uint32_t infoId, int response, Sound& sound)
-    {
-        sound = Sound{};
-        TESForm* topic = LookupForm(topicId);
-        TESForm* info = static_cast<TESForm*>(TopicInfo(infoId));
-        void* process = speaker ? At<void*>(speaker, layout::kActorProcess) : nullptr;
-        if (!g_pickLine || !g_firstResponse || !process || !IsActor(speaker) ||
-            !topic || topic->typeID != kFormType_TESTopic || !info || response < 0 || response > 255)
-            return false;
-        uint32_t now = GetTickCount();
-        g_said.erase(std::remove_if(g_said.begin(), g_said.end(), [&](const Said& s) {
-            return static_cast<int32_t>(now - s.until) >= 0 || s.speaker == speaker; }), g_said.end());
-        g_said.push_back({speaker, info, now + kSaidMs});
-        g_armed = Armed{topic, info, speaker, response, now + kArmedMs};
-        using SayFn = void(__thiscall*)(void*, TESObjectREFR*, TESForm*, uint8_t, uint8_t, uint8_t, uint8_t);
-        SayFn say = reinterpret_cast<SayFn>((*reinterpret_cast<void***>(process))[addr::kProcessSaySlot]);
-        auto* general = reinterpret_cast<uint8_t*>(addr::kSettingGeneralSubtitles + 4);
-        const auto* dialogue = reinterpret_cast<const uint8_t*>(addr::kSettingDialogueSubtitles + 4);
-        uint8_t was = *general;
-        *general = *dialogue;
-        say(process, speaker, topic, 0, 0, 1, 1);
-        *general = was;
-        std::lock_guard<std::mutex> lock(g_voicesLock);
-        auto voice = g_voices.find(speaker->refID);
-        if (voice != g_voices.end())
-            sound = voice->second;
-        return true;
-    }
-
-    bool StopSpeaking(const TESObjectREFR* speaker)
-    {
-        Sound voice;
-        {
-            std::lock_guard<std::mutex> lock(g_voicesLock);
-            auto it = speaker ? g_voices.find(speaker->refID) : g_voices.end();
-            if (it == g_voices.end())
-                return false;
-            voice = it->second;
-            g_voices.erase(it);
-        }
-        bool playing = IsPlaying(voice);
-        StopSound(voice);
-        return playing;
-    }
-
-    bool IsPlaying(Sound& sound)
-    {
-        return sound.id != 0xFFFFFFFF && reinterpret_cast<bool(__thiscall*)(Sound*)>(addr::kSoundHandleIsPlaying)(&sound);
-    }
-
-    void EndSubtitle(const std::string& text)
-    {
-        const char* hud = *reinterpret_cast<const char* const*>(addr::kHudMainMenu);
-        if (!hud || text.empty())
-            return;
-        auto end = [&](char* subtitle) {
-            if (subtitle && std::strncmp(subtitle, text.c_str(), 0x103) == 0)
-                *reinterpret_cast<float*>(subtitle + layout::kSubtitleShowFor) = 0;
-        };
-        end(At<char*>(hud, layout::kHudSubtitleShown));
-        char* const* data = At<char* const*>(hud, layout::kHudSubtitles + 4);
-        uint32_t size = At<uint32_t>(hud, layout::kHudSubtitles + 8);
-        for (uint32_t i = 0; data && i < size && i < 64; ++i)
-            end(data[i]);
-    }
-
-    void StopSound(Sound& sound)
-    {
-        if (sound.id != 0xFFFFFFFF)
-            reinterpret_cast<bool(__thiscall*)(Sound*)>(addr::kSoundHandleStop)(&sound);
-        sound = Sound{};
-    }
-
-    void ShowSubtitle(TESObjectREFR* speaker, const char* text, bool always)
-    {
-        struct SoundHandle { uint32_t id = 0xFFFFFFFF; uint8_t assumeSuccess = 0; uint32_t state = 0; };
-        struct Point { float x, y, z; };
-        using Fn = bool(__cdecl*)(const char*, SoundHandle, Point, TESObjectREFR*, bool);
-        if (!speaker || !text || !*text)
-            return;
-        auto* general = reinterpret_cast<uint8_t*>(addr::kSettingGeneralSubtitles + 4);
-        const auto* dialogue = reinterpret_cast<const uint8_t*>(addr::kSettingDialogueSubtitles + 4);
-        if (!*dialogue && !always)
-            return;
-        uint8_t was = *general;
-        *general = 1;
-        reinterpret_cast<Fn>(addr::kShowSubtitle)(text, SoundHandle{}, Point{speaker->posX, speaker->posY,
-            speaker->posZ}, speaker, false);
-        *general = was;
-    }
-
-    void* TopicInfo(uint32_t id)
-    {
-        TESForm* form = LookupForm(id);
-        return form && form->typeID == kFormType_TESTopicInfo ? form : nullptr;
-    }
-
-    uint32_t TopicInfoId(const void* info)
-    {
-        return info ? static_cast<const TESForm*>(info)->refID : 0;
-    }
-
-    std::string TopicInfoPrompt(const void* info)
-    {
-        const char* text = info ? static_cast<const TESTopicInfo*>(info)->prompt.m_data : nullptr;
-        return text ? text : "";
-    }
-
-    std::string PlayerReplyText(uint32_t topic, uint32_t info)
-    {
-        constexpr uint8_t kTopicTypeTopic = 0;
-        const TESForm* form = LookupForm(topic);
-        if (!form || form->typeID != kFormType_TESTopic ||
-            static_cast<const TESTopic*>(form)->type != kTopicTypeTopic)
-            return "";
-        std::string prompt = TopicInfoPrompt(TopicInfo(info));
-        if (!prompt.empty())
-            return prompt;
-        const char* name = static_cast<const TESTopic*>(form)->fullName.name.m_data;
-        return name ? name : "";
-    }
-
-    bool HasResultScript(void* info, bool onEnd)
-    {
-        using Fn = void*(__thiscall*)(void*, uint32_t);
-        return info && reinterpret_cast<Fn>(addr::kTopicInfoGetResultScript)(info, onEnd ? 1 : 0) != nullptr;
-    }
-
-    uint16_t ScreenCommandIn(void* info, bool onEnd, int* statements)
-    {
-        if (statements)
-            *statements = 0;
-        using Fn = Script*(__thiscall*)(void*, uint32_t);
-        Script* script = info ? reinterpret_cast<Fn>(addr::kTopicInfoGetResultScript)(info, onEnd ? 1 : 0) : nullptr;
-        if (!script || !script->data)
-            return 0;
-        const uint8_t* data = script->data;
-        uint32_t size = script->info.dataLength;
-        auto opensScreen = [](uint16_t op) {
-            for (uint16_t o : opcodes::kOpensScreen)
-                if (o == op)
-                    return true;
-            return false;
-        };
-        auto u16 = [&](uint32_t at) { return static_cast<uint16_t>(data[at] | (data[at + 1] << 8)); };
-        std::string ops;
-        int count = 0;
-        uint32_t at = 0;
-        while (at + 4 <= size)
-        {
-            uint16_t op = u16(at);
-            if (op == opcodes::kOnReference)
-            {
-                at += 4;
-                continue;
-            }
-            uint16_t length = u16(at + 2);
-            char b[8];
-            std::snprintf(b, sizeof(b), "%X ", op);
-            ops += b;
-            ++count;
-            if (opensScreen(op))
-                return op;
-            at += 4 + length;
-        }
-        if (statements)
-            *statements = at == size ? count : -1;
-        if (at == size)
-            return 0;
-        LOG_DEBUG("Dialogue: line %08X's %s script: %u bytes, statements %s(didn't add up)",
-            static_cast<TESForm*>(info)->refID, onEnd ? "end" : "start", size, ops.c_str());
-        for (uint32_t i = 0; i + 1 < size; ++i)
-            if (opensScreen(u16(i)))
-                return u16(i);
-        return 0;
     }
 
     void CloseMenu()
@@ -5024,417 +2242,6 @@ namespace game
 
     std::vector<uint32_t> Teammates() { return FormList(g_teammates, Player()); }
 
-    namespace
-    {
-        using Kind = net::PlayerCommandKind;
-        bool g_mirroring = false;
-        bool g_screenFromHost = false;
-        int g_inLine = 0;
-        std::vector<net::PlayerCommand> g_playerCommands;
-        std::set<const Script*> g_reportedScripts;
-
-        struct Watched
-        {
-            const char* name;
-            Kind kind;
-            Cmd_Execute original = nullptr;
-            bool kill = false;
-            bool popup = false;
-            uint32_t params = 0;
-        };
-        bool g_skipPopups = false;
-        std::set<uint32_t> g_popupMessages;
-        std::set<uint32_t> g_popupScripts;
-        bool g_scriptKill = false;
-        Watched g_watched[] = {
-            {"AddItem", Kind::AddItem}, {"AddItemHealthPercent", Kind::AddItem}, {"RemoveItem", Kind::RemoveItem},
-            {"RemoveAllItems", Kind::RemoveAllItems}, {"RemoveAllTypedItems", Kind::RemoveAllTypedItems},
-            {"EquipItem", Kind::EquipItem}, {"UnequipItem", Kind::UnequipItem}, {"AddPerk", Kind::AddPerk},
-            {"RemovePerk", Kind::RemovePerk}, {"AddNote", Kind::AddNote}, {"RemoveNote", Kind::RemoveNote},
-            {"ApplyImageSpaceModifier", Kind::AddImageSpaceModifier},
-            {"RemoveImageSpaceModifier", Kind::RemoveImageSpaceModifier},
-            {"DisablePlayerControls", Kind::DisableControls}, {"EnablePlayerControls", Kind::EnableControls},
-            {"CastImmediateOnSelf", Kind::CastOnSelf}, {"AddScriptPackage", Kind::AddPlayerPackage},
-            {"RemoveScriptPackage", Kind::RemovePlayerPackage}, {"Kill", Kind::AddItem, nullptr, true},
-            {"KillActor", Kind::AddItem, nullptr, true}, {"ShowMessage", Kind::AddItem, nullptr, false, true}};
-
-        uint32_t FormIdOf(const TESForm* f) { return f ? f->refID : 0; }
-
-        bool IsScreenOrControls(Kind k, const TESObjectREFR* on)
-        {
-            return k == Kind::AddImageSpaceModifier || k == Kind::RemoveImageSpaceModifier || k == Kind::DisableControls ||
-                k == Kind::EnableControls ||
-                ((k == Kind::AddPlayerPackage || k == Kind::RemovePlayerPackage) && on && on == Player());
-        }
-        bool TakesAway(Kind k)
-        {
-            return k == Kind::AddImageSpaceModifier || k == Kind::DisableControls || k == Kind::AddPlayerPackage;
-        }
-
-        bool IsWholeInventory(Kind k, const TESObjectREFR* on)
-        {
-            return (k == Kind::RemoveAllItems || k == Kind::RemoveAllTypedItems) && on && on == Player() && !g_inLine;
-        }
-
-        bool Note(const Watched& w, ParamInfo* paramInfo, void* scriptData, TESObjectREFR* thisObj, Script* scriptObj,
-            ScriptEventList* eventList, UInt32* opcodeOffsetPtr, net::PlayerCommand& c)
-        {
-            if (g_mirroring && scriptObj && !g_ourScripts.count(scriptObj) && g_reportedScripts.size() < 256 &&
-                g_reportedScripts.insert(scriptObj).second)
-                LOG_DEBUG("Scripted: %s from script %08X (type %u)%s", w.name, scriptObj->refID, scriptObj->info.type,
-                    g_inLine ? " in a dialogue line" : "");
-            bool anyScript = IsScreenOrControls(w.kind, thisObj) || IsWholeInventory(w.kind, thisObj) ||
-                (w.kind == Kind::RemoveAllItems && thisObj && thisObj != Player() && !g_inLine);
-            if (!g_mirroring || !scriptObj || g_ourScripts.count(scriptObj) || g_playerCommands.size() >= 128 ||
-                (!anyScript && (g_inLine || !(scriptObj->info.type == Script::eType_Quest || scriptObj->refID == 0 ||
-                    (scriptObj->refID >> 24) == 0xFF))))
-                return false;
-            TESObjectREFR* player = Player();
-            c = net::PlayerCommand{};
-            c.kind = w.kind;
-            UInt32 offset = *opcodeOffsetPtr;
-            TESForm* form = nullptr;
-            TESObjectREFR* ref = nullptr;
-            UInt32 a = 0, b = 0, d = 0;
-            float health = 1;
-            switch (w.kind)
-            {
-            case Kind::AddItem:
-            case Kind::RemoveItem:
-            {
-                a = 1;
-                bool withHealth = std::strcmp(w.name, "AddItemHealthPercent") == 0;
-                if (thisObj != player || !(withHealth ?
-                    g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &form, &a, &health, &b) :
-                    g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &form, &a, &b)))
-                    return false;
-                c.form = FormIdOf(form);
-                c.n[0] = static_cast<int32_t>(a);
-                c.n[1] = static_cast<int32_t>(b);
-                break;
-            }
-            case Kind::RemoveAllItems:
-                if (!g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &ref, &a))
-                    return false;
-                if (thisObj == player && ref)
-                    c.ref = RefId(ref);
-                else if (ref == player && thisObj)
-                {
-                    c.kind = Kind::GiveAllItems;
-                    c.ref = RefId(thisObj);
-                }
-                else
-                    return false;
-                break;
-            case Kind::RemoveAllTypedItems:
-                if (thisObj != player ||
-                    !g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &ref, &a, &b, &d) || !ref)
-                    return false;
-                c.ref = RefId(ref);
-                c.n[0] = static_cast<int32_t>(a);
-                c.n[1] = static_cast<int32_t>(b);
-                c.n[2] = static_cast<int32_t>(d);
-                break;
-            case Kind::EquipItem:
-            case Kind::UnequipItem:
-                if (thisObj != player ||
-                    !g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &form, &a, &b))
-                    return false;
-                c.form = FormIdOf(form);
-                c.n[0] = static_cast<int32_t>(a);
-                c.n[1] = static_cast<int32_t>(b);
-                break;
-            case Kind::AddPerk:
-            case Kind::RemovePerk:
-            case Kind::AddNote:
-            case Kind::RemoveNote:
-            case Kind::CastOnSelf:
-                if (thisObj != player ||
-                    !g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &form, &a))
-                    return false;
-                c.form = FormIdOf(form);
-                break;
-            case Kind::AddImageSpaceModifier:
-            case Kind::RemoveImageSpaceModifier:
-                if (!g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &form, &a))
-                    return false;
-                c.form = FormIdOf(form);
-                break;
-            case Kind::AddPlayerPackage:
-                if (thisObj != player || !g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &form))
-                    return false;
-                c.form = FormIdOf(form);
-                break;
-            case Kind::RemovePlayerPackage:
-                if (thisObj != player)
-                    return false;
-                break;
-            case Kind::DisableControls:
-            case Kind::EnableControls:
-            {
-                bool off = w.kind == Kind::DisableControls;
-                UInt32 v[7] = {1, 1, 1, 1, off ? 0u : 1u, off ? 0u : 1u, off ? 0u : 1u};
-                if (!g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &v[0], &v[1], &v[2],
-                    &v[3], &v[4], &v[5], &v[6]))
-                    return false;
-                for (int i = 0; i < 7; ++i)
-                    if (v[i])
-                        c.flags |= static_cast<uint8_t>(1 << i);
-                break;
-            }
-            }
-            if (net::IsMadeWhilePlaying(c.form) || net::IsMadeWhilePlaying(c.ref))
-                return false;
-            return true;
-        }
-
-        void Relay(const Watched& w, const net::PlayerCommand& c)
-        {
-            LOG_DEBUG("Scripted: friends follow %s %08X %08X", w.name, c.form, c.ref);
-            g_playerCommands.push_back(c);
-        }
-
-        int PerkRanks(uint32_t perk)
-        {
-            TESForm* form = LookupForm(perk);
-            NVSEArrayVarInterface::Element result;
-            if (!g_perkRanks || !form || !Player() ||
-                !g_scripts->CallFunction(g_perkRanks, Player(), nullptr, &result, 1, form))
-                return -1;
-            return static_cast<int>(result.GetNumber());
-        }
-
-        template <int I>
-        bool WatchedCommand(COMMAND_ARGS)
-        {
-            if (g_watched[I].popup)
-            {
-                if (g_skipPopups && scriptObj && !g_popupMessages.empty() && g_watched[I].params <= 10)
-                {
-                    UInt32 offset = *opcodeOffsetPtr;
-                    TESForm* message = nullptr;
-                    float v[9] = {};
-                    if (g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &message, &v[0],
-                            &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7], &v[8]) &&
-                        message && g_popupMessages.count(message->refID))
-                    {
-                        LOG_INFO("Popups: the intro box %08X skipped", message->refID);
-                        *result = 0;
-                        return true;
-                    }
-                }
-                return g_watched[I].original(paramInfo, scriptData, thisObj, containingObj, scriptObj, eventList, result,
-                    opcodeOffsetPtr);
-            }
-            if (g_skipPopups && g_watched[I].kind == Kind::AddItem && scriptObj && thisObj && thisObj == Player() &&
-                g_popupScripts.count(scriptObj->refID) && g_pcAddItem && std::strcmp(g_watched[I].name, "AddItem") == 0)
-            {
-                UInt32 offset = *opcodeOffsetPtr, count = 1, hide = 0;
-                TESForm* item = nullptr;
-                if (g_scripts->ExtractArgsEx(paramInfo, scriptData, &offset, scriptObj, eventList, &item, &count, &hide) &&
-                    item)
-                {
-                    g_scripts->CallFunctionAlt(g_pcAddItem, thisObj, 3, item, count, 1u);
-                    *result = 1;
-                    return true;
-                }
-            }
-            if (g_watched[I].kill)
-            {
-                if (thisObj && thisObj == Player() && scriptObj && !g_ourScripts.count(scriptObj))
-                    g_scriptKill = true;
-                return g_watched[I].original(paramInfo, scriptData, thisObj, containingObj, scriptObj, eventList, result,
-                    opcodeOffsetPtr);
-            }
-            if (g_screenFromHost && ((IsScreenOrControls(g_watched[I].kind, thisObj) && TakesAway(g_watched[I].kind)) ||
-                IsWholeInventory(g_watched[I].kind, thisObj)) && scriptObj && !g_ourScripts.count(scriptObj))
-            {
-                static std::set<const Script*> s_blocked;
-                if (s_blocked.size() < 256 && s_blocked.insert(scriptObj).second)
-                    LOG_INFO("Scripted: %s from script %08X not done here (the host's game decides that)",
-                        g_watched[I].name, scriptObj->refID);
-                *result = 0;
-                return true;
-            }
-            net::PlayerCommand c;
-            bool noted = Note(g_watched[I], paramInfo, scriptData, thisObj, scriptObj, eventList, opcodeOffsetPtr, c);
-            bool perk = noted && (c.kind == Kind::AddPerk || c.kind == Kind::RemovePerk);
-            int ranks = perk ? PerkRanks(c.form) : -1;
-            if (noted && !perk)
-                Relay(g_watched[I], c);
-            bool done = g_watched[I].original(paramInfo, scriptData, thisObj, containingObj, scriptObj, eventList, result,
-                opcodeOffsetPtr);
-            if (perk && (ranks < 0 || PerkRanks(c.form) != ranks))
-                Relay(g_watched[I], c);
-            return done;
-        }
-        template <int... I>
-        constexpr std::array<Cmd_Execute, sizeof...(I)> Wrappers(std::integer_sequence<int, I...>)
-        {
-            return {&WatchedCommand<I>...};
-        }
-        constexpr int kWatched = sizeof(g_watched) / sizeof(g_watched[0]);
-    }
-
-    bool WatchPlayerCommands()
-    {
-        static bool s_done = false;
-        if (s_done)
-            return true;
-        if (!g_cmdTable)
-            return false;
-        static const std::array<Cmd_Execute, kWatched> kWrappers = Wrappers(std::make_integer_sequence<int, kWatched>());
-        int watched = 0;
-        for (int i = 0; i < kWatched; ++i)
-        {
-            auto* info = const_cast<CommandInfo*>(g_cmdTable->GetByName(g_watched[i].name));
-            if (!info || !info->execute)
-            {
-                LOG_WARN("Scripted: no %s command to watch", g_watched[i].name);
-                continue;
-            }
-            g_watched[i].original = info->execute;
-            g_watched[i].params = info->numParams;
-            if (g_watched[i].popup)
-                LOG_INFO("Popups: ShowMessage has %u parameters%s", info->numParams,
-                    info->numParams <= 10 ? "" : " (more than we read: the DLCs' boxes aren't skipped)");
-            info->execute = kWrappers[i];
-            ++watched;
-        }
-        s_done = true;
-        LOG_INFO("Scripted: watching %d script commands (what quest scripts do to our player, for friends)", watched);
-        return watched > 0;
-    }
-
-    void ScreenFromHost(bool on) { g_screenFromHost = on; }
-
-    void SkipIntroPopups(bool on, const std::vector<std::string>& loadOrder)
-    {
-        g_skipPopups = on;
-        g_popupMessages.clear();
-        g_popupScripts.clear();
-        if (!on)
-            return;
-        for (uint32_t id : ids::kPackPopups)
-            g_popupMessages.insert(id);
-        for (uint32_t id : ids::kPackScripts)
-            g_popupScripts.insert(id);
-        for (const ids::DlcPopups& dlc : ids::kDlcPopups)
-            for (size_t i = 0; i < loadOrder.size() && i < 0xFF; ++i)
-                if (_stricmp(loadOrder[i].c_str(), dlc.file) == 0)
-                {
-                    g_popupMessages.insert(static_cast<uint32_t>(i) << 24 | dlc.broadcast);
-                    g_popupMessages.insert(static_cast<uint32_t>(i) << 24 | dlc.loaded);
-                }
-        LOG_INFO("Popups: the DLCs' intro boxes are skipped (%zu)", g_popupMessages.size());
-    }
-
-    bool TakeScriptKill()
-    {
-        bool killed = g_scriptKill;
-        g_scriptKill = false;
-        return killed;
-    }
-
-    void MirrorPlayerCommands(bool on)
-    {
-        g_mirroring = on;
-        if (!on)
-            g_playerCommands.clear();
-    }
-
-    void DialogueLineRunning(bool running) { g_inLine += running ? 1 : -1; }
-
-    std::vector<net::PlayerCommand> TakePlayerCommands() { return std::move(g_playerCommands); }
-
-    bool ApplyPlayerCommand(const net::PlayerCommand& c)
-    {
-        TESObjectREFR* player = Player();
-        if (!g_compiled || !player)
-            return false;
-        TESForm* form = c.form ? LookupForm(c.form) : nullptr;
-        TESObjectREFR* ref = c.ref ? LookupRef(c.ref) : nullptr;
-        auto isA = [&](uint8_t type) { return form && form->typeID == type; };
-        bool container = ref && ref->baseForm && ref->baseForm->typeID == kFormType_TESObjectCONT;
-        auto n = [&](int i) { return static_cast<uint32_t>(c.n[i]); };
-        switch (c.kind)
-        {
-        case Kind::AddItem:
-            if (!form || !IsItem(c.form) || c.n[0] < 1)
-                return false;
-            g_scripts->CallFunctionAlt(g_pcAddItem, player, 3, form, n(0), n(1));
-            return true;
-        case Kind::RemoveItem:
-            if (!form || !IsItem(c.form) || c.n[0] < 1)
-                return false;
-            g_scripts->CallFunctionAlt(g_pcRemoveItem, player, 3, form, n(0), n(1));
-            return true;
-        case Kind::RemoveAllItems:
-            if (!container)
-                return false;
-            g_scripts->CallFunctionAlt(g_pcRemoveAll, player, 1, ref);
-            return true;
-        case Kind::RemoveAllTypedItems:
-            if (!container)
-                return false;
-            g_scripts->CallFunctionAlt(g_pcRemoveAllTyped, player, 4, ref, n(0), n(1), n(2));
-            return true;
-        case Kind::GiveAllItems:
-            if (!container)
-                return false;
-            g_scripts->CallFunctionAlt(g_pcGiveAll, ref, 0);
-            return true;
-        case Kind::EquipItem:
-        case Kind::UnequipItem:
-            if (!form || !IsItem(c.form))
-                return false;
-            g_scripts->CallFunctionAlt(c.kind == Kind::EquipItem ? g_pcEquip : g_pcUnequip, player, 3, form, n(0), n(1));
-            return true;
-        case Kind::AddPerk:
-        case Kind::RemovePerk:
-            if (!isA(kFormType_BGSPerk))
-                return false;
-            g_scripts->CallFunctionAlt(c.kind == Kind::AddPerk ? g_pcAddPerk : g_pcRemovePerk, player, 1, form);
-            return true;
-        case Kind::AddNote:
-        case Kind::RemoveNote:
-            if (!isA(kFormType_BGSNote))
-                return false;
-            g_scripts->CallFunctionAlt(c.kind == Kind::AddNote ? g_pcAddNote : g_pcRemoveNote, player, 1, form);
-            return true;
-        case Kind::AddImageSpaceModifier:
-        case Kind::RemoveImageSpaceModifier:
-            if (!isA(kFormType_TESImageSpaceModifier))
-                return false;
-            g_scripts->CallFunctionAlt(c.kind == Kind::AddImageSpaceModifier ? g_pcAddImod : g_pcRemoveImod, player, 1, form);
-            return true;
-        case Kind::DisableControls:
-        case Kind::EnableControls:
-        {
-            uint32_t v[7];
-            for (int i = 0; i < 7; ++i)
-                v[i] = (c.flags >> i) & 1;
-            g_scripts->CallFunctionAlt(c.kind == Kind::DisableControls ? g_pcDisable : g_pcEnable, player, 7, v[0], v[1],
-                v[2], v[3], v[4], v[5], v[6]);
-            return true;
-        }
-        case Kind::CastOnSelf:
-            if (!isA(kFormType_SpellItem))
-                return false;
-            g_scripts->CallFunctionAlt(g_pcCast, player, 1, form);
-            return true;
-        case Kind::AddPlayerPackage:
-            if (!isA(kFormType_TESPackage))
-                return false;
-            g_scripts->CallFunctionAlt(g_pcAddPackage, player, 1, form);
-            return true;
-        case Kind::RemovePlayerPackage:
-            g_scripts->CallFunctionAlt(g_pcRemovePackage, player, 0);
-            return true;
-        }
-        return false;
-    }
-
     bool IsWaiting(TESObjectREFR* ref) { return ref && Number(g_isWaiting, ref) != 0; }
 
     void SetWaiting(TESObjectREFR* ref, bool waiting)
@@ -5668,6 +2475,17 @@ namespace game
     int PlayerLevel() { return g_level ? static_cast<int>(Number(g_level, Player())) : 0; }
     float MaxHealth(TESObjectREFR* ref) { return Number(g_maxHealth, ref); }
 
+    float PlayerMedicine() { return g_medicine ? Number(g_medicine, Player()) : 0; }
+
+    bool CastOnSelf(TESObjectREFR* ref, uint32_t formId)
+    {
+        TESForm* form = LookupForm(formId);
+        if (!g_pcCast || !ref || !form)
+            return false;
+        g_scripts->CallFunctionAlt(g_pcCast, ref, 1, form);
+        return true;
+    }
+
     void ChangeHealth(TESObjectREFR* ref, float amount)
     {
         if (g_compiled && ref && amount != 0)
@@ -5716,6 +2534,20 @@ namespace game
             if (limbs & (1u << i))
                 g_scripts->CallFunctionAlt(g_kill, ref, 1, i);
     }
+
+    void Unprotect(TESObjectREFR* ref)
+    {
+        if (g_compiled && g_unprotect && ref)
+            g_scripts->CallFunctionAlt(g_unprotect, ref, 0);
+    }
+
+    void KillPlain(TESObjectREFR* ref)
+    {
+        if (g_compiled && g_killPlain && ref)
+            g_scripts->CallFunctionAlt(g_killPlain, ref, 0);
+    }
+
+    bool AiThreadsRunning() { return *reinterpret_cast<const volatile uint8_t*>(addr::kAiThreadsRunning) != 0; }
 
     uint16_t LimbsGone(TESObjectREFR* ref)
     {
@@ -5809,6 +2641,24 @@ namespace game
     void KnockOut(TESObjectREFR* ref)
     {
         ChangeHealth(ref, -(Health(ref) + 10));
+    }
+
+    void SetGhost(TESObjectREFR* ref, bool on)
+    {
+        if (g_compiled && ref)
+            g_scripts->CallFunctionAlt(g_ghost, ref, 1, static_cast<uint32_t>(on ? 1 : 0));
+    }
+
+    bool IsGhost(TESObjectREFR* ref)
+    {
+        if (!IsActor(ref))
+            return false;
+        BaseProcess* process = static_cast<Actor*>(ref)->baseProcess;
+        if (const void* cached = process ? At<const void*>(process, process::kCachedValues) : nullptr)
+            return (At<uint32_t>(cached, process::kCachedFlags) & 0x10000000) != 0;
+        using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
+        return reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&ref->extraDataList, layout::kExtraGhost) !=
+            nullptr;
     }
 
     void SetUnconscious(TESObjectREFR* ref, bool out)
@@ -6937,6 +3787,76 @@ namespace game
         s_shown = text;
     }
 
+    bool IsStandIn(const TESObjectREFR* ref)
+    {
+        const TESForm* base = ref ? ref->baseForm : nullptr;
+        return g_noTalk && base && base->typeID == kFormType_TESNPC &&
+            static_cast<const TESActorBase*>(base)->scriptable.script == g_noTalk;
+    }
+
+    namespace
+    {
+        uintptr_t g_teammateCall = 0;
+
+        bool __fastcall SkipWatcherHook(TESObjectREFR* actor)
+        {
+            using Fn = bool(__thiscall*)(TESObjectREFR*);
+            if (reinterpret_cast<Fn>(g_teammateCall)(actor))
+                return true;
+            if (!IsStandIn(actor))
+                return false;
+            static std::atomic<uint32_t> s_skipped{0};
+            uint32_t n = ++s_skipped;
+            if (n == 1 || n % 3600 == 0)
+                LOG_INFO("Sneak: another player's character %08X doesn't count as seeing us (%u so far)",
+                    actor->refID, n);
+            return true;
+        }
+    }
+
+    bool InstallAllyDetectionSkip()
+    {
+        if (g_teammateCall)
+            return true;
+        uintptr_t was = HookCall(addr::kDetectionTeammateCall, reinterpret_cast<const void*>(&SkipWatcherHook));
+        if (!was)
+            return false;
+        g_teammateCall = was;
+        if (was != addr::kActorIsTeammate)
+            LOG_INFO("Sneak: another plugin hooks the sneak meter's teammate check too (%08X); ours passes on to it",
+                static_cast<unsigned>(was));
+        return true;
+    }
+
+    void HideTalkPromptOnFriends()
+    {
+        static const TESObjectREFR* s_logged = nullptr;
+        void* hud = *reinterpret_cast<void**>(addr::kHudMainMenu);
+        TESObjectREFR* ref = hud ? At<TESObjectREFR*>(hud, layout::kHudPromptRef) : nullptr;
+        if (!IsStandIn(ref))
+        {
+            s_logged = nullptr;
+            return;
+        }
+        using GetFloat = float(__thiscall*)(const void*, uint32_t);
+        using SetFloat = void(__thiscall*)(void*, uint32_t, float, bool);
+        int hidden = 0;
+        for (uint32_t offset : layout::kHudPromptTiles)
+        {
+            void* tile = At<void*>(hud, offset);
+            if (tile && reinterpret_cast<GetFloat>(addr::kTileGetValueFloat)(tile, layout::kTileVisible) != 0)
+            {
+                reinterpret_cast<SetFloat>(addr::kTileSetValueFloat)(tile, layout::kTileVisible, 0, true);
+                ++hidden;
+            }
+        }
+        if (hidden && s_logged != ref)
+        {
+            s_logged = ref;
+            LOG_INFO("Talk prompt hidden on another player's character %08X (%d tiles)", ref->refID, hidden);
+        }
+    }
+
     namespace
     {
         const void* ChildTile(const void* parent, const char* name)
@@ -6980,8 +3900,9 @@ namespace game
             const void* tile = nullptr;
             uint32_t id = 0;
             uint32_t look = 0xFFFFFFFF;
-            float place[6] = {-1, -1, -1, -1, -1, -1};
+            float place[7] = {-1, -1, -1, -1, -1, -1, -1};
             float back[7] = {-1, -1, -1, -1, -1, -1, -1};
+            float side[2] = {-1, -1};
         };
         TalkSlot g_talkSlots[kTalkSlots];
 
@@ -6995,13 +3916,16 @@ namespace game
             return !same;
         }
 
-        void PlaceTalkSlot(int slot, const float (&place)[6], const float (&back)[7])
+        void PlaceTalkSlot(int slot, const float (&place)[7], const float (&back)[7], const float (&side)[2])
         {
             TalkSlot& s = g_talkSlots[slot];
+            if (g_talkSide[slot] && Changed(s.side, side))
+                g_scripts->CallFunction(g_talkSide[slot], Player(), nullptr, nullptr, 2, FloatArg(side[0]),
+                    FloatArg(side[1]));
             if (g_talkPlace[slot] && Changed(s.place, place))
-                g_scripts->CallFunction(g_talkPlace[slot], Player(), nullptr, nullptr, 6, FloatArg(place[0]),
+                g_scripts->CallFunction(g_talkPlace[slot], Player(), nullptr, nullptr, 7, FloatArg(place[0]),
                     FloatArg(place[1]), FloatArg(place[2]), FloatArg(place[3]), FloatArg(place[4]),
-                    static_cast<uint32_t>(place[5]));
+                    static_cast<uint32_t>(place[5]), FloatArg(place[6]));
             if (g_talkBack[slot] && Changed(s.back, back))
                 g_scripts->CallFunction(g_talkBack[slot], Player(), nullptr, nullptr, 7, FloatArg(back[0]),
                     FloatArg(back[1]), FloatArg(back[2]), FloatArg(back[3]), FloatArg(back[4]), FloatArg(back[5]),
@@ -7011,28 +3935,35 @@ namespace game
 
     void ShowTalkLog(const std::vector<coop::TalkLog::Shown>& lines, const TalkLogLook& look)
     {
-        constexpr float kX = 30, kTop = 24, kWidth = 600, kAlpha = 235, kLineAlpha = 150;
-        constexpr float kBarAlpha = 120, kBarPad = 6;
-        constexpr float kDividerWidth = 740, kDividerHeight = 8, kTextLine = 32, kUnderLetters = 0.2f;
-        constexpr uint32_t kHeight = 0xFB0;
+        constexpr float kTop = 24, kAlpha = 235, kLineAlpha = 150;
+        constexpr float kBarAlpha = 120, kBarPad = 6, kBarSide = 8;
+        constexpr float kDividerPerWidth = 740.0f / 600, kDividerHeight = 8, kTextLine = 32, kUnderLetters = 0.2f;
+        static const char kLeftLine[] = "interface\\shared\\line\\glow_tip_line_horizontal.dds";
+        static const char kRightLine[] = "interface\\nvcoop\\talk_divider_right.dds";
+        constexpr uint32_t kXTrait = 0xFA1, kYTrait = 0xFA2, kHeight = 0xFB0, kWidthTrait = 0xFB1;
+        constexpr float kJustifyLeft = 1, kJustifyRight = 4;
+        constexpr float kHpFallbackX = 40, kHpFallbackFromBottom = 960 - 803;
         static bool s_showing = true;
         if (!Player() || !g_talkText[0] || !g_talkPlace[0] || !g_talkBack[0] || !g_chatHud ||
             (lines.empty() && !s_showing))
             return;
         MakeChatHud();
         auto* manager = *reinterpret_cast<const uint8_t* const*>(addr::kInterfaceManager);
-        const void* hud = ChildTile(manager ? At<const void*>(manager, layout::kInterfaceMenuRoot) : nullptr,
-            "HUDMainMenu");
+        const void* root = manager ? At<const void*>(manager, layout::kInterfaceMenuRoot) : nullptr;
+        const void* hud = ChildTile(root, "HUDMainMenu");
         if (!hud)
             return;
         const void* text[kTalkSlots] = {};
         const void* edges[kTalkSlots][kTalkEdges] = {};
+        const void* hitPoints = nullptr;
         int guard = 0;
         for (const void* node = At<const void*>(hud, layout::kTileFirstChild); node && guard < 4096;
              node = At<const void*>(node, layout::kChildNodeNext), ++guard)
         {
             const void* child = At<const void*>(node, layout::kChildNodeTile);
             const char* name = child ? At<const char*>(child, layout::kTileName) : nullptr;
+            if (name && !hitPoints && _stricmp(name, "HitPoints") == 0)
+                hitPoints = child;
             if (!name || std::strncmp(name, "NVCoopTalk", 10) != 0)
                 continue;
             bool isEdge = std::strncmp(name + 10, "Edge", 4) == 0;
@@ -7050,33 +3981,51 @@ namespace game
         }
 
         float scale = std::clamp(look.scale, 0.2f, 3.0f);
-        uint32_t lookKey = (look.hudColor ? 1u << 24 : 0) | look.red << 16 | look.green << 8 | look.blue;
+        const float width = std::clamp(look.width, 200.0f, 1200.0f);
+        uint32_t lookKey = (look.alignRight ? 1u << 25 : 0) | (look.hudColor ? 1u << 24 : 0) | look.red << 16 |
+            look.green << 8 | look.blue;
         int style = std::clamp(look.style, 0, 3);
         bool used[kTalkSlots] = {};
-        float hudHeight = static_cast<float>(*reinterpret_cast<const int32_t*>(addr::kDisplayHeightSetting + 4)) *
-            *reinterpret_cast<const float*>(addr::kMenuUnitsPerPixel) * 0.5f;
-        static bool s_heightLogged = false;
-        if (!s_heightLogged)
+        const float units = *reinterpret_cast<const float*>(addr::kMenuUnitsPerPixel);
+        const float settingHeight = static_cast<float>(*reinterpret_cast<const int32_t*>(addr::kDisplayHeightSetting + 4))
+            * units;
+        const float settingWidth = static_cast<float>(*reinterpret_cast<const int32_t*>(addr::kDisplayWidthSetting + 4))
+            * units;
+        float screenHeight = TileValue(root, kHeight), screenWidth = TileValue(root, kWidthTrait);
+        if (screenHeight < 200 || screenWidth < 200)
+            screenHeight = settingHeight, screenWidth = settingWidth;
+        float hpX = TileValue(hitPoints, kXTrait), hpTop = TileValue(hitPoints, kYTrait);
+        bool hpRead = hitPoints && hpTop > 0;
+        if (!hpRead)
+            hpX = kHpFallbackX, hpTop = screenHeight - kHpFallbackFromBottom;
+        static bool s_sizeLogged = false, s_hpWasRead = false;
+        if (!s_sizeLogged || hpRead != s_hpWasRead)
         {
-            s_heightLogged = true;
-            LOG_INFO("Talk log: the screen is %.0f high in menu units; the log's top at %.0f", hudHeight,
-                hudHeight > 200 ? hudHeight * 0.5f : kTop);
+            s_sizeLogged = true;
+            s_hpWasRead = hpRead;
+            LOG_INFO("Talk log: the screen is %.0f by %.0f in menu units (display settings: %.0f by %.0f); the HP bar "
+                "at x %.0f, top %.0f, %.0f high (%s)", screenWidth, screenHeight, settingWidth, settingHeight, hpX,
+                hpTop, TileValue(hitPoints, kHeight), hpRead ? "its HUD tile" : "not found: the vanilla HUD's place");
         }
-        float y = hudHeight > 200 ? hudHeight * 0.5f : kTop;
+        float heights[kTalkSlots] = {};
+        float total = 0;
+        size_t count = 0;
         for (const coop::TalkLog::Shown& l : lines)
         {
             int slot = static_cast<int>(l.id % kTalkSlots);
             TalkSlot& s = g_talkSlots[slot];
             if (s.tile != text[slot])
                 s = TalkSlot{text[slot]};
-            if (!text[slot])
+            size_t at = count++;
+            if (!text[slot] || at >= static_cast<size_t>(kTalkSlots))
                 continue;
             used[slot] = true;
             if (s.id != l.id || s.look != lookKey)
             {
-                g_scripts->CallFunction(g_talkText[slot], Player(), nullptr, nullptr, 5,
+                g_scripts->CallFunction(g_talkText[slot], Player(), nullptr, nullptr, 7,
                     l.text.empty() ? " " : l.text.c_str(), FloatArg(look.hudColor ? 255.0f : -1.0f),
-                    FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue));
+                    FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue),
+                    FloatArg(look.alignRight ? kJustifyRight : kJustifyLeft), look.alignRight ? kRightLine : kLeftLine);
                 s.id = l.id;
                 s.look = lookKey;
             }
@@ -7084,24 +4033,41 @@ namespace game
             for (const void* edge : edges[slot])
                 ScaleTile(edge, scale);
             float measured = TileValue(text[slot], kHeight);
-            float height = (measured > 0 ? measured : kTextLine) * scale;
+            heights[at] = (measured > 0 ? measured : kTextLine) * scale;
+            total += heights[at] + look.gap;
+        }
+        coop::TalkLogCorner corner = look.place == 1 ?
+            coop::PlaceTalkLog(look.xPercent, look.yPercent, screenWidth, screenHeight, width, total) :
+            coop::PlaceTalkLogAboveHp(hpX, hpTop, screenWidth, screenHeight, width, total);
+        const float textX = look.alignRight ? corner.x + width : corner.x;
+        const float lineWidth = width * kDividerPerWidth;
+        const float side[2] = {look.alignRight ? corner.x + width - lineWidth : corner.x, corner.x - kBarSide};
+        float y = corner.y;
+        count = 0;
+        for (const coop::TalkLog::Shown& l : lines)
+        {
+            int slot = static_cast<int>(l.id % kTalkSlots);
+            size_t at = count++;
+            if (!text[slot] || at >= static_cast<size_t>(kTalkSlots))
+                continue;
+            float height = heights[at];
             float alpha = kAlpha * l.alpha;
-            const float place[6] = {y, kWidth / scale, alpha, style == 1 || style == 2 ? alpha : 0,
-                style == 2 ? 2.0f : 1.0f, style == 1 ? 1.0f : style == 2 ? 2.0f : 0.0f};
+            const float place[7] = {y, width / scale, alpha, style == 1 || style == 2 ? alpha : 0,
+                style == 2 ? 2.0f : 1.0f, style == 1 ? 1.0f : style == 2 ? 2.0f : 0.0f, textX};
             float divider = y + height + look.gap / 2 - kTextLine * kUnderLetters * scale;
-            const float back[7] = {divider - kDividerHeight / 2, kDividerWidth,
-                look.dividers ? kLineAlpha * l.alpha : 0,
-                y - kBarPad / 2, height + kBarPad, kWidth + 2 * (kX - 22), style == 3 ? kBarAlpha * l.alpha : 0};
-            PlaceTalkSlot(slot, place, back);
+            const float back[7] = {divider - kDividerHeight / 2, lineWidth, look.dividers ? kLineAlpha * l.alpha : 0,
+                y - kBarPad / 2, height + kBarPad, width + 2 * kBarSide, style == 3 ? kBarAlpha * l.alpha : 0};
+            PlaceTalkSlot(slot, place, back, side);
             y += height + look.gap;
         }
         for (int slot = 0; slot < kTalkSlots; ++slot)
             if (!used[slot])
             {
                 g_talkSlots[slot].id = 0;
-                const float hidden[6] = {kTop, kWidth, 0, 0, 1, 0};
-                const float hiddenBack[7] = {kTop, kWidth, 0, kTop, 1, kWidth, 0};
-                PlaceTalkSlot(slot, hidden, hiddenBack);
+                float x = g_talkSlots[slot].place[6];
+                const float hidden[7] = {kTop, width, 0, 0, 1, 0, x < 0 ? textX : x};
+                const float hiddenBack[7] = {kTop, width, 0, kTop, 1, width, 0};
+                PlaceTalkSlot(slot, hidden, hiddenBack, side);
             }
         s_showing = !lines.empty();
     }
@@ -7132,5 +4098,56 @@ namespace game
     {
         const void* player = Player();
         return player ? At<uint8_t>(player, layout::kPlayerDisabledControls) : 0;
+    }
+
+    int PlayerPerkRank(uint32_t perk)
+    {
+        int ranks = PerkRanks(perk);
+        return ranks < 0 ? 0 : (ranks & 0xFF);
+    }
+
+    TESObjectREFR* KillerOf(TESObjectREFR* actor)
+    {
+        if (!IsActor(actor) || !IsDead(actor))
+            return nullptr;
+        return At<TESObjectREFR*>(actor, layout::kActorKiller);
+    }
+
+    bool IsCreatureType(TESObjectREFR* ref, int type)
+    {
+        NVSEArrayVarInterface::Element result;
+        if (!g_compiled || !g_creatureType || !ref ||
+            !g_scripts->CallFunction(g_creatureType, ref, nullptr, &result, 1, static_cast<uint32_t>(type)))
+            return false;
+        return result.GetNumber() != 0;
+    }
+
+    bool GlobalNumber(uint32_t global, float& value)
+    {
+        TESForm* form = LookupForm(global);
+        if (!form || form->typeID != kFormType_TESGlobal)
+            return false;
+        value = static_cast<TESGlobal*>(form)->data;
+        return true;
+    }
+
+    bool SetGlobalNumber(uint32_t global, float value)
+    {
+        TESForm* form = LookupForm(global);
+        if (!form || form->typeID != kFormType_TESGlobal)
+            return false;
+        static_cast<TESGlobal*>(form)->data = value;
+        return true;
+    }
+
+    void LevelUpNote(int action)
+    {
+        if (!g_compiled || !Player())
+            return;
+        if (action == 0 && g_noteInject)
+            g_scripts->CallFunctionAlt(g_noteInject, Player(), 3, FloatArg(kPartyPerkRed[0]), FloatArg(kPartyPerkRed[1]),
+                FloatArg(kPartyPerkRed[2]));
+        else if (g_noteShow)
+            g_scripts->CallFunctionAlt(g_noteShow, Player(), 1, static_cast<uint32_t>(action == 1 ? 1 : 0));
     }
 }

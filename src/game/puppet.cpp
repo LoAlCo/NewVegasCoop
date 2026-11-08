@@ -231,7 +231,7 @@ namespace game
         }
     }
 
-    void Puppet::Attack(TESObjectREFR* actor, uint8_t shots, bool release)
+    void Puppet::Attack(TESObjectREFR* actor, uint8_t shots, bool release, bool reload)
     {
         if (!actor)
             return;
@@ -243,11 +243,17 @@ namespace game
         }
         if (!(StanceFlags(actor) & coop::Pose::kWeaponOut))
         {
-            LOG_DEBUG("%s: didn't attack (%u shots): its weapon isn't out", m_who.c_str(), shots);
+            LOG_DEBUG("%s: didn't attack (%u shots%s): its weapon isn't out", m_who.c_str(), shots,
+                reload ? ", reload" : "");
             return;
         }
-        PlayAttack(actor, m_worn, shots);
-        LOG_DEBUG("%s attacks (%u shots)", m_who.c_str(), shots);
+        if (shots)
+        {
+            PlayAttack(actor, m_worn, shots);
+            LOG_DEBUG("%s attacks (%u shots)", m_who.c_str(), shots);
+        }
+        if (reload)
+            LOG_DEBUG("%s reloads%s", m_who.c_str(), Reload(actor, 1) ? "" : " (couldn't: no gun, or another plugin replaced the game's reload)");
     }
 
     void Puppet::LogStats(uint32_t now)

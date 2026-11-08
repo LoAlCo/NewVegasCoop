@@ -21,6 +21,7 @@ namespace game
     namespace
     {
         constexpr uint32_t kOurConversationMs = 2000;
+        constexpr const char* kNotHereYet = "Not here yet: the host's game hasn't loaded them";
         constexpr uint32_t kSettleConversationMs = 500;
 
         Dialogue* g_dialogue = nullptr;
@@ -134,7 +135,19 @@ namespace game
         bool host = m_coop->GetRole() == coop::Role::Host;
         if (speaker != partner)
             return RunOriginal(info, onEnd, speaker);
+        if (!host && m_npcs->IsHeld(RefId(speaker)))
+        {
+            ++m_linesSkipped;
+            LOG_INFO("Dialogue: line %08X's script not run here (%s is held: not in the host's game here yet)",
+                TopicInfoId(info), Name(speaker));
+            return;
+        }
         uint32_t now = GetTickCount();
+        if (!host && !m_openSince && now - m_lastActivate > kOurConversationMs && OwnUseHoldsControls())
+        {
+            m_lastActivate = now;
+            LOG_INFO("Dialogue: %s started a conversation while our own use holds our controls: ours", Name(speaker));
+        }
         bool ours = host || (m_openSince ? m_ours : now - m_lastActivate <= kOurConversationMs);
         if (!ours || !m_coop->MayTalk())
         {
@@ -184,7 +197,9 @@ namespace game
         bool counted = Contents(Player(), before);
         int32_t xp = PlayerXp(), karma = PlayerKarma();
         m_replaying = true;
+        ReplayingOthersLine(true);
         RunOriginal(info, line.onEnd ? 1 : 0, speaker);
+        ReplayingOthersLine(false);
         m_replaying = false;
         ++m_linesRun;
         int putBack = 0;
@@ -223,6 +238,12 @@ namespace game
             g_dialogue->RunForFriend(1, {info, onEnd, speaker});
     }
 
+    void Dialogue::LabOwnActivate()
+    {
+        if (g_dialogue)
+            g_dialogue->m_lastActivate = GetTickCount();
+    }
+
     void Dialogue::Update(uint32_t now)
     {
         m_thread = GetCurrentThreadId();
@@ -232,7 +253,7 @@ namespace game
             m_reportedTalking = false;
             m_reportedNpc = 0;
             m_talkLog.Clear();
-            ShowTalkLog({}, TalkLogLook{});
+            ShowTalk({});
             return;
         }
         bool host = m_coop->GetRole() == coop::Role::Host;
@@ -254,12 +275,22 @@ namespace game
         else if (!m_openSince)
         {
             m_openSince = now ? now : 1;
-            m_ours = host || now - m_lastActivate <= kOurConversationMs;
+            m_ourPlayerStarted = now - m_lastActivate <= kOurConversationMs || OwnUseHoldsControls();
+            m_ours = host || m_ourPlayerStarted;
             LOG_INFO("Dialogue: a conversation with %s (%08X) opened (%s)", partner ? Name(partner) : "?",
-                partner ? RefId(partner) : 0, m_ours ? "ours" : "an NPC started it");
+                partner ? RefId(partner) : 0, m_ourPlayerStarted ? "ours" : "an NPC started it");
+            if (!host && partner && m_npcs->IsHeld(RefId(partner)))
+            {
+                m_closed = true;
+                ++m_closedCount;
+                CloseMenu();
+                LOG_INFO("Dialogue: %s (%08X) is held here (not in the host's game here yet); conversation closed",
+                    Name(partner), RefId(partner));
+                Notify(kNotHereYet);
+            }
             uint8_t leader = 0;
             uint32_t ref = partner ? HostRef(partner) : 0;
-            if (!host && m_ours && ref && m_coop->CompanionLeader(ref, leader) &&
+            if (!host && !m_closed && m_ours && ref && m_coop->CompanionLeader(ref, leader) &&
                 !(ref == m_talkAllowed && now < m_talkAllowedUntil))
             {
                 m_closed = true;
@@ -279,11 +310,20 @@ namespace game
             m_reportedNpc = npc;
         }
 
+        if (open && !m_closed && host && m_leaving && !m_ourPlayerStarted)
+        {
+            m_closed = true;
+            ++m_closedCount;
+            CloseMenu();
+            LOG_INFO("Dialogue: %s (%08X) started a conversation with us as the group leaves; closed",
+                partner ? Name(partner) : "?", partner ? RefId(partner) : 0);
+        }
         if (open && !m_closed && now - m_openSince >= kSettleConversationMs && (!m_ours || !m_coop->MayTalk()))
         {
             m_closed = true;
             ++m_closedCount;
             CloseMenu();
+            GiveBackOwnUseControls("a conversation was closed on us");
             if (m_ours)
             {
                 std::string who = m_coop->NameOf(m_coop->Talk().Talker());
@@ -428,15 +468,33 @@ namespace game
         if (!log.on)
             m_talkLog.Clear();
         m_talkLog.Configure(static_cast<size_t>(log.lines), static_cast<uint32_t>(log.seconds) * 1000);
+        ShowTalk(m_talkLog.Update(now));
+    }
+
+    void Dialogue::ShowTalk(const std::vector<coop::TalkLog::Shown>& lines)
+    {
+        const TalkLogSettings& log = m_talkLogSettings;
         TalkLogLook look;
         look.scale = log.size / 100.0f;
         look.gap = static_cast<float>(log.gap);
+        look.place = log.place;
+        look.xPercent = static_cast<float>(log.x);
+        look.yPercent = static_cast<float>(log.y);
+        look.width = static_cast<float>(log.width);
+        look.alignRight = log.alignRight;
         look.dividers = log.dividers;
         look.style = log.style;
         look.hudColor = log.hudColor;
         look.red = log.red;
         look.green = log.green;
         look.blue = log.blue;
-        ShowTalkLog(m_talkLog.Update(now), look);
+        if (!log.preview)
+        {
+            ShowTalkLog(lines, look);
+            return;
+        }
+        if (m_talkPreview.size() != static_cast<size_t>(std::clamp(log.lines, 0, static_cast<int>(coop::TalkLog::kMostLines))))
+            m_talkPreview = coop::TalkLogPreview(log.lines);
+        ShowTalkLog(m_talkPreview, look);
     }
 }

@@ -2,6 +2,7 @@
 
 #include "log.h"
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdarg>
@@ -21,6 +22,7 @@ namespace
     std::vector<std::string> g_pending;
     size_t g_dropped = 0;
     bool g_console = false;
+    std::atomic<int> g_minLevel{static_cast<int>(LogLevel::Debug)};
     constexpr size_t kMaxPending = 20000;
 
     const char* LevelName(LogLevel level)
@@ -98,6 +100,11 @@ void Log::EchoToConsole(bool on)
     g_console = on;
 }
 
+void Log::SetLevel(LogLevel level)
+{
+    g_minLevel = static_cast<int>(level);
+}
+
 void Log::Flush()
 {
     WriteWaiting();
@@ -105,6 +112,8 @@ void Log::Flush()
 
 void Log::Write(LogLevel level, const char* fmt, ...)
 {
+    if (static_cast<int>(level) < g_minLevel)
+        return;
     char message[1024];
     va_list args;
     va_start(args, fmt);

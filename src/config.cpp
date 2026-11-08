@@ -29,8 +29,13 @@ namespace
         "; 1 keeps Discord's overlay out of the game (it crashes New Vegas, even when turned off in Discord)\r\n"
         "BlockDiscordOverlay=1\r\n"
         "; (The player's own settings (chat, speech, radio) are in Data\\config\\NVCoop.ini: the MCM menu's.)\r\n"
+        "; 1: when hosting, the area around a friend far from you is loaded and run too, so its NPCs are the same for\r\n"
+        "; both of you (0: they're held still in the friend's game until you come near)\r\n"
+        "FarCells=1\r\n"
         "; Developer-only: 1 lets tools on this PC, for this Windows user only, run console commands in the game\r\n"
-        "LabChannel=0\r\n";
+        "LabChannel=0\r\n"
+        "; How much NVCoop.log holds: debug (everything, the default), info or warn (smaller logs; errors always)\r\n"
+        "LogLevel=debug\r\n";
 
     std::string Read(const std::string& ini, const char* key, const char* fallback, const char* section = "Coop")
     {
@@ -79,6 +84,12 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bFriendMarkers", friendMarkers);
         Write(path, "bTalkLog", talkLog);
         Write(path, "iTalkLogSize", talkLogSize);
+        Write(path, "iTalkLogPlace", talkLogPlace);
+        Write(path, "iTalkLogX", talkLogX);
+        Write(path, "iTalkLogY", talkLogY);
+        Write(path, "iTalkLogWidth", talkLogWidth);
+        Write(path, "iTalkLogAlign", talkLogAlign);
+        Write(path, "bTalkLogPreview", talkLogPreview);
         Write(path, "iTalkLogLines", talkLogLines);
         Write(path, "iTalkLogSeconds", talkLogSeconds);
         Write(path, "iTalkLogGap", talkLogGap);
@@ -90,6 +101,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iTalkLogGreen", talkLogGreen);
         Write(path, "iTalkLogBlue", talkLogBlue);
         Write(path, "bShowAddress", showAddress);
+        Write(path, "bFarAreas", farAreas);
         WriteSwitches(path);
     }
     auto flag = [&](const char* key, bool now) {
@@ -128,6 +140,12 @@ void Config::LoadPlayer(const std::string& path)
     friendMarkers = flag("bFriendMarkers", friendMarkers);
     talkLog = flag("bTalkLog", talkLog);
     talkLogSize = number("iTalkLogSize", talkLogSize, 40, 150);
+    talkLogPlace = number("iTalkLogPlace", talkLogPlace, 0, 1);
+    talkLogX = number("iTalkLogX", talkLogX, 0, 100);
+    talkLogY = number("iTalkLogY", talkLogY, 0, 100);
+    talkLogWidth = number("iTalkLogWidth", talkLogWidth, 200, 1200);
+    talkLogAlign = number("iTalkLogAlign", talkLogAlign, 0, 1);
+    talkLogPreview = flag("bTalkLogPreview", talkLogPreview);
     talkLogLines = number("iTalkLogLines", talkLogLines, 1, 10);
     talkLogSeconds = number("iTalkLogSeconds", talkLogSeconds, 3, 60);
     talkLogGap = number("iTalkLogGap", talkLogGap, 0, 40);
@@ -141,6 +159,7 @@ void Config::LoadPlayer(const std::string& path)
     showAddress = flag("bShowAddress", showAddress);
     coopBalanced = flag("bCoopBalanced", coopBalanced);
     friendlyFire = flag("bFriendlyFire", friendlyFire);
+    farAreas = flag("bFarAreas", farAreas);
     if (fieldOfView && fieldOfView < 60)
         fieldOfView = 60;
 }
@@ -149,6 +168,12 @@ void Config::WriteSwitches(const std::string& path) const
 {
     Write(path, "bCoopBalanced", coopBalanced);
     Write(path, "bFriendlyFire", friendlyFire);
+}
+
+void Config::EndTalkLogPreview(const std::string& path)
+{
+    talkLogPreview = false;
+    Write(path, "bTalkLogPreview", 0);
 }
 
 Config Config::Load(const std::string& iniPath)
@@ -215,6 +240,12 @@ Config Config::Load(const std::string& iniPath)
     c.chatSpeechVolume = Number(Read(iniPath, "ChatSpeechVolume", "80"), 0, 100, 80);
     c.chatKey = Number(Read(iniPath, "ChatKey", "21"), 1, 255, 21);
     c.labChannel = Read(iniPath, "LabChannel", "0") == "1";
+    {
+        std::string level = Read(iniPath, "LogLevel", "debug");
+        Log::SetLevel(level == "info" ? LogLevel::Info : level == "warn" ? LogLevel::Warn : LogLevel::Debug);
+    }
+    c.farCells = Read(iniPath, "FarCells", "1") == "1";
+    net::ParseFakeLag(Read(iniPath, "FakeLag", "").c_str(), c.fakeLag);
     auto patchable = [&](const std::string& path) {
         c.askMode = Read(path, "AskMode", c.askMode ? "1" : "0") != "0";
         c.askHardcore = Read(path, "AskHardcore", c.askHardcore ? "1" : "0") != "0";

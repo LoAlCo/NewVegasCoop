@@ -4,8 +4,10 @@
 
 #include "config.h"
 #include "net/session.h"
+#include "coop/activator_uses.h"
 #include "coop/clock.h"
 #include "coop/coop.h"
+#include "coop/vats_feel.h"
 #include "coop/game_mode.h"
 #include "coop/quests.h"
 #include "coop/frame_parts.h"
@@ -23,10 +25,13 @@
 #include "dev/lab_channel.h"
 #include "dev/dump_game.h"
 #include "dev/second_copy.h"
+#include "coop/party_perks.h"
 #include "game/addresses.h"
+#include "game/far_cells.h"
 #include "game/game.h"
 #include "game/escape_menu.h"
 #include "game/level_up.h"
+#include "game/perk_menu.h"
 #include "game/remove_all_items.h"
 #include "game/inspector.h"
 #include "game/mirror.h"
@@ -34,6 +39,9 @@
 #include "game/companions.h"
 #include "game/containers.h"
 #include "game/doors.h"
+#include "game/objects.h"
+#include "game/terminals.h"
+#include "game/activations.h"
 #include "game/mines.h"
 #include "game/items.h"
 #include "game/progress.h"
@@ -45,6 +53,7 @@
 #include "game/standins.h"
 #include "log.h"
 #include "version.h"
+#include "plugin.h"
 
 #include <algorithm>
 #include <shlobj.h>
@@ -54,11 +63,10 @@
 #include <cstdlib>
 #include <future>
 #include <map>
+#include <set>
 #include <utility>
 #include <vector>
 
-namespace
-{
     PluginHandle g_handle = kPluginHandle_Invalid;
     coop::Coop& g_coop = *new coop::Coop;
     Config g_config;
@@ -73,6 +81,9 @@ namespace
     game::Containers g_containers;
     game::WorldItems g_items;
     game::Quests g_quests;
+    game::Objects g_objects;
+    game::Terminals g_terminals;
+    game::Activations g_activations;
     game::Progress g_progress;
     game::SleepWait g_sleepWait;
     game::Dialogue g_dialogue;
@@ -104,6 +115,18 @@ namespace
     float MaxHitDistance() { return game::LoadedReach() * 1.5f; }
 
     coop::ThreatTable g_threats;
+
+    coop::KillCredits g_killCredits;
+    std::set<uint32_t> g_lootedBodies;
+    struct PartyPerkForms
+    {
+        bool resolved = false;
+        uint32_t perk[std::size(coop::kPartyPerks)] = {};
+        uint32_t themsGoodEatinList = 0, certifiedTechList = 0;
+    };
+    PartyPerkForms g_partyPerkForms;
+    uint32_t g_nextPartyPerks = 0, g_nextKillLoot = 0;
+    uint8_t g_partyPerksLogged = 0xFF, g_othersPerksLogged = 0xFF;
     bool g_fovAfterLoad = false;
 
     struct HeldTo { uint8_t player; TESObjectREFR* target; };
@@ -128,6 +151,10 @@ namespace
     } g_tally;
     uint32_t g_nextTallyAt = 0;
 
+    bool g_openLoadMenu = false;
+    std::vector<std::string> g_labChat;
+namespace
+{
     void LogCombat(uint32_t now)
     {
         if (!coop::IsDue(now, g_nextTallyAt))
@@ -146,6 +173,8 @@ namespace
         g_tally = {};
     }
 
+}
+
     std::string PluginFolder()
     {
         char path[MAX_PATH];
@@ -156,6 +185,11 @@ namespace
         std::string folder(path);
         return folder.substr(0, folder.find_last_of("\\/") + 1);
     }
+
+namespace
+{
+
+    std::string PlayerSettingsPath() { return PluginFolder() + "..\\..\\config\\NVCoop.ini"; }
 
     std::string g_pausingMenus;
 
@@ -232,33 +266,6 @@ namespace
             manager};
     }
 
-    std::string g_pendingLinkedSave;
-    std::string g_checkingSave;
-    uint64_t g_saveAskedAt = 0;
-    uint32_t g_nextSaveCheck = 0, g_saveGiveUpAt = 0, g_saveTries = 0;
-
-    uint64_t FileTimeNow()
-    {
-        FILETIME t;
-        GetSystemTimeAsFileTime(&t);
-        return (uint64_t(t.dwHighDateTime) << 32) | t.dwLowDateTime;
-    }
-
-    std::string SavesFolder();
-
-    bool SavedSince(const std::string& save, uint64_t since)
-    {
-        WIN32_FILE_ATTRIBUTE_DATA a;
-        if (!GetFileAttributesExA((SavesFolder() + save + ".fos").c_str(), GetFileExInfoStandard, &a))
-            return false;
-        uint64_t written = (uint64_t(a.ftLastWriteTime.dwHighDateTime) << 32) | a.ftLastWriteTime.dwLowDateTime;
-        return written + 20000000ull >= since;
-    }
-    std::string g_expectedLoad;
-    uint32_t g_expectLoadUntil = 0;
-    std::map<std::string, std::string> g_ownSaves;
-    void SaveOwnSaves();
-
     struct JoinTarget
     {
         net::SteamId steam = 0;
@@ -299,7 +306,6 @@ namespace
     uint32_t g_nextMenuCheck = 0;
     bool g_menuMatched = false;
 
-    void LoadOurMatch();
     bool g_joinClicked = false;
     bool g_toldUnreachable = false;
 
@@ -376,9 +382,7 @@ namespace
         }
     }
 
-    bool g_openLoadMenu = false;
     bool g_warnNoLargeAddress = false;
-    bool HaveSaves();
 
     constexpr int kHostWhoQuestion = 15;
     bool g_askedHostWho = false;
@@ -607,66 +611,6 @@ namespace
             JoinHost(g_joinChoices[choice]);
     }
 
-    std::string SavesFolder()
-    {
-        char documents[MAX_PATH];
-        if (FAILED(SHGetFolderPathA(nullptr, CSIDL_PERSONAL, nullptr, 0, documents)))
-            return "";
-        return std::string(documents) + "\\My Games\\FalloutNV\\Saves\\";
-    }
-
-    std::string OurMatchOf(const std::string& host, const std::string& hostSave)
-    {
-        if (hostSave.empty())
-            return "";
-        std::string folder = SavesFolder();
-        auto exists = [&](const std::string& save)
-        {
-            DWORD a = GetFileAttributesA((folder + save + ".fos").c_str());
-            return !save.empty() && a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
-        };
-        std::string prefix = coop::PlainName(host, "Host") + "\t";
-        for (const auto& [key, theirs] : g_ownSaves)
-            if (key.compare(0, prefix.size(), prefix) == 0 && theirs == hostSave && exists(key.substr(prefix.size())))
-                return key.substr(prefix.size());
-        std::string linked = coop::LinkedSaveName(host, hostSave);
-        return exists(linked) ? linked : "";
-    }
-
-    bool HaveSaves()
-    {
-        WIN32_FIND_DATAA found;
-        HANDLE h = FindFirstFileA((SavesFolder() + "*.fos").c_str(), &found);
-        if (h == INVALID_HANDLE_VALUE)
-            return false;
-        FindClose(h);
-        return true;
-    }
-
-    void LoadOurMatch()
-    {
-        const net::ModsMatch& host = g_coop.MatchedHost();
-        std::string ours = OurMatchOf(host.hostName, host.save);
-        if (ours.empty())
-        {
-            LOG_INFO("Main menu: no save of ours goes with %s's \"%s\"; the player picks one", host.hostName.c_str(),
-                host.save.c_str());
-            if (HaveSaves())
-            {
-                g_openLoadMenu = true;
-                game::Notify(("Co-op: pick the character to bring into " + host.hostName + "'s game").c_str(), 8);
-            }
-            else
-                game::ShowMessage("No saves yet: start a new game. You'll join " + host.hostName + "'s game once "
-                    "you're out of Doc Mitchell's house.");
-            return;
-        }
-        LOG_INFO("Main menu: loading \"%s\", our match of %s's \"%s\"", ours.c_str(), host.hostName.c_str(),
-            host.save.c_str());
-        g_expectedLoad = ours;
-        game::RunConsoleLine(("load \"" + ours + "\"").c_str());
-    }
-
     constexpr int kJoinQuestion = 4;
     std::vector<coop::JoinAsk> g_joinAsks;
     uint32_t g_openJoinAsk = 0;
@@ -744,27 +688,6 @@ namespace
                 game::Activate(ours);
         }
     }
-    constexpr int kTeleportQuestion = 12;
-    uint32_t g_nextTeleporterLook = 0;
-    int g_teleportersHad = -1;
-    bool g_teleportAsked = false;
-    std::vector<std::pair<uint8_t, bool>> g_teleportChoices;
-
-    void GoToPlayer(uint8_t target, uint32_t now)
-    {
-        auto it = g_coop.Remotes().find(target);
-        coop::Pose pose;
-        std::string name = g_coop.NameOf(target);
-        if (it == g_coop.Remotes().end() || !it->second.motion.Sample(now, pose) || !game::TravelTo(pose))
-        {
-            LOG_WARN("Teleporter: couldn't go to %s (no place known for them)", name.c_str());
-            game::Notify(("Co-op: couldn't find " + name).c_str());
-            return;
-        }
-        LOG_INFO("Teleporter: went to %s (%08X %.0f %.0f %.0f)", name.c_str(), pose.space, pose.x, pose.y, pose.z);
-        game::Notify(("Co-op: teleported to " + name).c_str());
-    }
-
     uint32_t g_nextAnimLook = 0;
 
     void ShareFurnitureAnim(uint32_t now)
@@ -774,66 +697,6 @@ namespace
         g_nextAnimLook = now + 100;
         TESObjectREFR* me = game::Player();
         g_coop.SetMyAnim(g_coop.InGame() && me ? game::FurnitureAnim(me) : std::string());
-    }
-
-    void Teleporter(uint32_t now)
-    {
-        TESObjectREFR* me = game::Player();
-        TESForm* item = g_teleportersHad >= 0 || g_coop.InGame() ? game::TeleporterItem() : nullptr;
-        if (!g_coop.InGame() || !me || !item)
-        {
-            if (g_teleportersHad > 0 && me && item)
-                game::ChangeItem(me, item->refID, -game::ItemCount(me, item));
-            g_teleportersHad = -1;
-            g_teleportAsked = false;
-            return;
-        }
-        for (uint8_t target : g_coop.TakeTeleports())
-            GoToPlayer(target, now);
-        if (g_teleportAsked)
-        {
-            int choice = game::TakeChoice(kTeleportQuestion);
-            if (choice != -1)
-            {
-                g_teleportAsked = false;
-                if (choice >= 0 && static_cast<size_t>(choice) < g_teleportChoices.size())
-                {
-                    auto [who, bring] = g_teleportChoices[choice];
-                    LOG_INFO("Teleporter: %s %s", bring ? "bringing" : "going to", g_coop.NameOf(who).c_str());
-                    if (bring)
-                        game::Notify(("Co-op: bringing " + g_coop.NameOf(who) + " here").c_str());
-                    g_coop.AskTeleport(bring ? who : g_coop.MyPlayerId(), bring ? g_coop.MyPlayerId() : who);
-                }
-            }
-        }
-        if (!coop::IsDue(now, g_nextTeleporterLook))
-            return;
-        g_nextTeleporterLook = now + 250;
-        int have = game::ItemCount(me, item);
-        if (g_teleportersHad > 0 && have < g_teleportersHad && !game::OpenContainer() && !g_teleportAsked)
-        {
-            std::vector<std::string> buttons;
-            g_teleportChoices.clear();
-            for (const auto& [id, remote] : g_coop.Remotes())
-                if (g_teleportChoices.size() < 8)
-                {
-                    buttons.push_back("Go to " + g_coop.NameOf(id));
-                    g_teleportChoices.push_back({id, false});
-                    buttons.push_back("Bring " + g_coop.NameOf(id) + " here");
-                    g_teleportChoices.push_back({id, true});
-                }
-            buttons.push_back("Cancel");
-            LOG_INFO("Teleporter: used (%zu others to pick from)", g_teleportChoices.size() / 2);
-            g_teleportAsked = game::AskChoice(g_teleportChoices.empty() ? "Co-op Teleporter: nobody else is here" :
-                "Co-op Teleporter", buttons, kTeleportQuestion);
-        }
-        if (have != 1)
-        {
-            game::ChangeItem(me, item->refID, 1 - have);
-            if (g_teleportersHad < 0)
-                LOG_INFO("Teleporter: given (we had %d)", have);
-        }
-        g_teleportersHad = 1;
     }
 
     bool g_progressShown = false;
@@ -967,9 +830,30 @@ namespace
         }
         if (!g_pausingMenus.empty())
             game::Notify("Co-op: Real Time Menus still pauses some menus (see NVCoop.log)");
+        {
+            bool esp = false;
+            for (const std::string& mod : game::LoadedMods())
+                esp = esp || _stricmp(mod.c_str(), "The Mod Configuration Menu.esp") == 0;
+            const bool dll = GetModuleHandleW(L"MCM.dll") != nullptr;
+            LOG_INFO("MCM: %s, MCM Extender (MCM.dll): %s", esp ? "active" : "MISSING", dll ? "loaded" : "MISSING");
+            const char* missing = !esp && !dll ? "MCM and MCM Extender" : !esp ? "The Mod Configuration Menu" :
+                "MCM Extender";
+            if (!esp || !dll)
+                game::Notify(("Co-op: install " + std::string(missing) + " for the co-op settings page").c_str());
+        }
         game::RunConsoleLine("SetGameSetting fVATSTimeMult 1");
         LOG_INFO("VATS time while aiming: %s (1 = full speed)", game::Evaluate("GetGameSetting fVATSTimeMult").c_str());
         LOG_INFO("VATS: %d of its speed changes skipped (5 expected)", game::KeepVatsAtFullSpeed());
+        LOG_INFO("VATS: playback camera %s", game::PlayVatsInOwnView() ? "in the player's own view" : "NOT changed (its call wasn't there)");
+        LOG_INFO("Downed: the game's death playback %s", game::NoDeathPlaybackWhenDowned() ?
+            "skipped while our player is downed" : "NOT changed (its call wasn't there)");
+        for (const coop::vats::GameSetting& setting : coop::vats::kSettings)
+        {
+            char line[96];
+            snprintf(line, sizeof(line), "SetGameSetting %s %g", setting.name, setting.value);
+            game::RunConsoleLine(line);
+            LOG_INFO("VATS: %s %s", setting.name, game::Evaluate((std::string("GetGameSetting ") + setting.name).c_str()).c_str());
+        }
         std::vector<std::string> plugins = game::LoadOrder();
         LogLoadOrder("Load order", plugins);
         LOG_INFO("Load order from the game's list %s the script's", game::LoadedMods() == plugins ? "matches" : "DIFFERS from");
@@ -1052,8 +936,6 @@ namespace
         }
     }
 
-    bool QuickStartBusy();
-
     void TryStartCoop()
     {
         if (g_coop.GetRole() != coop::Role::None || g_modScan.valid() || g_config.mode == Config::Mode::Off ||
@@ -1083,8 +965,14 @@ namespace
         if (int dragged = g_coop.Dragging(g_coop.MyPlayerId()); g_coop.InGame() && dragged >= 0)
             g_coop.Drag(static_cast<uint8_t>(dragged), false);
         g_fovAfterLoad = true;
+        if (g_config.talkLogPreview)
+        {
+            g_config.EndTalkLogPreview(PlayerSettingsPath());
+            LOG_INFO("Talk log: preview off (a game loaded)");
+        }
         g_forced.clear();
         g_threats.Clear();
+        g_killCredits.Clear();
         g_fightersSeen.clear();
         g_bodiesThinned.clear();
         g_extras.clear();
@@ -1202,6 +1090,120 @@ namespace
         }
     }
 
+    std::string PartyPerkNames(uint8_t perks)
+    {
+        std::string out;
+        for (const coop::PartyPerkInfo& p : coop::kPartyPerks)
+            if (perks & p.bit)
+                out += (out.empty() ? "" : ", ") + std::string(p.name);
+        return out.empty() ? "none" : out;
+    }
+
+    void UpdatePartyPerks(uint32_t now)
+    {
+        if (!g_partyPerkForms.resolved)
+        {
+            std::vector<std::string> order = game::LoadOrder();
+            if (order.empty())
+                return;
+            g_partyPerkForms.resolved = true;
+            auto resolve = [&](const char* file, uint32_t local) -> uint32_t {
+                for (size_t i = 0; i < order.size() && i < 0xFF; ++i)
+                    if (_stricmp(order[i].c_str(), file) == 0)
+                        return static_cast<uint32_t>(i) << 24 | local;
+                return 0;
+            };
+            for (size_t i = 0; i < std::size(coop::kPartyPerks); ++i)
+                g_partyPerkForms.perk[i] = resolve(coop::kPartyPerks[i].file, coop::kPartyPerks[i].localId);
+            g_partyPerkForms.themsGoodEatinList = resolve("OldWorldBlues.esm", game::ids::kThemsGoodEatinListLocal);
+            g_partyPerkForms.certifiedTechList = resolve("LonesomeRoad.esm", game::ids::kCertifiedTechListLocal);
+            LOG_INFO("Party perks: %08X %08X %08X %08X, lists %08X %08X", g_partyPerkForms.perk[0],
+                g_partyPerkForms.perk[1], g_partyPerkForms.perk[2], g_partyPerkForms.perk[3],
+                g_partyPerkForms.themsGoodEatinList, g_partyPerkForms.certifiedTechList);
+        }
+        game::UpdateLevelUpNote();
+        bool host = g_coop.GetRole() == coop::Role::Host && g_coop.InGame();
+        if (host && coop::IsDue(now, g_nextKillLoot))
+        {
+            g_nextKillLoot = now + 250;
+            uint8_t own = g_coop.MyPartyPerks(), party = own;
+            for (const auto& [id, perks] : g_coop.PartyPerks())
+                party |= perks;
+            for (uint32_t ref : g_killCredits.Recent(now))
+            {
+                TESObjectREFR* body = game::LookupRef(ref);
+                if (!body || !game::IsDead(body))
+                    continue;
+                int player = g_killCredits.Died(ref, now);
+                if (player < 0 || !g_lootedBodies.insert(ref).second)
+                    continue;
+                if (g_lootedBodies.size() > 512)
+                    g_lootedBodies.clear();
+                TESObjectREFR* killer = game::KillerOf(body);
+                if (killer && killer != game::Player())
+                {
+                    LOG_INFO("Party perks: %08X died, killed by %08X (not a player): no extra loot", ref,
+                        reinterpret_cast<TESForm*>(killer)->refID);
+                    continue;
+                }
+                bool robot = game::IsCreatureType(body, 6);
+                uint8_t lists = coop::KillLoot(party, own, killer == game::Player(), robot);
+                LOG_INFO("Party perks: %08X died (player %d's kill; the game's killer: %s; %s): %s", ref, player,
+                    killer ? "our player" : "none", robot ? "a robot" : "not a robot",
+                    lists ? PartyPerkNames(lists).c_str() : "no extra loot");
+                if ((lists & coop::kThemsGoodEatin) && g_partyPerkForms.themsGoodEatinList)
+                    game::ChangeItem(body, g_partyPerkForms.themsGoodEatinList, 1);
+                if ((lists & coop::kCertifiedTech) && g_partyPerkForms.certifiedTechList)
+                    game::ChangeItem(body, g_partyPerkForms.certifiedTechList, 1);
+            }
+        }
+        if (!coop::IsDue(now, g_nextPartyPerks))
+            return;
+        g_nextPartyPerks = now + 1000;
+        uint8_t own = 0;
+        for (size_t i = 0; i < std::size(coop::kPartyPerks); ++i)
+            if (g_partyPerkForms.perk[i] && game::PlayerPerkRank(g_partyPerkForms.perk[i]) > 0)
+                own |= coop::kPartyPerks[i].bit;
+        g_coop.SetMyPartyPerks(own);
+        uint8_t others = 0;
+        if (g_coop.InGame())
+            for (const auto& [id, perks] : g_coop.PartyPerks())
+                others |= perks;
+        if (own != g_partyPerksLogged || others != g_othersPerksLogged)
+        {
+            g_partyPerksLogged = own;
+            g_othersPerksLogged = others;
+            std::string who;
+            if (g_coop.InGame())
+                for (const auto& [id, perks] : g_coop.PartyPerks())
+                    who += " " + g_coop.NameOf(id) + ": " + PartyPerkNames(perks) + ";";
+            LOG_INFO("Party perks: ours %s; others':%s", PartyPerkNames(own).c_str(),
+                who.empty() ? " none" : who.c_str());
+        }
+        std::vector<uint32_t> greyed;
+        for (size_t i = 0; i < std::size(coop::kPartyPerks); ++i)
+            if ((others & ~own & coop::kPartyPerks[i].bit) && g_partyPerkForms.perk[i])
+                greyed.push_back(g_partyPerkForms.perk[i]);
+        game::SetPerksTakenByOthers(greyed);
+        struct Odds { uint32_t global; uint8_t bit; float perkValue; };
+        const Odds odds[] = {{game::ids::kScroungerOdds, coop::kScrounger, game::ids::kScroungerValue},
+            {game::ids::kFortuneFinderOdds, coop::kFortuneFinder, game::ids::kFortuneFinderValue},
+            {game::ids::kFortuneFinderChangeOdds, coop::kFortuneFinder, game::ids::kFortuneFinderValue}};
+        for (const Odds& o : odds)
+        {
+            float current = 0;
+            if (!game::GlobalNumber(o.global, current))
+                continue;
+            float target = coop::OddsTarget((own & o.bit) != 0, host && (others & o.bit), current, o.perkValue,
+                game::ids::kOddsFileValue);
+            if (target < 0)
+                continue;
+            game::SetGlobalNumber(o.global, target);
+            LOG_INFO("Party perks: global %08X %.0f -> %.0f (%s)", o.global, current, target,
+                target == o.perkValue ? "the party's perk" : "nobody here has the perk");
+        }
+    }
+
     void ApplyFriendHit(const coop::HitReport& hit)
     {
         TESObjectREFR* by = g_standIns.Character(hit.playerId);
@@ -1223,217 +1225,9 @@ namespace
         }
         g_tally.applied.Add(hit.damage);
         LOG_DEBUG("Player %u hit %08X for %.1f", hit.playerId, hit.targetRef, hit.damage);
+        g_killCredits.Hit(hit.targetRef, hit.playerId, GetTickCount());
         game::ApplyHit(target, by, hit.damage);
         g_threats.Hurt(hit.targetRef, hit.playerId, hit.damage, GetTickCount());
-    }
-
-    constexpr float kReviveReach = 150;
-    constexpr uint32_t kReviveHoldMs = 2000;
-    bool g_downed = false;
-    uint32_t g_downedAt = 0, g_nextBleedNotice = 0;
-    bool g_gameOver = false;
-    int g_reviving = -1;
-    uint32_t g_reviveStart = 0, g_reviveAgainAt = 0;
-    constexpr float kDragBehind = 70;
-    constexpr float kDragFollowMax = 400;
-    bool g_grabWas = false;
-    int g_draggedBy = -1;
-    uint32_t g_draggedSince = 0;
-    std::string g_reviveHint;
-
-    const std::string kDownedAnim = "Characters\\_Male\\IdleAnims\\dlcpittlayingonfloorinpain.kf";
-
-    void SetDowned(bool down, uint32_t now)
-    {
-        if (down == g_downed)
-            return;
-        g_downed = down;
-        g_downedAt = g_nextBleedNotice = now;
-        game::SetPlayerControls(!down);
-        if (down)
-            game::PlayAnimFile(game::Player(), kDownedAnim);
-        else
-            game::StopAnimFile(game::Player(), kDownedAnim);
-        LOG_INFO("%s", down ? "We're down" : "We're back up");
-    }
-
-    std::string g_revivingName;
-
-    void UpdateReviveBar(uint32_t now)
-    {
-        if (g_reviving < 0 || !g_coop.InGame())
-        {
-            game::ShowReviveBar(g_coop.InGame() ? g_reviveHint : "");
-            return;
-        }
-        constexpr int kCells = 20;
-        uint32_t held = now - g_reviveStart;
-        int done = held >= kReviveHoldMs ? kCells : static_cast<int>(held * kCells / kReviveHoldMs);
-        game::ShowReviveBar("Reviving " + g_revivingName + "\n[" + std::string(done, '#') +
-            std::string(kCells - done, '-') + "]");
-    }
-
-    void UpdateDowned(uint32_t now, const coop::Pose& me, float health, float maxHealth, bool healthFresh)
-    {
-        TESObjectREFR* player = game::Player();
-        game::SetPlayerEssential(g_coop.InGame() && !g_gameOver);
-        if (g_waitForHostLoad && !g_coop.InGame())
-        {
-            g_waitForHostLoad = false;
-            game::SetPlayerControls(true);
-        }
-        int dragging = g_coop.InGame() ? g_coop.Dragging(g_coop.MyPlayerId()) : -1;
-        static bool s_dragLimits = false;
-        if (bool limits = dragging >= 0 && !g_downed && !g_gameOver; limits != s_dragLimits)
-        {
-            s_dragLimits = limits;
-            game::SetDragging(limits);
-        }
-        bool grab = game::IsControlPressed(game::layout::kControlGrab), grabTapped = grab && !g_grabWas;
-        g_grabWas = grab;
-        g_reviveHint.clear();
-        if (!g_coop.InGame() || g_gameOver || g_waitForHostLoad)
-        {
-            SetDowned(false, now);
-            return;
-        }
-
-        net::GameOver over;
-        if (g_coop.TakeGameOver(over))
-        {
-            std::string text = over.reason == net::GameOverReason::BledOut ?
-                g_coop.NameOf(over.playerId) + " bled out. Game over!" : over.reason == net::GameOverReason::Killed ?
-                g_coop.NameOf(over.playerId) + " was killed. Game over!" : "Everyone is down. Game over!";
-            LOG_INFO("%s", text.c_str());
-            SetDowned(false, now);
-            if (g_coop.GetRole() == coop::Role::Host)
-            {
-                game::Notify(text.c_str());
-                g_gameOver = true;
-                game::KillPlayer();
-                return;
-            }
-            game::Notify((text + " Waiting for " + g_coop.NameOf(0) + " to load a save.").c_str());
-            game::SetPlayerControls(false);
-            g_waitForHostLoad = true;
-            return;
-        }
-        if (g_coop.TakeRevived() && g_downed)
-        {
-            game::ChangeHealth(player, maxHealth * coop::kReviveHealth - game::Health(player));
-            SetDowned(false, now);
-            game::Notify("You've been revived!");
-            return;
-        }
-
-        if (game::IsKnockedOut(player))
-        {
-            LOG_INFO("Knocked out (life state %d, health %.1f), waking up", game::LifeState(player), game::Health(player));
-            game::WakeUp(player);
-            game::ChangeHealth(player, 1 - game::Health(player));
-            SetDowned(true, now);
-            return;
-        }
-        static uint32_t s_nextLifeLog = 0;
-        if (healthFresh && (health < maxHealth * 0.25f || g_downed) && coop::IsDue(now, s_nextLifeLog))
-        {
-            s_nextLifeLog = now + 1000;
-            LOG_DEBUG("Our health %.1f / %.1f, life state %d%s", game::Health(player), maxHealth,
-                game::LifeState(player), g_downed ? ", downed" : "");
-        }
-        int draggedBy = g_downed ? g_coop.DraggedBy(g_coop.MyPlayerId()) : -1;
-        if (draggedBy != g_draggedBy)
-        {
-            if (draggedBy >= 0)
-            {
-                g_draggedSince = now;
-                game::Notify((g_coop.NameOf(static_cast<uint8_t>(draggedBy)) + " is dragging you (your bleed-out is "
-                    "paused)").c_str());
-            }
-            else if (g_draggedBy >= 0)
-                g_downedAt += now - g_draggedSince;
-            g_draggedBy = draggedBy;
-        }
-        if (g_downed && draggedBy >= 0)
-        {
-            auto it = g_coop.Remotes().find(static_cast<uint8_t>(draggedBy));
-            coop::Pose them;
-            if (it != g_coop.Remotes().end() && it->second.motion.Sample(now, them) && them.space == me.space)
-            {
-                coop::Pose to = me;
-                to.x = them.x - kDragBehind * std::sin(them.heading);
-                to.y = them.y - kDragBehind * std::cos(them.heading);
-                to.heading = them.heading;
-                if (std::fabs(them.z - me.z) > 60)
-                    to.z = them.z;
-                float dx = to.x - me.x, dy = to.y - me.y;
-                if (dx * dx + dy * dy > 1 && dx * dx + dy * dy < kDragFollowMax * kDragFollowMax)
-                    game::Move(player, to);
-            }
-        }
-        if (g_downed)
-        {
-            static uint32_t s_nextPainCheck = 0;
-            if (coop::IsDue(now, s_nextPainCheck))
-            {
-                s_nextPainCheck = now + 500;
-                if (!game::IsPlayingAnimFile(player, kDownedAnim))
-                    game::PlayAnimFile(player, kDownedAnim);
-            }
-            if (draggedBy < 0 && coop::IsDue(now, g_nextBleedNotice))
-            {
-                g_nextBleedNotice = now + 10000;
-                uint32_t gone = now - g_downedAt;
-                uint32_t left = gone < coop::kBleedOutMs ? (coop::kBleedOutMs - gone + 999) / 1000 : 0;
-                std::string text = "You're down! " + std::to_string(left) + " s until you bleed out";
-                game::Notify(text.c_str());
-            }
-            return;
-        }
-
-        int target = -1;
-        std::string name;
-        for (auto& [id, remote] : g_coop.Remotes())
-        {
-            coop::Pose at;
-            if (!remote.Downed() || !game::GetPose(g_standIns.Character(id), at) || at.space != me.space)
-                continue;
-            float dx = at.x - me.x, dy = at.y - me.y, dz = at.z - me.z;
-            if (dx * dx + dy * dy + dz * dz <= kReviveReach * kReviveReach)
-            {
-                target = id;
-                name = remote.name;
-                break;
-            }
-        }
-        if (grabTapped && dragging >= 0)
-            g_coop.Drag(static_cast<uint8_t>(dragging), false);
-        else if (grabTapped && target >= 0 && g_coop.DraggedBy(static_cast<uint8_t>(target)) < 0)
-            g_coop.Drag(static_cast<uint8_t>(target), true);
-        if (dragging >= 0)
-            g_reviveHint = "Dragging " + g_coop.NameOf(static_cast<uint8_t>(dragging)) + ": Z to let go";
-        else if (target >= 0)
-            g_reviveHint = "Hold E to revive " + name + ", Z to drag";
-        bool holding = target >= 0 && coop::IsDue(now, g_reviveAgainAt) &&
-            game::IsControlPressed(game::layout::kControlActivate);
-        if (!holding)
-        {
-            g_reviving = -1;
-            return;
-        }
-        if (g_reviving != target)
-        {
-            g_reviving = target;
-            g_reviveStart = now;
-            g_revivingName = name;
-        }
-        else if (now - g_reviveStart >= kReviveHoldMs)
-        {
-            LOG_INFO("Reviving %s", name.c_str());
-            g_coop.Revive(static_cast<uint8_t>(target));
-            g_reviving = -1;
-            g_reviveAgainAt = now + 3000;
-        }
     }
 
     std::string LabStatus()
@@ -1465,8 +1259,6 @@ namespace
         return out;
     }
 
-    std::vector<std::string> g_labChat;
-    std::string PlayerSettingsPath() { return PluginFolder() + "..\\..\\config\\NVCoop.ini"; }
     void FollowPlayerSettings(uint32_t now)
     {
         static uint32_t s_nextLook = 0;
@@ -1499,86 +1291,6 @@ namespace
             g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.desyncNotices);
     }
 
-    void UpdateChat()
-    {
-        static bool s_keyWas = false;
-        bool on = g_config.chat && g_coop.InGame() && g_worldLoaded;
-        if (!on && game::ChatTyping())
-            game::CancelChat();
-        bool key = on && !game::ChatTyping() && game::IsKeyPressed(g_config.chatKey);
-        if (s_keyWas && !key && on && !game::ChatTyping())
-            game::OpenChat();
-        s_keyWas = key;
-        std::vector<std::string> typed = game::UpdateChat();
-        for (std::string& t : g_labChat)
-            typed.push_back(std::move(t));
-        g_labChat.clear();
-        for (const std::string& text : typed)
-        {
-            std::string line = coop::CleanChat(text);
-            if (!on || line.empty())
-                continue;
-            LOG_INFO("Chat: we say \"%s\"", line.c_str());
-            coop::VoiceStyle style{static_cast<uint8_t>(g_config.voice), static_cast<uint8_t>(g_config.voiceVariant),
-                static_cast<int8_t>(g_config.voicePitch), static_cast<int8_t>(g_config.voiceSpeed),
-                static_cast<uint8_t>(g_config.voiceEffect)};
-            g_coop.SendChat(line, style);
-            if (g_config.chatSpeech)
-                g_speech.Say(line, g_coop.MyPlayerId(), style, g_config.chatSpeechVolume / 100.0f, 0);
-        }
-        for (const coop::Coop::ChatHeard& h : g_coop.TakeChat())
-        {
-            LOG_INFO("Chat: %s says \"%s\"", h.name.c_str(), h.text.c_str());
-            if (!g_config.chat)
-                continue;
-            TESObjectREFR* who = g_standIns.Character(h.player);
-            if (who && game::DistanceToPlayer(who) < 2500)
-                game::ShowChatAbove(h.player, who, h.text);
-            else
-                game::Notify((h.name + ": " + h.text).c_str(), 6);
-            coop::Pose me, them;
-            if (g_config.chatSpeech && who && game::GetPose(game::Player(), me) && game::GetPose(who, them) &&
-                me.space == them.space)
-            {
-                coop::SpeechMix mix = coop::MixSpeech(them.x - me.x, them.y - me.y, them.z - me.z, me.heading);
-                if (mix.volume > 0.02f)
-                    g_speech.Say(h.text, h.player, h.style, mix.volume * g_config.chatSpeechVolume / 100.0f, mix.pan);
-            }
-        }
-        game::UpdateChatAbove();
-        static std::map<uint8_t, uint32_t> s_downedSince;
-        static uint32_t s_lastMarks = 0;
-        uint32_t now = GetTickCount(), step = s_lastMarks ? now - s_lastMarks : 0;
-        s_lastMarks = now;
-        std::vector<game::FriendMark> friends;
-        for (const auto& [id, remote] : g_coop.InGame() ? g_coop.Remotes() : std::map<uint8_t, coop::RemotePlayer>())
-        {
-            bool dragged = g_coop.DraggedBy(id) >= 0;
-            if (!remote.Downed())
-                s_downedSince.erase(id);
-            else if (!s_downedSince.count(id))
-                s_downedSince[id] = now;
-            else if (dragged)
-                s_downedSince[id] += step;
-            TESObjectREFR* who = g_standIns.Character(id);
-            if (!who || g_cutscene || (!g_config.friendMarkers && !remote.Downed()))
-                continue;
-            if (!remote.Downed())
-            {
-                friends.push_back({who, g_coop.NameOf(id), false});
-                continue;
-            }
-            uint32_t gone = now - s_downedSince[id];
-            uint32_t left = gone < coop::kBleedOutMs ? (coop::kBleedOutMs - gone + 999) / 1000 : 0;
-            friends.push_back({who, g_coop.NameOf(id) + (dragged ? std::string("\nDOWNED, dragged") :
-                "\nDOWNED " + std::to_string(left) + "s"), true});
-        }
-        if (!g_coop.InGame())
-            s_downedSince.clear();
-        game::ShowFriendMarkers(friends);
-    }
-
-    bool g_labTalking = false;
     double QpcMs(const LARGE_INTEGER& from, const LARGE_INTEGER& to)
     {
         static LARGE_INTEGER s_freq = [] { LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f; }();
@@ -1695,48 +1407,7 @@ namespace
         }
     }
 
-    void UpdateVoice()
-    {
-        bool on = g_config.voiceChat && g_coop.InGame() && g_worldLoaded;
-        bool talk = on && !game::ChatTyping() &&
-            (g_config.voiceChatMode == 1 || g_labTalking || game::KeyDown(g_config.voiceChatKey));
-        static bool s_talking = false, s_warned = false;
-        if (talk != s_talking)
-        {
-            if (!game::VoiceRecording(talk) && talk && !s_warned)
-            {
-                s_warned = true;
-                LOG_WARN("Voice: Steam's voice isn't there; no voice chat");
-            }
-            s_talking = talk;
-            LOG_DEBUG("Voice: %s", talk ? "talking" : "stopped talking");
-        }
-        game::ShowTalking(talk && g_config.voiceChatMode == 0);
-        net::Bytes recorded;
-        for (int i = 0; i < 4 && game::TakeVoice(recorded); ++i)
-            g_coop.SendVoice(recorded);
-        std::vector<int16_t> samples;
-        for (const coop::Coop::VoiceHeard& v : g_coop.TakeVoice())
-            if (g_config.voiceChat && game::DecompressVoice(v.data, coop::kVoiceRate, samples))
-                g_voiceOut.Push(v.player, samples);
-        coop::Pose me;
-        bool here = game::GetPose(game::Player(), me);
-        for (const auto& [id, remote] : g_coop.Remotes())
-        {
-            coop::Pose them;
-            TESObjectREFR* who = g_standIns.Character(id);
-            coop::SpeechMix mix{0, 0};
-            if (here && who && game::GetPose(who, them) && them.space == me.space)
-                mix = coop::MixSpeech(them.x - me.x, them.y - me.y, them.z - me.z, me.heading);
-            g_voiceOut.SetMix(id, mix.volume * g_config.voiceChatVolume / 100.0f, mix.pan);
-            static std::map<uint8_t, bool> s_moving;
-            float opening = g_config.mouths ? coop::MouthOpening((std::max)(g_voiceOut.Level(id), g_speech.Level(id))) : 0;
-            bool& moving = s_moving[id];
-            if (who && (opening > 0 || moving))
-                game::SetMouth(who, opening);
-            moving = opening > 0;
-        }
-    }
+}
 
     constexpr int kModeQuestion = 11;
     bool g_modeAsked = false;
@@ -1918,147 +1589,8 @@ namespace
         s_wasIn = in;
     }
 
-    constexpr int kQuickStartQuestion = 9;
-    constexpr int kHardcoreQuestion = 10;
-    enum class QuickStart { Watching, Asked, HardcoreAsked, Leaving, Revising, Saving };
-    QuickStart g_quickStart = QuickStart::Watching;
-    bool QuickStartBusy() { return g_quickStart != QuickStart::Watching; }
-    uint32_t g_quickStartAt = 0;
-    uint32_t g_quickStartSpace = 0;
-    void UpdateQuickStart(uint32_t now)
-    {
-        if (!g_worldLoaded || g_loadingSave)
-            return;
-        static int s_popupsSet = -1;
-        if (s_popupsSet != static_cast<int>(g_config.skipDlcPopups))
-        {
-            s_popupsSet = g_config.skipDlcPopups;
-            game::SkipIntroPopups(g_config.skipDlcPopups, game::LoadOrder());
-        }
-        static uint32_t s_nextLook = 0;
-        switch (g_quickStart)
-        {
-        case QuickStart::Watching:
-        {
-            if (!coop::IsDue(now, s_nextLook))
-                return;
-            s_nextLook = now + 500;
-            int stage = game::QuestStage(game::ids::kTutorialQuest);
-            static bool s_asked = false;
-            if (stage >= 0 && stage < 10 && game::QuestStage(game::ids::kBennyIntroQuest) >= 0)
-                return;
-            if (stage < 0 || stage >= 10)
-            {
-                s_asked = false;
-                return;
-            }
-            if (s_asked || !game::InDocMitchellsHouse())
-                return;
-            s_asked = true;
-            if (int level = game::PlayerLevel(); level > 1)
-                return LOG_INFO("Quick start: not asked: in Doc Mitchell's house with the tutorial at stage %d, but at "
-                    "level %d (not a new game)", stage, level);
-            game::HoldTutorial(true);
-            AskSwitches();
-            game::AskChoice("Quick start: skip Doc Mitchell's house?\n\nYou'll be outside his door with the game's "
-                "\"finish your character\" menu (name, looks, S.P.E.C.I.A.L., tag skills, traits) and Doc's starting "
-                "gear. Co-op starts once you're outside.", {"Quick start", "Play the intro"}, kQuickStartQuestion);
-            g_quickStart = QuickStart::Asked;
-            LOG_INFO("Quick start: a new game (tutorial stage %d); asked", stage);
-            return;
-        }
-        case QuickStart::Asked:
-        {
-            int choice = game::TakeChoice(kQuickStartQuestion);
-            if (choice == -1)
-                return;
-            if (choice != 0)
-            {
-                game::HoldTutorial(false);
-                g_quickStart = QuickStart::Watching;
-                return LOG_INFO("Quick start: no, the intro is played");
-            }
-            if (!game::LeaveTutorial())
-            {
-                g_quickStart = QuickStart::Watching;
-                return LOG_ERROR("Quick start: the tutorial's forms aren't there; the intro is played");
-            }
-            g_hardcoreAsked = g_config.askHardcore;
-            if (g_hardcoreAsked)
-                game::AskChoice("Play in Hardcore mode?\n\nFood, water and sleep needs, healing over time, ammo has "
-                    "weight, companions can die. You can change it later in the game's settings.", {"No", "Hardcore"},
-                    kHardcoreQuestion);
-            g_quickStart = QuickStart::HardcoreAsked;
-            g_quickStartAt = now;
-            return LOG_INFO("Quick start: Doc's farewell done; asking about Hardcore");
-        }
-        case QuickStart::HardcoreAsked:
-        {
-            static int s_choice = -1;
-            if (s_choice == -1)
-                s_choice = g_hardcoreAsked ? game::TakeChoice(kHardcoreQuestion) : 2;
-            if (s_choice == -1 || now - g_quickStartAt < 4000)
-                return;
-            int choice = s_choice;
-            s_choice = -1;
-            if (choice != 2)
-                game::RunConsoleLine(choice == 1 ? "SetHardcore 1" : "SetHardcore 0");
-            coop::Pose inside;
-            g_quickStartSpace = game::GetPose(game::Player(), inside) ? inside.space : 0;
-            game::ActivateByPlayer(game::ids::kDocsDoor, false);
-            g_quickStart = QuickStart::Leaving;
-            g_quickStartAt = now;
-            return LOG_INFO("Quick start: Hardcore %s; out the door", choice == 2 ? "as the game has it" :
-                choice == 1 ? "on" : "off");
-        }
-        case QuickStart::Leaving:
-        {
-            coop::Pose me;
-            if (now - g_quickStartAt < 3000 || !game::GetPose(game::Player(), me) || me.space == g_quickStartSpace)
-            {
-                if (now - g_quickStartAt > 30000)
-                {
-                    g_quickStart = QuickStart::Watching;
-                    LOG_WARN("Quick start: still in Doc's house after 30 s; the rest is left to the player");
-                }
-                return;
-            }
-            static uint32_t s_outsideAt = 0;
-            if (!s_outsideAt)
-                s_outsideAt = now;
-            if (now - s_outsideAt < 1000)
-                return;
-            s_outsideAt = 0;
-            game::RemoveTutorialFades();
-            game::ActivateByPlayer(game::ids::kReviseActivator, true);
-            g_quickStart = QuickStart::Revising;
-            g_quickStartAt = now;
-            return LOG_INFO("Quick start: outside; the \"finish your character\" box");
-        }
-        case QuickStart::Revising:
-            if (now - g_quickStartAt < 2000 || game::QuestStage(game::ids::kReviseQuest) >= 0)
-                return;
-            game::GiveStarterGear();
-            g_quickStart = QuickStart::Saving;
-            g_quickStartAt = now;
-            return LOG_INFO("Quick start: character finished; Doc's starting gear given");
-        case QuickStart::Saving:
-        {
-            if (now - g_quickStartAt < 1500)
-                return;
-            g_quickStart = QuickStart::Watching;
-            std::string name;
-            for (const char* c = game::Name(game::Player()); *c && name.size() < 40; ++c)
-                if (std::isalnum(static_cast<unsigned char>(*c)) || *c == ' ' || *c == '-')
-                    name += *c;
-            std::string save = "Quick Start - " + (name.empty() ? std::string("Courier") : name);
-            game::RunConsoleLine(("save \"" + save + "\"").c_str());
-            return LOG_INFO("Quick start: saved as \"%s\"", save.c_str());
-        }
-        default:
-            return;
-        }
-    }
+namespace
+{
 
     void CrashAtExit()
     {
@@ -2301,6 +1833,39 @@ namespace
             return g_worldLoaded ? game::Evaluate(line.c_str() + 5) : "no world loaded";
         if (_strnicmp(line.c_str(), "note ", 5) == 0)
             return "noted";
+        if (_strnicmp(line.c_str(), "healhold ", 9) == 0 && g_worldLoaded)
+        {
+            char* end = nullptr;
+            unsigned long id = std::strtoul(line.c_str() + 9, &end, 10);
+            unsigned long ms = end && *end ? std::strtoul(end, nullptr, 10) : 2500;
+            coop::Pose at;
+            if (id > 255 || !g_coop.Remotes().count(static_cast<uint8_t>(id)) ||
+                !game::GetPose(g_standIns.Character(static_cast<uint8_t>(id)), at))
+                return "healhold <player id> [ms]: no such player's character here";
+            coop::Pose to = at;
+            to.x = at.x + 80 * std::sin(at.heading);
+            to.y = at.y + 80 * std::cos(at.heading);
+            to.heading = at.heading + 3.14159265f;
+            game::Move(game::Player(), to);
+            g_labHoldUntil = GetTickCount() + std::min<unsigned long>(ms, 10000);
+            return "holding";
+        }
+        if (_strnicmp(line.c_str(), "activate ", 9) == 0 && g_worldLoaded)
+        {
+            TESObjectREFR* on = game::LookupRef(std::strtoul(line.c_str() + 9, nullptr, 16));
+            return !on ? "activate <ref id, hex>: no such reference here" :
+                game::LabActivate(on) ? "activated" : "not activated";
+        }
+        if (_strnicmp(line.c_str(), "terminalpick ", 13) == 0 && g_worldLoaded)
+            return g_terminals.LabPick(std::atoi(line.c_str() + 13));
+        if (_strnicmp(line.c_str(), "evalon ", 7) == 0 && g_worldLoaded)
+        {
+            char* rest = nullptr;
+            TESObjectREFR* on = game::LookupRef(std::strtoul(line.c_str() + 7, &rest, 16));
+            if (!on || *rest != ' ')
+                return "evalon <ref id, hex> <expression>: no such reference here";
+            return game::Evaluate(rest + 1, on);
+        }
         if (_strnicmp(line.c_str(), "on ", 3) == 0 && g_worldLoaded)
         {
             char* rest = nullptr;
@@ -2397,9 +1962,12 @@ namespace
             s_escapeHooked = true;
             game::KeepWorldRunningInEscapeMenu();
             game::TakeOverLevelUpSkillPoints();
+            game::TakeOverLevelUpPerks();
             game::FixRemoveAllItemsTakeOff();
         }
         game::EscapeMenuLive(g_coop.InGame());
+        if (g_coop.InGame() && g_worldLoaded && !g_loadingSave)
+            game::KeepVatsFeel();
         if (g_config.borderless)
             display::Update();
         dev::EveryFrame();
@@ -2476,6 +2044,7 @@ namespace
 
     void EveryFrameWork()
     {
+        game::FaceToneFrame();
         if (g_loadWatch)
             WatchLoading();
         g_coop.Update();
@@ -2558,7 +2127,10 @@ namespace
                 if (attacker == game::Player())
                 {
                     if (g_coop.GetRole() == coop::Role::Host && game::IsActor(target) && !game::IsTeammate(target))
+                    {
                         g_threats.Hurt(hit.targetRef, coop::kHostPlayerId, hit.damage, now);
+                        g_killCredits.Hit(hit.targetRef, coop::kHostPlayerId, now);
+                    }
                     uint32_t hostRef = g_npcs.HostRefOf(hit.targetRef);
                     if (!hostRef)
                         continue;
@@ -2634,7 +2206,7 @@ namespace
             g_coop.SetMyGear(game::PlayerGear());
         }
         for (const game::SeenExplosion& e : game::TakeExplosions())
-            if (g_coop.InGame() && (g_coop.GetRole() == coop::Role::Host || e.ours))
+            if (g_coop.InGame() && coop::ShareExplosion(g_coop.GetRole() == coop::Role::Host, e.ours, e.objectsOwn))
                 g_coop.ShareExplosion({e.form, e.space, e.x, e.y, e.z});
         for (const net::ExplosionAt& e : g_coop.TakeExplosions())
             if (e.space == me.space && std::hypot(e.x - me.x, e.y - me.y) < MaxHitDistance() &&
@@ -2645,10 +2217,10 @@ namespace
                     e.y, e.z);
             }
         game::MyAttack mine = game::TakeMyAttacks();
-        if (mine.shots)
+        if (mine.shots || mine.reload)
         {
-            g_coop.Attack(mine.shots);
-            g_mirror.Attack(mine.shots);
+            g_coop.Attack(mine.shots, false, mine.reload);
+            g_mirror.Attack(mine.shots, false, mine.reload);
         }
         if (mine.release)
         {
@@ -2678,7 +2250,7 @@ namespace
         UpdateReinforcements(now);
         UpdateLootThinning(now);
         for (const coop::AttackReport& attack : g_coop.TakeAttacks())
-            g_standIns.Attack(attack.playerId, attack.shots, attack.release);
+            g_standIns.Attack(attack.playerId, attack.shots, attack.release, attack.reload);
         if (g_coop.InGame())
         {
             g_cutscene = (game::PlayerDisabledControls() & 1) && !g_downed && !g_waitForHostLoad;
@@ -2690,6 +2262,25 @@ namespace
             g_standIns.RemoveAll();
         }
         g_partClock.Done(kPartPlayers);
+        game::UpdateFarCells(now);
+        {
+            std::vector<coop::FriendCell> farFriends;
+            bool hosting = g_config.farCells && g_config.farAreas && g_coop.GetRole() == coop::Role::Host &&
+                g_coop.InGame();
+            if (hosting)
+                for (const auto& [id, remote] : g_coop.Remotes())
+                    if (coop::Pose p; remote.motion.Sample(now, p) && p.space == me.space)
+                        farFriends.push_back({id, static_cast<int>(std::floor(p.x / 4096.0f)),
+                            static_cast<int>(std::floor(p.y / 4096.0f))});
+            static uint32_t s_usedMb = 0, s_nextMemoryLook = 0;
+            if (hosting && !farFriends.empty() && coop::IsDue(now, s_nextMemoryLook))
+            {
+                AddressSpace a = GetAddressSpace();
+                s_usedMb = a.totalMb > a.freeMb ? a.totalMb - a.freeMb : 0;
+                s_nextMemoryLook = now + 2000;
+            }
+            game::UpdateFarArea(hosting, farFriends, s_usedMb, now);
+        }
         if (g_coop.GetRole() == coop::Role::Host)
             g_npcs.Share(g_coop, now, me, g_standIns);
         else if (g_coop.InGame())
@@ -2719,10 +2310,17 @@ namespace
         g_items.Update(g_coop, now);
         g_partClock.Done(kPartItems);
         g_quests.Update(g_coop, now);
+        g_objects.Update(g_coop, now);
         g_partClock.Done(kPartQuests);
         game::Dialogue::TalkLogSettings talkLog;
         talkLog.on = g_config.talkLog;
         talkLog.size = g_config.talkLogSize;
+        talkLog.place = g_config.talkLogPlace;
+        talkLog.x = g_config.talkLogX;
+        talkLog.y = g_config.talkLogY;
+        talkLog.width = g_config.talkLogWidth;
+        talkLog.alignRight = g_config.talkLogAlign == 1;
+        talkLog.preview = g_config.talkLogPreview;
         talkLog.lines = g_config.talkLogLines;
         talkLog.seconds = g_config.talkLogSeconds;
         talkLog.gap = g_config.talkLogGap;
@@ -2734,7 +2332,10 @@ namespace
         talkLog.green = static_cast<uint8_t>(g_config.talkLogGreen);
         talkLog.blue = static_cast<uint8_t>(g_config.talkLogBlue);
         g_dialogue.SetTalkLog(talkLog);
+        g_dialogue.SetLeaving(g_hasTravel);
         g_dialogue.Update(now);
+        g_terminals.Update(now);
+        g_activations.Update(now);
         g_partClock.Done(kPartDialogue);
         if (uint8_t player = 0; g_coop.GetRole() == coop::Role::Host)
         {
@@ -2776,10 +2377,25 @@ namespace
         game::ScreenFromHost(g_coop.GetRole() == coop::Role::Friend && g_coop.InGame());
         for (const net::PlayerCommand& c : game::TakePlayerCommands())
             g_coop.SharePlayerCommand(c);
-        for (const net::PlayerCommand& c : g_coop.TakePlayerCommands())
-            if (!game::ApplyPlayerCommand(c))
-                LOG_INFO("Scripted: couldn't do the host's command %u (%08X %08X) here", static_cast<unsigned>(c.kind),
-                    c.form, c.ref);
+        for (uint8_t joiner : g_coop.TakeWelcomed())
+        {
+            std::vector<net::PlayerCommand> catchUp = game::GearForJoiner();
+            for (const net::PlayerCommand& c : catchUp)
+                g_coop.SharePlayerCommandWith(joiner, c);
+            LOG_INFO("Gear: %s caught up on the gear lockers (%zu commands)", g_coop.NameOf(joiner).c_str(),
+                catchUp.size());
+        }
+        static uint32_t s_nextRewardLook = 0;
+        if (g_coop.InGame() && g_worldLoaded && !g_loadingSave && coop::IsDue(now, s_nextRewardLook))
+        {
+            s_nextRewardLook = now + 2000;
+            game::UpdateRewardBoxes(g_coop.GetRole() == coop::Role::Host);
+        }
+        if (g_worldLoaded && !g_loadingSave)
+            for (const net::PlayerCommand& c : g_coop.TakePlayerCommands())
+                if (!game::ApplyPlayerCommand(c))
+                    LOG_INFO("Scripted: couldn't do the host's command %u (%08X %08X) here",
+                        static_cast<unsigned>(c.kind), c.form, c.ref);
         g_partClock.Done(kPartScripted);
         if (g_coop.GetRole() == coop::Role::Friend)
             AskAboutCompanion(now);
@@ -2789,10 +2405,12 @@ namespace
         else if (g_coop.GetRole() == coop::Role::Host)
             ServeFriendSaves();
         g_progress.Update(g_coop, now);
+        UpdatePartyPerks(now);
         Teleporter(now);
         ShareFurnitureAnim(now);
         UpdateDowned(now, me, s_health, s_maxHealth, healthFresh);
         UpdateReviveBar(now);
+        game::HideTalkPromptOnFriends();
 
         if (coop::IsDue(now, g_nextMadeCheck))
         {
@@ -2810,198 +2428,6 @@ namespace
             }
         }
         g_partClock.Done(kPartSaves);
-    }
-
-    std::string g_savedForHost;
-
-    void FollowHostSaves(uint32_t now)
-    {
-        for (const net::SaveOrder& order : g_coop.TakeSaveOrders())
-        {
-            std::string name = coop::LinkedSaveName(g_coop.NameOf(0), order.name);
-            if (name.empty())
-                continue;
-            if (!order.load)
-            {
-                g_pendingLinkedSave = name;
-                if (!g_savedForHost.empty())
-                {
-                    g_ownSaves[coop::PlainName(g_coop.NameOf(0), "Host") + "\t" + g_savedForHost] = order.name;
-                    SaveOwnSaves();
-                }
-                g_savedForHost.clear();
-                continue;
-            }
-            g_pendingLinkedSave.clear();
-            g_reportLoad = true;
-            LOG_INFO("Saves: the host is loading \"%s\"; loading ours, \"%s\"", order.name.c_str(), name.c_str());
-            g_expectedLoad = name;
-            g_expectLoadUntil = now + 3000;
-            game::RunConsoleLine(("load \"" + name + "\"").c_str());
-        }
-        if (!g_expectedLoad.empty() && coop::IsDue(now, g_expectLoadUntil))
-        {
-            LOG_INFO("Saves: no \"%s\" here; keeping our character", g_expectedLoad.c_str());
-            game::Notify(("No save matching the host's here (" + g_expectedLoad + "): keeping your character").c_str());
-            g_expectedLoad.clear();
-            if (g_reportLoad)
-            {
-                g_reportLoad = false;
-                g_coop.LoadedHostSave();
-            }
-            if (g_waitForHostLoad)
-            {
-                g_waitForHostLoad = false;
-                game::SetPlayerControls(true);
-            }
-        }
-        if (g_coop.TakeLoadRefused())
-        {
-            game::Notify((g_coop.NameOf(0) + " said no to loading that save for everyone").c_str());
-            LOG_INFO("Saves: the host said no to loading our save for everyone");
-        }
-        if (!g_pendingLinkedSave.empty() && !g_loadingSave && g_worldLoaded)
-        {
-            LOG_INFO("Saves: the host saved; saving ours as \"%s\"", g_pendingLinkedSave.c_str());
-            g_checkingSave = g_pendingLinkedSave;
-            g_saveAskedAt = FileTimeNow();
-            g_nextSaveCheck = now + 1500;
-            g_saveGiveUpAt = now + 60000;
-            g_saveTries = 1;
-            game::RunConsoleLine(("save \"" + g_pendingLinkedSave + "\"").c_str());
-            g_pendingLinkedSave.clear();
-        }
-        else if (!g_checkingSave.empty() && !g_loadingSave && g_worldLoaded && coop::IsDue(now, g_nextSaveCheck))
-        {
-            if (SavedSince(g_checkingSave, g_saveAskedAt))
-            {
-                LOG_INFO("Saves: ours is saved (\"%s\"%s)", g_checkingSave.c_str(),
-                    g_saveTries > 1 ? (", try " + std::to_string(g_saveTries)).c_str() : "");
-                g_checkingSave.clear();
-            }
-            else if (coop::IsDue(now, g_saveGiveUpAt))
-            {
-                LOG_WARN("Saves: the game wouldn't save ours (\"%s\") in a minute of trying; loading the host's "
-                    "save will keep our character as it is", g_checkingSave.c_str());
-                game::Notify("Co-op: couldn't save your game to match the host's save");
-                g_checkingSave.clear();
-            }
-            else if (game::InMenuMode())
-            {
-                g_saveGiveUpAt = now + 60000;
-                g_nextSaveCheck = now + 1000;
-            }
-            else
-            {
-                if (g_saveTries == 1)
-                    LOG_INFO("Saves: the game didn't save ours yet (enemies near?); trying again every 3 s");
-                ++g_saveTries;
-                g_nextSaveCheck = now + 3000;
-                game::RunConsoleLine(("save \"" + g_checkingSave + "\"").c_str());
-            }
-        }
-    }
-
-    constexpr int kLoadQuestion = 2;
-    struct { uint8_t playerId = 0; std::string save; bool open = false; } g_loadAsk;
-
-    void ServeFriendSaves()
-    {
-        if (g_loadingSave || !g_worldLoaded)
-            return;
-        for (const coop::Coop::SaveAsk& ask : g_coop.TakeSaveAsks())
-        {
-            std::string who = g_coop.NameOf(ask.playerId);
-            if (!ask.load)
-            {
-                SYSTEMTIME t;
-                GetLocalTime(&t);
-                char when[32];
-                std::snprintf(when, sizeof(when), "%04u-%02u-%02u %02u-%02u-%02u", t.wYear, t.wMonth, t.wDay, t.wHour,
-                    t.wMinute, t.wSecond);
-                std::string name = coop::SaveForFriend(who, when);
-                if (name.empty())
-                    continue;
-                LOG_INFO("Saves: %s saved; saving for everyone as \"%s\"", who.c_str(), name.c_str());
-                game::RunConsoleLine(("save \"" + name + "\"").c_str());
-                game::Notify(("Saved for everyone (" + who + " saved)").c_str());
-                continue;
-            }
-            g_loadAsk.playerId = ask.playerId;
-            g_loadAsk.save = ask.name;
-            g_loadAsk.open = game::AskYesNo(who + " loaded \"" + ask.name + "\". Load it for everyone?", kLoadQuestion);
-            if (!g_loadAsk.open)
-                g_coop.RefuseLoad(ask.playerId);
-        }
-        int answer = g_loadAsk.open ? game::TakeAnswer(kLoadQuestion) : -1;
-        if (answer < 0)
-            return;
-        g_loadAsk.open = false;
-        LOG_INFO("Saves: %s loading \"%s\" for everyone", answer == 1 ? "yes to" : "no to", g_loadAsk.save.c_str());
-        if (answer == 1)
-            game::RunConsoleLine(("load \"" + g_loadAsk.save + "\"").c_str());
-        else
-            g_coop.RefuseLoad(g_loadAsk.playerId);
-    }
-
-    std::string OwnSavesFile() { return PluginFolder() + "NVCoopLinkedSaves.txt"; }
-
-    void LoadOwnSaves()
-    {
-        g_ownSaves.clear();
-        FILE* f = nullptr;
-        if (fopen_s(&f, OwnSavesFile().c_str(), "r") != 0 || !f)
-            return;
-        char line[512];
-        while (std::fgets(line, sizeof(line), f) && g_ownSaves.size() < 1000)
-        {
-            std::string text(line);
-            while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
-                text.pop_back();
-            size_t a = text.find('\t'), b = a == std::string::npos ? a : text.find('\t', a + 1);
-            if (b == std::string::npos)
-                continue;
-            std::string host = text.substr(0, a), own = text.substr(a + 1, b - a - 1), theirs = text.substr(b + 1);
-            if (coop::PlainName(host, "") == host && !host.empty() && coop::SaveNameOf(own) == own && !own.empty() &&
-                coop::SaveNameOf(theirs) == theirs && !theirs.empty())
-                g_ownSaves[host + "\t" + own] = theirs;
-        }
-        std::fclose(f);
-        LOG_INFO("Saves: %zu of our saves are linked to hosts' saves", g_ownSaves.size());
-    }
-
-    void SaveOwnSaves()
-    {
-        FILE* f = nullptr;
-        if (fopen_s(&f, OwnSavesFile().c_str(), "w") != 0 || !f)
-        {
-            LOG_WARN("Saves: couldn't write %s", OwnSavesFile().c_str());
-            return;
-        }
-        for (const auto& [key, theirs] : g_ownSaves)
-            std::fprintf(f, "%s\t%s\n", key.c_str(), theirs.c_str());
-        std::fclose(f);
-    }
-
-    bool MayLoad(const std::string& save)
-    {
-        if (g_coop.GetRole() != coop::Role::Friend || !g_coop.InGame() || save == g_expectedLoad)
-            return true;
-        std::string hostSave = coop::HostSaveOf(g_coop.NameOf(0), save);
-        auto own = g_ownSaves.find(coop::PlainName(g_coop.NameOf(0), "Host") + "\t" + save);
-        if (hostSave.empty() && own != g_ownSaves.end())
-            hostSave = own->second;
-        if (hostSave.empty())
-        {
-            LOG_INFO("Saves: not loading \"%s\": it isn't linked to the host's game", save.c_str());
-            game::Notify(("That save isn't linked to " + g_coop.NameOf(0) + "'s game. Leave co-op to load it.").c_str());
-            return false;
-        }
-        LOG_INFO("Saves: not loading \"%s\" ourselves; asking the host to load \"%s\" for everyone", save.c_str(),
-            hostSave.c_str());
-        g_coop.AskHostToLoad(hostSave);
-        game::Notify(("Asking " + g_coop.NameOf(0) + " to load this save for everyone...").c_str());
-        return false;
     }
 
     std::string MessageText(const NVSEMessagingInterface::Message* msg)
@@ -3042,6 +2468,13 @@ namespace
             if (g_config.mode != Config::Mode::Off && !game::AddCoopToMainMenu(&HostClicked, &JoinClicked))
                 LOG_WARN("Main menu: couldn't add Host Co-op and Join Co-op (another plugin changed it?)");
             g_dialogue.Install(g_coop, g_npcs, g_progress);
+            g_terminals.Install(g_coop, g_progress);
+            game::InstallFarCellGuard();
+            if (game::InstallAllyDetectionSkip())
+                LOG_INFO("Sneak: other players' characters don't count as seeing you (hooked the sneak meter's teammate check)");
+            else
+                LOG_WARN("Sneak: the sneak meter's teammate check isn't as expected; other players may show you as detected");
+            g_activations.Install(g_coop, g_progress);
             g_sleepWait.Install(g_coop);
             LoadOwnSaves();
             if (!game::InstallLoadCheck(&MayLoad))
@@ -3052,6 +2485,10 @@ namespace
             if (!game::WatchPlayerCommands())
                 LOG_WARN("Scripted: couldn't watch script commands; friends won't follow scripted sequences");
             game::ListenForEnables();
+            if (!game::WatchActivations())
+                LOG_WARN("Activations: couldn't watch them; friends' uses of activators stay in their own game");
+            if (!game::WatchObjectCommands())
+                LOG_WARN("Objects: couldn't watch PlayGroup and SetDestroyed; friends won't see objects scripts change");
             CheckCrashReporter();
             break;
         }
@@ -3085,6 +2522,7 @@ namespace
             g_loadingSave = msg->type == NVSEMessagingInterface::kMessage_PreLoadGame;
             g_worldLoaded = false;
             game::ForgetHolds();
+            game::LetGoOfFarCells();
             g_gameOver = false;
             g_standIns.Forget();
             g_npcs.Forget();
@@ -3092,6 +2530,7 @@ namespace
             g_mines.Forget();
             g_progress.Forget();
             g_quests.Forget();
+            g_objects.Forget();
             g_coop.ForgetMyPlace();
             g_hasTravel = false;
             g_inspector.Forget();
@@ -3174,6 +2613,8 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
     InstallCrashReporter();
     g_config = Config::Load(PluginFolder() + "NVCoop.ini");
     g_config.LoadPlayer(PlayerSettingsPath());
+    if (g_config.fakeLag.On())
+        g_coop.GetSession().SetFakeLag(g_config.fakeLag);
     g_ourMode = coop::ModeFromSwitches(g_config.coopBalanced, g_config.friendlyFire);
     LOG_INFO("Mode: %s (the MCM page's settings)", coop::Describe(g_ourMode).c_str());
     for (const std::string& patch : g_config.patches)

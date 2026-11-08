@@ -3,6 +3,7 @@
 #pragma once
 
 #include "coop/coop.h"
+#include "coop/face_tone.h"
 #include "game/puppet.h"
 
 #include <cstdint>
@@ -22,7 +23,7 @@ namespace game
         void Forget();
         std::vector<uint32_t> RefIds() const;
         TESObjectREFR* Character(uint8_t playerId) const;
-        void Attack(uint8_t playerId, uint8_t shots, bool release = false);
+        void Attack(uint8_t playerId, uint8_t shots, bool release = false, bool reload = false);
         bool IsStandIn(const TESObjectREFR* ref) const { return PlayerIdOf(ref) >= 0; }
         int PlayerIdOf(const TESObjectREFR* ref) const;
 
@@ -49,6 +50,7 @@ namespace game
             uint32_t nextBringAt = 0;
             uint32_t looksSeen = 0;
             uint32_t nextLooksAt = 0;
+            coop::FaceTone face;
         };
         bool Spawn(const coop::RemotePlayer& remote, Entry& e, uint32_t now, const net::PlayerLooks* looks);
         static TESObjectREFR* Live(const Entry& e);

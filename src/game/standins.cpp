@@ -2,6 +2,7 @@
 
 #include "game/standins.h"
 
+#include "game/far_cells.h"
 #include "game/game.h"
 #include "coop/clock.h"
 #include "log.h"
@@ -56,7 +57,8 @@ namespace game
             coop::Pose pose;
             bool known = remote.motion.Sample(now, pose);
             float apart = known ? std::hypot(pose.x - myPose.x, pose.y - myPose.y) : 0;
-            bool tooFar = known && pose.space == myPose.space && apart > LoadedReach() - kShowInside;
+            bool tooFar = known && pose.space == myPose.space && apart > LoadedReach() - kShowInside &&
+                !InFarCell(pose.x, pose.y);
             if (tooFar != m_tooFar[id])
             {
                 m_tooFar[id] = tooFar;
@@ -113,8 +115,22 @@ namespace game
                 {
                     e.looksSeen = coop.LooksChanges();
                     e.nextLooksAt = now + 2000;
-                    if (!ApplyLooks(e.ref, looks->second))
+                    bool remade = false;
+                    if (!ApplyLooks(e.ref, looks->second, &remade))
                         LOG_WARN("Looks: couldn't make %s's character look like them", remote.name.c_str());
+                    else if (remade)
+                        e.face.Made(reinterpret_cast<uintptr_t>(FaceNode(e.ref)), now);
+                }
+            }
+            if (e.face.TimeToLook(now))
+            {
+                auto head = reinterpret_cast<uintptr_t>(FaceNode(e.ref));
+                if (e.face.Check(head, looks != coop.Looks().end() && e.looksSeen == coop.LooksChanges(), now) &&
+                    RemakeFace(e.ref))
+                {
+                    e.face.Made(head, now);
+                    LOG_INFO("Looks: %s's character's face given its skin tone (the game made its head again: %08X)",
+                        remote.name.c_str(), static_cast<uint32_t>(head));
                 }
             }
 
@@ -301,11 +317,11 @@ namespace game
         return e.ref && LookupRef(e.refId) == e.ref ? e.ref : nullptr;
     }
 
-    void StandIns::Attack(uint8_t playerId, uint8_t shots, bool release)
+    void StandIns::Attack(uint8_t playerId, uint8_t shots, bool release, bool reload)
     {
         auto it = m_entries.find(playerId);
         if (it != m_entries.end() && Live(it->second) && !it->second.loading && !it->second.downed)
-            it->second.puppet.Attack(it->second.ref, shots, release);
+            it->second.puppet.Attack(it->second.ref, shots, release, reload);
     }
 
     TESObjectREFR* StandIns::Character(uint8_t playerId) const

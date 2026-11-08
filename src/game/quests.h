@@ -32,7 +32,6 @@ namespace game
         std::map<uint32_t, bool> m_switched;
         uint32_t m_nextSwitchedResend = 0;
         uint32_t m_enablesSent = 0, m_enablesSet = 0;
-        std::vector<std::pair<uint32_t, void*>> m_detached;
         bool m_detachedAll = false;
         uint32_t m_quietUntil = 0;
         double m_lookMs = 0;

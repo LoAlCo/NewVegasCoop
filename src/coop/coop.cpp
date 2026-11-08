@@ -82,77 +82,10 @@ namespace coop
         m_net->Stop();
         m_net = &m_enet;
         m_other.reset();
-        m_role = Role::None;
-        m_players.clear();
-        m_remotes.clear();
-        m_hasPose = false;
+        m_modServer.Clear();
+        static_cast<SessionState&>(*this) = SessionState{};
         m_gearToSend = !m_myGear.empty();
-        m_friendState = FriendState::Disconnected;
-        m_hostMods.clear();
-        m_hostModsDone = m_modsDiffer = m_downloading = false;
-        m_explosions.clear();
-        m_downedSince.clear();
-        m_drags.clear();
-        m_dragSince.clear();
-        m_attacks.clear();
-        m_gameOverSent = m_revived = m_gameOver = false;
-        m_hostSaysFighting = false;
-        m_hasPlace = m_expecting = m_hasTravel = m_hasGroupPlace = m_regroup = false;
-        m_myNpcs.clear();
-        m_sentNpcs.clear();
-        m_npcShots.clear();
-        m_npcGear.clear();
-        m_npcAttacks.clear();
-        m_npcs.clear();
-        m_myDoors.clear();
-        m_sentDoors.clear();
-        m_doorUses.clear();
-        m_friendDoors.Clear();
-        m_views.clear();
-        m_itemChanges.clear();
-        m_friendContainer.Reset();
-        m_refunds.clear();
-        m_myItems.clear();
-        m_sentItems.clear();
-        m_itemTakes.clear();
-        m_itemDrops.clear();
-        m_itemMoves.clear();
-        m_lastMoveSent.clear();
-        m_desyncs.Clear();
-        m_desyncsSent = {};
-        m_myCompanions.clear();
-        m_companionsChanged = false;
-        m_companionOrders.clear();
-        m_companions.clear();
-        m_playerCommands.clear();
-        m_chat.clear();
-        m_voice.clear();
-        m_radioLines.clear();
-        m_radioStartedAt.clear();
-        m_desyncNotices.clear();
-        m_friendItems.Clear();
-        m_questStates.clear();
-        m_refEnables.clear();
-        m_progress.clear();
-        m_reputations.clear();
-        m_travelMarkers.clear();
-        m_teleports.clear();
-        m_anims.clear();
-        m_modAnims.clear();
-        m_looks.clear();
         ++m_looksChanges;
-        m_repGains.clear();
-        m_talk.Clear();
-        m_wait = WaitVote{};
-        m_waitEvents.clear();
-        m_saveOrders.clear();
-        m_saveAsks.clear();
-        m_loads = LoadGate{};
-        m_frozen = false;
-        m_loadRefused = false;
-        m_hasGameTime = m_hostTimeNew = false;
-        m_dialogueLines.clear();
-        m_subtitles.clear();
     }
 
     void Coop::ForgetMyPlace()
@@ -281,6 +214,14 @@ namespace coop
             else
                 m_net->Send(1, Encode(PlayerModAnims{m_myId, m_myModAnims}));
         }
+        if (InGame() && !m_myPartyPerksSent)
+        {
+            m_myPartyPerksSent = true;
+            if (m_role == Role::Host)
+                SendToJoined(Encode(net::PartyPerks{kHostPlayerId, m_myPartyPerks}), true);
+            else
+                m_net->Send(1, Encode(net::PartyPerks{m_myId, m_myPartyPerks}));
+        }
         if (InGame() && !m_myAnimSent)
         {
             m_myAnimSent = true;
@@ -346,6 +287,27 @@ namespace coop
             return;
         m_myAnim = path;
         m_myAnimSent = false;
+    }
+
+    void Coop::SetMyPartyPerks(uint8_t perks)
+    {
+        perks &= kPartyPerksAll;
+        if (perks == m_myPartyPerks)
+            return;
+        m_myPartyPerks = perks;
+        m_myPartyPerksSent = false;
+    }
+
+    void Coop::HeardPartyPerks(uint8_t player, uint8_t perks)
+    {
+        auto it = m_partyPerks.find(player);
+        if (perks == 0)
+        {
+            if (it != m_partyPerks.end())
+                m_partyPerks.erase(it);
+        }
+        else if (it != m_partyPerks.end() || m_partyPerks.size() < 8)
+            m_partyPerks[player] = perks;
     }
 
     void Coop::HeardAnim(uint8_t player, const std::string& path)
@@ -704,6 +666,17 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::PartyPerks)
+        {
+            net::PartyPerks m;
+            if (!player.joined || !Decode(r, m))
+                return;
+            m.player = player.id;
+            HeardPartyPerks(m.player, m.perks);
+            SendToJoined(Encode(m), true, peer);
+            return;
+        }
+
         if (type == MsgType::PlayerAnim)
         {
             net::PlayerAnim m;
@@ -870,6 +843,56 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::ActivatorUse)
+        {
+            ActivatorUse m;
+            if (!Decode(r, m))
+                return;
+            m.player = player.id;
+            if (m_activatorUses.size() >= kMaxQueuedActivatorUses)
+                return LOG_WARN("Too many activator uses from %s at once; dropped one", player.name.c_str());
+            m_activatorUses.push_back(m);
+            return;
+        }
+
+        if (type == MsgType::QuestCommand)
+        {
+            QuestCommand m;
+            if (!Decode(r, m))
+                return;
+            if (m_questCommands.size() >= kMaxQueuedQuestCommands)
+                return LOG_WARN("Too many quest commands from %s at once; dropped one", player.name.c_str());
+            m_questCommands.push_back({player.id, m});
+            return;
+        }
+
+        if (type == MsgType::TerminalUse)
+        {
+            TerminalUse m;
+            if (!Decode(r, m))
+                return;
+            m.player = player.id;
+            if (m_terminalUses.size() >= kMaxQueuedTerminalUses)
+                return LOG_WARN("Too many terminal entries from %s at once; dropped one", player.name.c_str());
+            m_terminalUses.push_back(m);
+            return;
+        }
+
+        if (type == MsgType::ObjectLows)
+        {
+            std::vector<ObjectLow> m;
+            if (!Decode(r, m))
+                return;
+            for (const ObjectLow& l : m)
+            {
+                if (m_objectLows.size() >= kMaxQueuedObjectLows)
+                    return LOG_WARN("Too many object reports from %s at once; dropped some (sent again if still lower)",
+                        player.name.c_str());
+                m_objectLows.push_back({player.id, l});
+            }
+            return;
+        }
+
         if (type == MsgType::DoorUse)
         {
             DoorState door;
@@ -928,6 +951,14 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::HealAlly)
+        {
+            net::HealAlly m;
+            if (Decode(r, m) && m.giver == player.id)
+                HostHeal(m);
+            return;
+        }
+
         if (type == MsgType::Attack)
         {
             net::Attack m;
@@ -935,7 +966,7 @@ namespace coop
                 return;
             m.playerId = player.id;
             SendToJoined(Encode(m), true, peer);
-            QueueAttack(player.id, m.shots, m.release);
+            QueueAttack(player.id, m.shots, m.release, m.reload);
             return;
         }
 
@@ -992,6 +1023,7 @@ namespace coop
             m_hostXpWaiting = true;
             m_myLooksSent = false;
             m_myAnimSent = m_myAnim.empty();
+            m_myPartyPerksSent = m_myPartyPerks == 0;
             m_myModAnimsSent = m_myModAnims.empty();
             m_questMods = welcome.questMods;
             m_mode = welcome.mode;
@@ -1079,7 +1111,9 @@ namespace coop
                 return;
             LOG_INFO("%s left", it->second.name.c_str());
             m_looks.erase(it->first);
+            m_healSeen.erase(it->first);
             HeardAnim(it->first, "");
+            HeardPartyPerks(it->first, 0);
             HeardModAnims(it->first, {});
             m_remotes.erase(it);
         }
@@ -1194,6 +1228,33 @@ namespace coop
                 return LOG_WARN("Too many switched-on/off things waiting; dropped some (the host sends them again)");
             m_refEnables.insert(m_refEnables.end(), m.begin(), m.end());
         }
+        else if (type == MsgType::ActivatorUse)
+        {
+            ActivatorUse m;
+            if (!Decode(r, m))
+                return;
+            if (m_activatorUses.size() >= kMaxQueuedActivatorUses)
+                return LOG_WARN("Too many activator uses waiting; dropped one");
+            m_activatorUses.push_back(m);
+        }
+        else if (type == MsgType::TerminalUse)
+        {
+            TerminalUse m;
+            if (!Decode(r, m))
+                return;
+            if (m_terminalUses.size() >= kMaxQueuedTerminalUses)
+                return LOG_WARN("Too many terminal entries waiting; dropped one");
+            m_terminalUses.push_back(m);
+        }
+        else if (type == MsgType::ObjectStates)
+        {
+            std::vector<ObjectState> m;
+            if (!Decode(r, m))
+                return;
+            if (m_objectStates.size() + m.size() > kMaxQueuedQuests)
+                return LOG_WARN("Too many object changes waiting; dropped some (the host sends them again)");
+            m_objectStates.insert(m_objectStates.end(), m.begin(), m.end());
+        }
         else if (type == MsgType::QuestStates)
         {
             QuestStates m;
@@ -1295,7 +1356,7 @@ namespace coop
         {
             net::Attack m;
             if (Decode(r, m) && m.playerId != m_myId && m_remotes.count(m.playerId))
-                QueueAttack(m.playerId, m.shots, m.release);
+                QueueAttack(m.playerId, m.shots, m.release, m.reload);
         }
         else if (type == MsgType::VoiceData)
         {
@@ -1308,6 +1369,12 @@ namespace coop
             net::PlayerAnim m;
             if (Decode(r, m) && m.player != m_myId)
                 HeardAnim(m.player, m.path);
+        }
+        else if (type == MsgType::PartyPerks)
+        {
+            net::PartyPerks m;
+            if (Decode(r, m) && m.player != m_myId)
+                HeardPartyPerks(m.player, m.perks);
         }
         else if (type == MsgType::PlayerModAnims)
         {
@@ -1381,6 +1448,20 @@ namespace coop
             m_revived = true;
             LOG_INFO("We were revived");
         }
+        else if (type == MsgType::HealAlly)
+        {
+            net::HealAlly m;
+            if (Decode(r, m) && m.target == m_myId && IsPlayer(m.giver))
+                HealArrived(m);
+        }
+        else if (type == MsgType::HealRefused)
+        {
+            net::HealRefused m;
+            if (!Decode(r, m) || !IsHealItem(m.item) || m_healRefunds.size() >= 16)
+                return;
+            LOG_INFO("Our heal %u was refused: the item comes back", m.seq);
+            m_healRefunds.push_back(m.item);
+        }
         else if (type == MsgType::Drag)
         {
             net::Drag m;
@@ -1450,12 +1531,13 @@ namespace coop
             m_net->Send(1, Encode(Hit{m_myId, targetRef, damage}), true);
     }
 
-    void Coop::Attack(uint8_t shots, bool release)
+    void Coop::Attack(uint8_t shots, bool release, bool reload)
     {
-        if (!InGame() || (shots == 0 && !release))
+        reload = reload && !release;
+        if (!InGame() || (shots == 0 && !release && !reload))
             return;
         Bytes msg = Encode(net::Attack{m_myId, release ? uint8_t(0) : shots < net::kMaxShots ? shots : net::kMaxShots,
-            release});
+            release, reload});
         if (m_role == Role::Host)
             SendToJoined(msg, true);
         else
@@ -1602,6 +1684,19 @@ namespace coop
         SendToJoined(data, true);
     }
 
+    void Coop::SharePlayerCommandWith(uint8_t playerId, const net::PlayerCommand& c)
+    {
+        if (m_role != Role::Host)
+            return;
+        net::PeerId peer = PeerOfPlayer(playerId);
+        if (!peer)
+            return;
+        Bytes data = Encode(c);
+        ++m_playerCommandsSent;
+        m_playerCommandBytesSent += static_cast<uint32_t>(data.size());
+        m_net->Send(peer, data, true);
+    }
+
     void Coop::ShareExplosion(const net::ExplosionAt& e)
     {
         if (!InGame())
@@ -1612,11 +1707,11 @@ namespace coop
             m_net->Send(1, Encode(e), true);
     }
 
-    void Coop::QueueAttack(uint8_t playerId, uint8_t shots, bool release)
+    void Coop::QueueAttack(uint8_t playerId, uint8_t shots, bool release, bool reload)
     {
         if (m_attacks.size() >= kMaxQueuedAttacks)
             return LOG_WARN("Too many attacks at once, dropped one from player %u", playerId);
-        m_attacks.push_back({playerId, shots, release});
+        m_attacks.push_back({playerId, shots, release, reload});
     }
 
     void Coop::SetMyHealth(float health, float maxHealth)
@@ -1764,6 +1859,103 @@ namespace coop
         for (auto& [peer, p] : m_players)
             if (p.joined && p.id == target)
                 m_net->Send(peer, Encode(net::Revive{target}), true);
+    }
+
+    void Coop::GiveHeal(uint8_t target, uint32_t item, uint8_t medicine, bool fastMetabolism)
+    {
+        net::HealAlly m{m_myId, target, item, medicine > net::kMaxSkill ? net::kMaxSkill : medicine, fastMetabolism,
+            ++m_healSeq};
+        LOG_INFO("Giving %s a heal (%08X, Medicine %u%s, number %u)", NameOf(target).c_str(), item, m.medicine,
+            fastMetabolism ? ", Fast Metabolism" : "", m.seq);
+        if (m_role == Role::Host)
+            HostHeal(m);
+        else if (InGame())
+            m_net->Send(1, Encode(m), true);
+        else
+            m_healRefunds.push_back(item);
+    }
+
+    bool Coop::TakeHeal(net::HealAlly& out)
+    {
+        if (m_heals.empty())
+            return false;
+        out = m_heals.front();
+        m_heals.erase(m_heals.begin());
+        return true;
+    }
+
+    bool Coop::TakeHealRefund(uint32_t& item)
+    {
+        if (m_healRefunds.empty())
+            return false;
+        item = m_healRefunds.front();
+        m_healRefunds.erase(m_healRefunds.begin());
+        return true;
+    }
+
+    void Coop::HealArrived(const net::HealAlly& m)
+    {
+        auto seen = m_healSeen.find(m.giver);
+        if (!IsHealItem(m.item) || (seen != m_healSeen.end() && static_cast<int16_t>(m.seq - seen->second) <= 0) ||
+            m_heals.size() >= 16)
+        {
+            LOG_INFO("Ignored heal %u from %s (item %08X)", m.seq, NameOf(m.giver).c_str(), m.item);
+            return;
+        }
+        m_healSeen[m.giver] = m.seq;
+        LOG_INFO("%s healed us (item %08X, Medicine %u%s, number %u)", NameOf(m.giver).c_str(), m.item, m.medicine,
+            m.fastMetabolism ? ", Fast Metabolism" : "", m.seq);
+        m_heals.push_back(m);
+    }
+
+    void Coop::Refund(uint8_t giver, const net::HealAlly& m)
+    {
+        if (giver == m_myId)
+        {
+            m_healRefunds.push_back(m.item);
+            return;
+        }
+        for (auto& [peer, p] : m_players)
+            if (p.joined && p.id == giver)
+                m_net->Send(peer, Encode(net::HealRefused{m.seq, m.item}), true);
+    }
+
+    void Coop::HostHeal(const net::HealAlly& m)
+    {
+        auto checked = m_healChecked.find(m.giver);
+        if (checked != m_healChecked.end() && static_cast<int16_t>(m.seq - checked->second) <= 0)
+        {
+            LOG_INFO("Ignored a repeated heal %u from %s", m.seq, NameOf(m.giver).c_str());
+            return;
+        }
+        m_healChecked[m.giver] = m.seq;
+        uint32_t now = GetTickCount();
+        float th = 0, tmax = 0, gh = 0, gmax = 0;
+        Pose tp, gp;
+        auto last = m_lastHealAt.find(m.giver);
+        bool soon = last != m_lastHealAt.end() && now - last->second < kHealGapMs;
+        bool ok = m.giver != m.target && IsHealItem(m.item) && m.medicine <= net::kMaxSkill && !soon &&
+            HealthOf(m.target, th, tmax) && HealthOf(m.giver, gh, gmax) && !IsDowned(th, tmax) &&
+            !IsDowned(gh, gmax) && th < tmax && PoseOf(m.target, tp) && PoseOf(m.giver, gp) && tp.space == gp.space;
+        float dx = tp.x - gp.x, dy = tp.y - gp.y, dz = tp.z - gp.z;
+        if (!ok || dx * dx + dy * dy + dz * dz > kReviveDistance * kReviveDistance)
+        {
+            LOG_INFO("Refused heal %u of player %u by %s (item %08X, target up %d, giver up %d, same place %d, "
+                "%.0f apart, too soon %d, health %.0f / %.0f)", m.seq, m.target, NameOf(m.giver).c_str(), m.item, !IsDowned(th, tmax),
+                !IsDowned(gh, gmax), tp.space == gp.space, std::sqrt(dx * dx + dy * dy + dz * dz), soon, th, tmax);
+            Refund(m.giver, m);
+            return;
+        }
+        m_lastHealAt[m.giver] = now;
+        LOG_INFO("%s heals %s (number %u)", NameOf(m.giver).c_str(), NameOf(m.target).c_str(), m.seq);
+        if (m.target == m_myId)
+        {
+            HealArrived(m);
+            return;
+        }
+        for (auto& [peer, p] : m_players)
+            if (p.joined && p.id == m.target)
+                m_net->Send(peer, Encode(m), true);
     }
 
     void Coop::Drag(uint8_t target, bool on)
@@ -1975,6 +2167,8 @@ namespace coop
         player.joined = true;
 
         ++m_joins;
+        if (m_welcomed.size() < 16)
+            m_welcomed.push_back(player.id);
         m_net->Send(peer, Encode(Welcome{player.id, m_myName, m_questMods, m_mode, m_myXp}));
         LOG_INFO("%s joined as player %u", player.name.c_str(), player.id);
 
@@ -1994,6 +2188,10 @@ namespace coop
             m_net->Send(peer, Encode(looks));
         if (!m_myAnim.empty())
             m_net->Send(peer, Encode(PlayerAnim{kHostPlayerId, m_myAnim}));
+        if (m_myPartyPerks)
+            m_net->Send(peer, Encode(net::PartyPerks{kHostPlayerId, m_myPartyPerks}));
+        for (const auto& [id, perks] : m_partyPerks)
+            m_net->Send(peer, Encode(net::PartyPerks{id, perks}));
         if (!m_myModAnims.empty())
             m_net->Send(peer, Encode(PlayerModAnims{kHostPlayerId, m_myModAnims}));
         for (const auto& [id, paths] : m_modAnims)
@@ -2183,7 +2381,11 @@ namespace coop
         {
             m_remotes.erase(id);
             m_looks.erase(id);
+            m_healChecked.erase(id);
+            m_lastHealAt.erase(id);
+            m_healSeen.erase(id);
             HeardAnim(id, "");
+            HeardPartyPerks(id, 0);
             HeardModAnims(id, {});
             m_views.erase(id);
             if (m_talk.Busy() && m_talk.Talker() == id)
@@ -2395,7 +2597,7 @@ namespace coop
                 bool moved = std::fabs(n.x - b.x) > 1 || std::fabs(n.y - b.y) > 1 || std::fabs(n.z - b.z) > 1 ||
                     std::fabs(n.heading - b.heading) > 0.01f || n.flags != b.flags || n.moves != b.moves ||
                     n.health != b.health || n.maxHealth != b.maxHealth || n.idle != b.idle || n.weapon != b.weapon ||
-                    n.base != b.base;
+                    n.base != b.base || n.rolled != b.rolled;
                 if (!moved && now - it->second.at < kIdlePoseIntervalMs)
                     continue;
             }
@@ -2518,6 +2720,7 @@ namespace coop
                 npc.idle = n.idle;
                 npc.weapon = n.weapon;
                 npc.base = n.base;
+                npc.rolled = n.rolled;
             }
         }
     }
@@ -2650,6 +2853,21 @@ namespace coop
             return {};
         std::vector<ContainerChange> changes;
         std::vector<ItemCount> fixes = m_friendContainer.Look(local, changes);
+        SendContainerChanges(changes);
+        return fixes;
+    }
+
+    void Coop::ClosedContainer(const std::vector<ItemCount>& local)
+    {
+        if (m_role != Role::Friend || !InGame())
+            return;
+        std::vector<ContainerChange> changes;
+        m_friendContainer.Closing(local, changes);
+        SendContainerChanges(changes);
+    }
+
+    void Coop::SendContainerChanges(const std::vector<ContainerChange>& changes)
+    {
         for (const ContainerChange& c : changes)
         {
             LOG_DEBUG("I %s %d of %08X %s container %08X", c.change.count < 0 ? "took" : "put",
@@ -2657,7 +2875,6 @@ namespace coop
                 c.change.count < 0 ? "from" : "into", c.ref);
             m_net->Send(1, Encode(c), true);
         }
-        return fixes;
     }
 
     void Coop::SetWorldItems(const std::vector<ItemState>& items)
@@ -2801,6 +3018,69 @@ namespace coop
         {
             std::vector<RefEnable> part(changes.begin() + i,
                 changes.begin() + (i + kMaxEnablesPerMessage < changes.size() ? i + kMaxEnablesPerMessage : changes.size()));
+            SendToJoined(Encode(part), true);
+        }
+    }
+
+    void Coop::SendTerminalUse(const TerminalUse& use)
+    {
+        if (m_role == Role::Friend)
+        {
+            if (m_friendState == FriendState::Joined)
+                m_net->Send(1, Encode(use), true);
+            return;
+        }
+        if (m_role != Role::Host)
+            return;
+        SendToJoined(Encode(use), true, use.player ? PeerOfPlayer(use.player) : 0);
+    }
+
+    void Coop::SendActivatorUse(const ActivatorUse& use)
+    {
+        if (m_role == Role::Friend)
+        {
+            if (m_friendState == FriendState::Joined)
+                m_net->Send(1, Encode(use), true);
+            return;
+        }
+        if (m_role == Role::Host)
+            SendToJoined(Encode(use), true, use.player ? PeerOfPlayer(use.player) : 0);
+    }
+
+    void Coop::SendQuestCommand(const QuestCommand& command)
+    {
+        if (m_role == Role::Friend && m_friendState == FriendState::Joined)
+            m_net->Send(1, Encode(command), true);
+    }
+
+    PeerId Coop::PeerOfPlayer(uint8_t playerId) const
+    {
+        for (auto& [peer, p] : m_players)
+            if (p.joined && p.id == playerId)
+                return peer;
+        return 0;
+    }
+
+    void Coop::SendObjectLows(const std::vector<ObjectLow>& lows)
+    {
+        if (m_role != Role::Friend || m_friendState != FriendState::Joined)
+            return;
+        for (size_t i = 0; i < lows.size(); i += kMaxObjectLowsPerMessage)
+        {
+            std::vector<ObjectLow> part(lows.begin() + i,
+                lows.begin() + (i + kMaxObjectLowsPerMessage < lows.size() ? i + kMaxObjectLowsPerMessage : lows.size()));
+            m_net->Send(1, Encode(part), true);
+        }
+    }
+
+    void Coop::SendObjectStates(const std::vector<ObjectState>& states)
+    {
+        if (m_role != Role::Host)
+            return;
+        for (size_t i = 0; i < states.size(); i += kMaxObjectsPerMessage)
+        {
+            std::vector<ObjectState> part(states.begin() + i,
+                states.begin() + (i + kMaxObjectsPerMessage < states.size() ? i + kMaxObjectsPerMessage : states.size()));
             SendToJoined(Encode(part), true);
         }
     }

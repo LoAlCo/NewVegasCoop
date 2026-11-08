@@ -2,11 +2,13 @@
 
 #pragma once
 
+#include "coop/given_rounds.h"
 #include "coop/smoothing.h"
 #include "coop/talk_log.h"
 #include "net/protocol.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -58,6 +60,41 @@ namespace game
     bool CompanionWheelOpen();
 
     bool WatchPlayerCommands();
+    bool WatchObjectCommands();
+    void WatchObjects(bool on);
+    struct ObjectChange
+    {
+        uint32_t ref;
+        bool played;
+        uint16_t group;
+        bool init;
+        bool destroyed;
+    };
+    std::vector<ObjectChange> TakeObjectChanges();
+    bool IsDestroyed(const TESObjectREFR* ref);
+    void SetDestroyedFlag(TESObjectREFR* ref, bool destroyed);
+    bool PlayObjectGroup(TESObjectREFR* ref, uint16_t group, bool init);
+    const char* PlayableGroupName(uint16_t group);
+    const void* Model(TESObjectREFR* ref);
+    void DestructiblesNear(std::vector<TESObjectREFR*>& out, float range);
+    float ObjectFullHealth(const TESObjectREFR* ref);
+    float ObjectHealth(const TESObjectREFR* ref);
+    void DamageObjectBy(TESObjectREFR* ref, float damage);
+    float ObjectSelfDamage(const TESObjectREFR* ref);
+    void HoldRewardsFrom(const TESObjectREFR* ref, uint32_t ms);
+    bool WatchActivations();
+    void KeepActivations(bool on);
+    std::vector<uint32_t> TakeActivations();
+    bool UsedLikeActivator(const TESObjectREFR* ref);
+    void SendQuestCommandsOf(std::function<bool(uint32_t)> hostRuns);
+    std::vector<net::QuestCommand> TakeQuestCommands();
+    bool RunQuestCommand(const net::QuestCommand& command, const char** skipped);
+    void HoldPlayerEffects(bool on);
+    void UpdateOwnUseLock(uint32_t now, bool inConversation);
+    bool OwnUseHoldsControls();
+    void GiveBackOwnUseControls(const char* why);
+    void ActivateAsPlayer(TESObjectREFR* ref);
+    bool LabActivate(TESObjectREFR* ref);
     void MirrorPlayerCommands(bool on);
     void ScreenFromHost(bool on);
     void SkipIntroPopups(bool on, const std::vector<std::string>& loadOrder);
@@ -65,6 +102,7 @@ namespace game
     void DialogueLineRunning(bool running);
     std::vector<net::PlayerCommand> TakePlayerCommands();
     bool ApplyPlayerCommand(const net::PlayerCommand& c);
+    int GiveBackAfterReplay();
     void Move(TESObjectREFR* ref, const coop::Pose& pose);
     bool TravelTo(const coop::Pose& pose);
     void Turn(TESObjectREFR* ref, float heading);
@@ -80,13 +118,19 @@ namespace game
     bool Jump(TESObjectREFR* ref);
     uint16_t MovementFlags(TESObjectREFR* ref);
     void SetMovementFlags(TESObjectREFR* ref, uint16_t flags);
+    void SetUpGearLockers(const std::vector<std::string>& loadOrder);
+    bool IsGearLocker(uint32_t ref);
+    void UpdateRewardBoxes(bool host);
+    std::vector<net::PlayerCommand> GearForJoiner();
+    void ReplayingOthersLine(bool on);
     void RemoveAllItems(TESObjectREFR* ref);
-    bool AddAndEquip(TESObjectREFR* ref, uint32_t formId);
+    bool AddAndEquip(TESObjectREFR* ref, uint32_t formId, coop::GivenRounds* given = nullptr);
     void RemoveItem(TESObjectREFR* ref, uint32_t formId);
     struct MyAttack
     {
         uint8_t shots = 0;
         bool release = false;
+        bool reload = false;
     };
     MyAttack TakeMyAttacks();
     void PlayAttack(TESObjectREFR* ref, const std::vector<uint32_t>& worn, uint8_t shots);
@@ -140,6 +184,8 @@ namespace game
     int PlayerLevel();
     float MaxHealth(TESObjectREFR* ref);
     void ChangeHealth(TESObjectREFR* ref, float amount);
+    float PlayerMedicine();
+    bool CastOnSelf(TESObjectREFR* ref, uint32_t formId);
     void MakeCompanion(TESObjectREFR* ref);
     void StopFighting(TESObjectREFR* ref);
     void SetPlayerEssential(bool on);
@@ -147,6 +193,9 @@ namespace game
     void KnockOut(TESObjectREFR* ref);
     void KillPlayer();
     void Kill(TESObjectREFR* ref, uint16_t limbs = 0);
+    void Unprotect(TESObjectREFR* ref);
+    void KillPlain(TESObjectREFR* ref);
+    bool AiThreadsRunning();
     uint16_t LimbsGone(TESObjectREFR* ref);
     void SetMaxHealth(TESObjectREFR* ref, float health);
     std::vector<TESObjectREFR*> MapMarkers();
@@ -177,7 +226,7 @@ namespace game
     void Resurrect(TESObjectREFR* ref);
     void NoteMadeCharacters(const std::vector<uint32_t>& refIds);
     bool RunConsoleLine(const char* line, TESObjectREFR* on = nullptr);
-    std::string Evaluate(const char* expression);
+    std::string Evaluate(const char* expression, TESObjectREFR* on = nullptr);
     std::vector<uint32_t> SavedMadeCharacters();
     void ResetAnimation(TESObjectREFR* ref, int how);
     bool InScriptAnimation(TESObjectREFR* ref);
@@ -193,11 +242,14 @@ namespace game
         uint32_t space = 0;
         float x = 0, y = 0, z = 0;
         bool ours = false;
+        bool objectsOwn = false;
     };
     bool WatchExplosions();
     std::vector<SeenExplosion> TakeExplosions();
     bool ShowExplosion(uint32_t form, uint32_t space, float x, float y, float z);
     bool IsAttackPhase(int action);
+    void SetGhost(TESObjectREFR* ref, bool on);
+    bool IsGhost(TESObjectREFR* ref);
     void SetUnconscious(TESObjectREFR* ref, bool out);
     void WakeUp(TESObjectREFR* ref);
     void SetPlayerControls(bool on);
@@ -205,6 +257,12 @@ namespace game
     int LifeState(const TESObjectREFR* ref);
     bool IsKnockedOut(const TESObjectREFR* ref);
     bool IsDead(const TESObjectREFR* ref);
+    int PlayerPerkRank(uint32_t perk);
+    TESObjectREFR* KillerOf(TESObjectREFR* actor);
+    bool IsCreatureType(TESObjectREFR* ref, int type);
+    bool GlobalNumber(uint32_t global, float& value);
+    bool SetGlobalNumber(uint32_t global, float value);
+    void LevelUpNote(int action);
     bool InMenu();
     bool IsKeyPressed(int key);
     bool OpenChat();
@@ -232,10 +290,17 @@ namespace game
     };
     void ShowFriendMarkers(const std::vector<FriendMark>& friends);
     void ShowReviveBar(const std::string& text);
+    void HideTalkPromptOnFriends();
+    bool IsStandIn(const TESObjectREFR* ref);
+    bool InstallAllyDetectionSkip();
     struct TalkLogLook
     {
         float scale = 1;
         float gap = 6;
+        int place = 0;
+        float xPercent = 2, yPercent = 25;
+        float width = 600;
+        bool alignRight = false;
         bool dividers = true, hudColor = true;
         int style = 1;
         uint8_t red = 255, green = 255, blue = 255;
@@ -256,7 +321,10 @@ namespace game
     bool QuantityPromptOpen();
     bool SetFieldOfView(int degrees);
     bool ReadMyLooks(net::PlayerLooks& out);
-    bool ApplyLooks(TESObjectREFR* standIn, const net::PlayerLooks& looks);
+    bool ApplyLooks(TESObjectREFR* standIn, const net::PlayerLooks& looks, bool* headRemade = nullptr);
+    bool RemakeFace(TESObjectREFR* standIn);
+    const void* FaceNode(TESObjectREFR* standIn);
+    void FaceToneFrame();
 
     void DoorsNear(std::vector<TESObjectREFR*>& out, float range);
     struct DoorInfo
@@ -335,6 +403,13 @@ namespace game
     bool IsTalking(const TESObjectREFR* actor);
     bool InstallSayHooks();
     int KeepVatsAtFullSpeed();
+    void KeepVatsFeel();
+    bool PlayVatsInOwnView();
+    void SetKillCamMode(uint32_t mode, bool hold);
+    void SetVatsOwnViewPlayback(bool on);
+    bool NoDeathPlaybackWhenDowned();
+    void SetDownedDeathPlayback(bool on);
+    uint32_t VatsMode();
     void SetWorldSpeed(float speed);
     bool WatchSpeedChanges();
     struct Sound { uint32_t id = 0xFFFFFFFF; uint8_t assumeSuccess = 0; uint32_t state = 0; };
@@ -370,9 +445,8 @@ namespace game
     void WriteQuest(const QuestInfo& q);
     std::string QuestName(uint32_t id);
     std::string ObjectiveText(uint32_t id, uint32_t objective);
-    std::vector<std::pair<uint32_t, void*>> DetachQuestScripts(bool (*accept)(uint32_t id, const void* context),
-        const void* context);
-    void PutBackQuestScripts(const std::vector<std::pair<uint32_t, void*>>& scripts);
+    size_t DetachQuestScripts(bool (*accept)(uint32_t id, const void* context), const void* context);
+    size_t PutBackQuestScripts();
     std::vector<std::pair<uint32_t, double>> QuestVariables(uint32_t id);
     void* SwapQuestScript(uint32_t id, void* script);
     void* QuestScript(uint32_t id);

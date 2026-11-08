@@ -27,12 +27,14 @@ target_link_libraries(enet PUBLIC ws2_32 winmm)
 # Core: everything that works without the game (shared by the plugin, tools and tests)
 add_library(nvcoop_core STATIC
     src/log.cpp
+    src/config.cpp
     src/net/protocol.cpp
     src/net/session.cpp
     src/net/steam_session.cpp
     src/coop/coop.cpp
     src/coop/containers.cpp
     src/coop/doors.cpp
+    src/coop/objects.cpp
     src/coop/mods.cpp
     src/coop/mod_transfer.cpp
     src/coop/sha256.cpp
@@ -55,7 +57,11 @@ target_link_libraries(nvcoop_core PUBLIC enet)
 # The plugin the game loads
 add_library(NVCoop SHARED
     src/main.cpp
-    src/config.cpp
+    src/linked_saves.cpp
+    src/teleporter.cpp
+    src/downed.cpp
+    src/chat_voice.cpp
+    src/quick_start.cpp
     src/crash.cpp
     src/dll_blocker.cpp
     src/dev/second_copy.cpp
@@ -65,12 +71,24 @@ add_library(NVCoop SHARED
     src/voice_out.cpp
     src/display.cpp
     src/game/game.cpp
+    src/game/scripts.cpp
+    src/game/hooks.cpp
+    src/game/popups.cpp
+    src/game/say_hooks.cpp
+    src/game/looks.cpp
+    src/game/commands.cpp
+    src/game/lockers.cpp
     src/game/escape_menu.cpp
     src/game/level_up.cpp
+    src/game/perk_menu.cpp
     src/game/remove_all_items.cpp
     src/game/standins.cpp
     src/game/npcs.cpp
+    src/game/far_cells.cpp
     src/game/doors.cpp
+    src/game/objects.cpp
+    src/game/terminals.cpp
+    src/game/activations.cpp
     src/game/mines.cpp
     src/game/companions.cpp
     src/game/dialogue.cpp
@@ -99,6 +117,7 @@ if(GAME_DIR)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:NVCoop> "${GAME_DIR}/Data/NVSE/Plugins/"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${GAME_DIR}/Data/MCM"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/data/MCM/NVCoop.json" "${GAME_DIR}/Data/MCM/"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/data/textures" "${GAME_DIR}/Data/Textures"
         COMMENT "Copying NVCoop.dll into the game")
 endif()
 

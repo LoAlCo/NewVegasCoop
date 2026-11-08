@@ -196,7 +196,7 @@ namespace
             }
             for (const coop::AttackReport& attack : attacks)
                 if (attack.playerId == m_who)
-                    std::fprintf(m_file, "A %u %u\n", ms, attack.shots);
+                    std::fprintf(m_file, "A %u %u %u\n", ms, attack.shots, attack.reload ? 1u : 0u);
             if (coop::IsDue(now, m_nextNote))
             {
                 m_nextNote = now + 10000;
@@ -284,7 +284,7 @@ namespace
                 else if (s.kind == 'G')
                     m_gear = s.gear;
                 else
-                    coop.Attack(s.shots);
+                    coop.Attack(s.shots, false, s.reload);
             }
             coop::Pose out = m_pose;
             if (m_here && out.space == m_steps[m_first].pose.space)
@@ -313,6 +313,7 @@ namespace
             coop::Pose pose;
             std::vector<uint32_t> gear;
             uint8_t shots = 0;
+            bool reload = false;
         };
 
         bool ParseLine(const char* line, uint32_t lastMs)
@@ -353,10 +354,12 @@ namespace
             }
             else if (line[0] == 'A')
             {
-                unsigned shots = 0;
-                if (sscanf_s(line, "A %u %u", &s.ms, &shots) != 2 || shots < 1 || shots > net::kMaxShots)
+                unsigned shots = 0, reload = 0;
+                int got = sscanf_s(line, "A %u %u %u", &s.ms, &shots, &reload);
+                if (got < 2 || reload > 1 || shots > net::kMaxShots || (shots < 1 && !reload))
                     return false;
                 s.shots = static_cast<uint8_t>(shots);
+                s.reload = reload == 1;
             }
             else
                 return false;
@@ -475,6 +478,7 @@ int main(int argc, char** argv)
     bool still = false;
     bool goDown = false;
     bool revive = false;
+    bool heal = false;
     bool attack = false;
     bool startFar = false;
     bool here = false;
@@ -495,6 +499,8 @@ int main(int argc, char** argv)
             goDown = true;
         else if (std::strcmp(argv[i], "revive") == 0)
             revive = true;
+        else if (std::strcmp(argv[i], "heal") == 0)
+            heal = true;
         else if (std::strcmp(argv[i], "attack") == 0)
             attack = true;
         else if (std::strcmp(argv[i], "far") == 0)
@@ -571,7 +577,9 @@ int main(int argc, char** argv)
     FakeNpcs fakeNpcs(npcCount, npcCycle, npcReal);
     uint32_t nextHit = 0;
     uint32_t nextAttack = 0, attacks = 0;
-    float health = 100;
+    float health = heal ? 60.0f : 100.0f;
+    uint32_t nextHeal = 0;
+    int healsGiven = 0, healsBack = 0, healsTaken = 0;
     uint32_t downAt = GetTickCount() + 10000;
     std::map<uint8_t, uint32_t> sawDown;
     while (!g_quit)
@@ -619,6 +627,29 @@ int main(int argc, char** argv)
                 coop.Revive(id);
                 it->second = now;
             }
+        }
+        if (heal && coop.InGame() && health > 0 && coop::IsDue(now, nextHeal))
+        {
+            nextHeal = now + 5000;
+            for (auto& [id, remote] : coop.Remotes())
+                if (!remote.Downed() && remote.maxHealth > 0 && remote.health < remote.maxHealth)
+                {
+                    coop.GiveHeal(id, coop::kStimpak, 50, false);
+                    LOG_INFO("Gave %s a Stimpak (%d given; health was %.1f / %.1f)", remote.name.c_str(), ++healsGiven,
+                        remote.health, remote.maxHealth);
+                    break;
+                }
+        }
+        uint32_t back = 0;
+        while (coop.TakeHealRefund(back))
+            LOG_INFO("A Stimpak came back (%d back so far)", ++healsBack);
+        net::HealAlly healed;
+        while (coop.TakeHeal(healed))
+        {
+            float amount = coop::HealAmount(healed.item, healed.medicine, healed.fastMetabolism);
+            health = health + amount > 100 ? 100 : health + amount;
+            LOG_INFO("%s healed us by %.1f (Medicine %u, heal %d, number %u): health %.1f / 100",
+                coop.NameOf(healed.giver).c_str(), amount, healed.medicine, ++healsTaken, healed.seq, health);
         }
         if (attack && coop.InGame() && health > 0 && coop::IsDue(now, nextAttack))
         {

@@ -68,6 +68,37 @@ namespace game
             }
             if (!refunds.empty())
                 RefreshItemList();
+
+            TESObjectREFR* open = OpenContainer();
+            uint32_t openRef = open ? RefId(open) : 0;
+            if (openRef && openRef != m_openRef && npcs.IsHeld(openRef))
+            {
+                if (m_closedHeld != openRef)
+                {
+                    CloseMenu();
+                    LOG_INFO("Containers: %s (%08X) is held here (not in the host's game here yet); its screen "
+                        "closed", Name(open), openRef);
+                    Notify("Not here yet: the host's game hasn't loaded them");
+                    m_closedHeld = openRef;
+                }
+                openRef = 0;
+            }
+            else if (!openRef)
+                m_closedHeld = 0;
+            if (openRef != m_openRef)
+            {
+                if (TESObjectREFR* was = m_openRef ? LookupRef(m_openRef) : nullptr; was && IsLootable(was))
+                {
+                    std::vector<net::ItemCount> items;
+                    if (Read(was, items, m_readMs))
+                    {
+                        ++m_reads;
+                        coop.ClosedContainer(items);
+                    }
+                }
+                m_openRef = openRef;
+                m_nextLook = now;
+            }
         }
 
         if (!coop::IsDue(now, m_nextLook))
@@ -112,10 +143,16 @@ namespace game
         {
             const net::ItemCount& want = c.change.change;
             TESObjectREFR* ref = LookupRef(c.change.ref);
-            bool ok = IsLootable(ref) && IsItem(want.item);
+            bool locker = IsGearLocker(c.change.ref);
+            bool ok = IsLootable(ref) && IsItem(want.item) && !locker;
+            if (locker)
+                LOG_INFO("Containers: %s's change to gear locker %08X refused (each game's copy holds its own "
+                    "player's gear)", coop.NameOf(c.playerId).c_str(), c.change.ref);
             net::ItemCount refund = want;
             refund.count = 0;
-            if (want.count < 0)
+            if (want.count < 0 && locker)
+                refund.count = want.count;
+            else if (want.count < 0)
             {
                 int32_t have = 0;
                 std::vector<net::ItemCount> items;
@@ -154,6 +191,8 @@ namespace game
         if (!open)
             open = CrosshairRef();
         uint32_t hostRef = open && IsLootable(open) ? npcs.HostRefOf(RefId(open)) : 0;
+        if (hostRef && IsGearLocker(hostRef))
+            hostRef = 0;
         coop.ViewContainer(hostRef, isOpen);
         if (!hostRef)
             return;

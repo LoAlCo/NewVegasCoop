@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 70;
+    constexpr uint32_t kProtocolVersion = 78;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -90,6 +90,14 @@ namespace net
         PlayerModAnims = 69,
         Drag = 70,
         Mode = 71,
+        ObjectStates = 72,
+        ObjectLows = 73,
+        TerminalUse = 74,
+        ActivatorUse = 75,
+        PartyPerks = 76,
+        HealAlly = 77,
+        HealRefused = 78,
+        QuestCommand = 79,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -227,6 +235,7 @@ namespace net
         uint8_t playerId = 0;
         uint8_t shots = 1;
         bool release = false;
+        bool reload = false;
     };
     struct Travel
     {
@@ -248,6 +257,7 @@ namespace net
         uint32_t idle = 0;
         uint32_t weapon = 0;
         uint32_t base = 0;
+        uint32_t rolled = 0;
         uint16_t limbs = 0;
         uint8_t pile = 0;
     };
@@ -499,6 +509,80 @@ namespace net
     };
     Bytes Encode(const std::vector<RefEnable>& m);
     bool Decode(Reader& r, std::vector<RefEnable>& m);
+    constexpr size_t kMaxObjectsPerMessage = 64;
+    constexpr uint16_t kNoAnimGroup = 0xFFFF;
+    constexpr float kNoHealth = -1;
+    constexpr float kMaxObjectHealth = 1000000;
+    constexpr size_t kMaxObjectLowsPerMessage = 16;
+    constexpr uint16_t kAnimGroupCount = 245;
+    struct ObjectState
+    {
+        uint32_t ref = 0;
+        bool destroyed = false;
+        uint16_t group = kNoAnimGroup;
+        bool init = false;
+        uint8_t plays = 0;
+        float health = kNoHealth;
+        bool operator==(const ObjectState& o) const
+        {
+            return ref == o.ref && destroyed == o.destroyed && group == o.group && init == o.init && plays == o.plays &&
+                health == o.health;
+        }
+        bool operator!=(const ObjectState& o) const { return !(*this == o); }
+    };
+    Bytes Encode(const std::vector<ObjectState>& m);
+    bool Decode(Reader& r, std::vector<ObjectState>& m);
+    struct ObjectLow
+    {
+        uint32_t ref = 0;
+        float health = 0;
+        bool operator==(const ObjectLow& o) const { return ref == o.ref && health == o.health; }
+    };
+    Bytes Encode(const std::vector<ObjectLow>& m);
+    bool Decode(Reader& r, std::vector<ObjectLow>& m);
+    constexpr uint8_t kMaxTerminalEntries = 64;
+    struct TerminalUse
+    {
+        uint8_t player = 0;
+        uint32_t ref = 0;
+        uint32_t terminal = 0;
+        uint8_t entry = 0;
+        bool operator==(const TerminalUse& o) const
+        {
+            return player == o.player && ref == o.ref && terminal == o.terminal && entry == o.entry;
+        }
+    };
+    Bytes Encode(const TerminalUse& m);
+    bool Decode(Reader& r, TerminalUse& m);
+    struct ActivatorUse
+    {
+        uint8_t player = 0;
+        uint32_t ref = 0;
+        bool operator==(const ActivatorUse& o) const { return player == o.player && ref == o.ref; }
+    };
+    Bytes Encode(const ActivatorUse& m);
+    bool Decode(Reader& r, ActivatorUse& m);
+    enum class QuestCommandKind : uint8_t
+    {
+        SetStage = 0,
+        ShowObjective = 1,
+        CompleteObjective = 2,
+        CompleteQuest = 3,
+    };
+    constexpr uint32_t kMaxObjectiveIndex = 100000;
+    struct QuestCommand
+    {
+        QuestCommandKind kind = QuestCommandKind::SetStage;
+        uint32_t quest = 0;
+        uint32_t number = 0;
+        uint8_t on = 0;
+        bool operator==(const QuestCommand& o) const
+        {
+            return kind == o.kind && quest == o.quest && number == o.number && on == o.on;
+        }
+    };
+    Bytes Encode(const QuestCommand& m);
+    bool Decode(Reader& r, QuestCommand& m);
     constexpr int32_t kMaxXpGain = 100000;
     constexpr int32_t kMaxKarmaChange = 10000;
     struct Progress
@@ -535,6 +619,13 @@ namespace net
     };
     Bytes Encode(const PlayerAnim& m);
     bool Decode(Reader& r, PlayerAnim& m);
+    struct PartyPerks
+    {
+        uint8_t player = 0;
+        uint8_t perks = 0;
+    };
+    Bytes Encode(const PartyPerks& m);
+    bool Decode(Reader& r, PartyPerks& m);
     constexpr size_t kMaxModAnims = 8;
     struct PlayerModAnims
     {
@@ -557,6 +648,24 @@ namespace net
     };
     Bytes Encode(const Drag& m);
     bool Decode(Reader& r, Drag& m);
+    constexpr uint8_t kMaxSkill = 100;
+    struct HealAlly
+    {
+        uint8_t giver = 0, target = 0;
+        uint32_t item = 0;
+        uint8_t medicine = 0;
+        bool fastMetabolism = false;
+        uint16_t seq = 0;
+    };
+    Bytes Encode(const HealAlly& m);
+    bool Decode(Reader& r, HealAlly& m);
+    struct HealRefused
+    {
+        uint16_t seq = 0;
+        uint32_t item = 0;
+    };
+    Bytes Encode(const HealRefused& m);
+    bool Decode(Reader& r, HealRefused& m);
     struct ModeChange
     {
         coop::SaveMode mode;
@@ -669,8 +778,26 @@ namespace net
         CastOnSelf,
         AddPlayerPackage,
         RemovePlayerPackage,
-        Last = RemovePlayerPackage
+        GiveAllTypedItems,
+        Last = GiveAllTypedItems
     };
+    constexpr uint8_t kCommandOnlyIfEmpty = 0x01;
+    constexpr uint8_t kCommandArgsShift = 4, kCommandArgsMask = 0x70;
+    constexpr bool IsWholeInventoryKind(PlayerCommandKind k)
+    {
+        return k == PlayerCommandKind::RemoveAllItems || k == PlayerCommandKind::RemoveAllTypedItems ||
+            k == PlayerCommandKind::GiveAllItems || k == PlayerCommandKind::GiveAllTypedItems;
+    }
+    constexpr bool IsTakeKind(PlayerCommandKind k)
+    {
+        return k == PlayerCommandKind::RemoveAllItems || k == PlayerCommandKind::RemoveAllTypedItems;
+    }
+    constexpr uint8_t PlayerCommandFlagsAllowed(PlayerCommandKind k)
+    {
+        if (k == PlayerCommandKind::DisableControls || k == PlayerCommandKind::EnableControls)
+            return 0x7F;
+        return IsWholeInventoryKind(k) ? static_cast<uint8_t>(kCommandOnlyIfEmpty | kCommandArgsMask) : 0;
+    }
     struct PlayerCommand
     {
         PlayerCommandKind kind = PlayerCommandKind::AddItem;

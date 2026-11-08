@@ -23,12 +23,14 @@ namespace game
         void Update(uint32_t now);
         uint32_t TakeCompanionAsk() { uint32_t r = m_companionAsk; m_companionAsk = 0; return r; }
         void AllowTalk(uint32_t hostRef, uint32_t until) { m_talkAllowed = hostRef; m_talkAllowedUntil = until; }
+        void SetLeaving(bool leaving) { m_leaving = leaving; }
         struct TalkLogSettings
         {
             bool on = true;
             int size = 65, lines = 4, seconds = 15, gap = 6, range = 1500;
+            int place = 0, x = 2, y = 25, width = 600;
             int style = 1;
-            bool dividers = true, hudColor = true;
+            bool dividers = true, hudColor = true, preview = false, alignRight = false;
             uint8_t red = 255, green = 255, blue = 255;
         };
         void SetTalkLog(const TalkLogSettings& settings) { m_talkLogSettings = settings; }
@@ -40,6 +42,7 @@ namespace game
         }
 
         static void LabRun(uint32_t info, bool onEnd, uint32_t speaker);
+        static void LabOwnActivate();
         void Line(void* info, uint32_t onEnd, TESObjectREFR* speaker);
 
     private:
@@ -54,6 +57,8 @@ namespace game
         uint32_t m_lastActivate = 0;
         uint32_t m_openSince = 0;
         bool m_ours = false;
+        bool m_leaving = false;
+        bool m_ourPlayerStarted = false;
         bool m_closed = false;
         bool m_afterOurs = false;
         uint32_t m_companionAsk = 0, m_talkAllowed = 0, m_talkAllowedUntil = 0;
@@ -66,6 +71,8 @@ namespace game
         int m_replyResponse = 0;
         coop::TalkLog m_talkLog;
         TalkLogSettings m_talkLogSettings;
+        std::vector<coop::TalkLog::Shown> m_talkPreview;
+        void ShowTalk(const std::vector<coop::TalkLog::Shown>& lines);
         uint32_t m_spokenSpeaker = 0;
         uint32_t m_spokenAt = 0;
         bool m_sawTalking = false;

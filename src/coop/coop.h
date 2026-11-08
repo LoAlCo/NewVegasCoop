@@ -7,10 +7,12 @@
 #include "coop/loading.h"
 #include "coop/mod_transfer.h"
 #include "coop/mods.h"
+#include "coop/party_perks.h"
 #include "coop/chat.h"
 #include "coop/voice.h"
 #include "coop/desync.h"
 #include "coop/game_mode.h"
+#include "coop/heal_ally.h"
 #include "coop/doors.h"
 #include "coop/saves.h"
 #include "coop/smoothing.h"
@@ -62,6 +64,10 @@ namespace coop
     constexpr uint32_t kNpcGearResendMs = 5000;
     constexpr uint32_t kDoorResendMs = 2000;
     constexpr size_t kMaxQueuedDoorUses = 32;
+    constexpr size_t kMaxQueuedObjectLows = 64;
+    constexpr size_t kMaxQueuedTerminalUses = 16;
+    constexpr size_t kMaxQueuedActivatorUses = 16;
+    constexpr size_t kMaxQueuedQuestCommands = 32;
     constexpr size_t kMaxQueuedItemChanges = 64;
     constexpr size_t kMaxQueuedQuests = 4096;
     constexpr size_t kMaxQueuedMarkers = 4096;
@@ -124,6 +130,7 @@ namespace coop
         uint32_t idle = 0;
         uint32_t weapon = 0;
         uint32_t base = 0;
+        uint32_t rolled = 0;
         std::vector<net::WornItem> gear;
         uint32_t gearChanges = 0;
     };
@@ -140,11 +147,197 @@ namespace coop
         uint8_t playerId = 0;
         uint8_t shots = 0;
         bool release = false;
+        bool reload = false;
     };
 
-    class Coop
+    struct SessionState
+    {
+        struct MineFrom { uint8_t playerId; net::MineChange change; };
+        struct CompanionOrderFrom { uint8_t playerId; net::CompanionOrder order; };
+        struct ChatHeard { uint8_t player = 0; std::string name, text; VoiceStyle style; };
+        struct VoiceHeard { uint8_t player = 0; net::Bytes data; };
+        struct ItemChangeFrom { uint8_t playerId; net::ContainerChange change; };
+        struct ItemTakeFrom { uint8_t playerId; net::ItemTake take; };
+        struct ItemDropFrom { uint8_t playerId; net::ItemDrop drop; };
+        struct ItemMoveFrom { uint8_t playerId; net::ItemMove move; };
+        struct QuestCommandFrom { uint8_t playerId; net::QuestCommand command; };
+        struct DialogueLineFrom { uint8_t playerId; net::DialogueLine line; };
+        struct WaitEvent
+        {
+            enum class Kind { Asked, Start, Refused } kind;
+            uint8_t requester = 0;
+            uint8_t hours = 0;
+            bool sleep = false;
+            uint8_t refusedBy = net::kNobody;
+        };
+        struct SaveAsk { uint8_t playerId; bool load; std::string name; };
+        struct SentNpc { net::NpcState state; uint32_t at = 0; };
+        struct NpcGearSent { std::vector<net::WornItem> items; uint32_t sentAt = 0; bool changed = true; };
+        struct HostView
+        {
+            uint32_t ref = 0;
+            uint32_t seen = 0;
+            bool sent = false;
+            uint32_t sentSeen = 0;
+            std::vector<net::ItemCount> sentItems;
+        };
+
+        Role m_role = Role::None;
+        std::string m_myName;
+        uint8_t m_myId = 0;
+        FriendState m_friendState = FriendState::Disconnected;
+        std::map<net::PeerId, Player> m_players;
+        uint32_t m_lastPingLog = 0;
+        std::map<uint8_t, RemotePlayer> m_remotes;
+        Pose m_myPose, m_sentPose;
+        bool m_hasPose = false;
+        uint32_t m_lastPoseSent = 0;
+        bool m_gearToSend = false;
+        std::vector<HitReport> m_hits;
+        std::vector<AttackReport> m_attacks;
+        float m_myHealth = 0, m_myMaxHealth = 0;
+        bool m_healthToSend = false;
+        uint32_t m_lastHealthSent = 0;
+        float m_damage = 0;
+        bool m_hostSaysFighting = false;
+        bool m_revived = false;
+        std::vector<net::HealAlly> m_heals;
+        std::vector<uint32_t> m_healRefunds;
+        std::map<uint8_t, uint16_t> m_healSeen;
+        std::map<uint8_t, uint16_t> m_healChecked;
+        std::map<uint8_t, uint32_t> m_lastHealAt;
+        bool m_gameOver = false;
+        net::GameOver m_gameOverInfo;
+        std::map<uint8_t, uint32_t> m_downedSince;
+        std::map<uint8_t, uint8_t> m_drags;
+        std::map<uint8_t, uint32_t> m_dragSince;
+        bool m_gameOverSent = false;
+        Pose m_place;
+        bool m_hasPlace = false;
+        bool m_regroup = false;
+        Pose m_expect;
+        bool m_expecting = false;
+        Pose m_travel;
+        uint8_t m_travelLeader = 0;
+        bool m_hasTravel = false;
+        Pose m_groupPlace;
+        uint8_t m_groupLeader = 0;
+        uint32_t m_groupMovedAt = 0;
+        bool m_hasGroupPlace = false;
+        uint32_t m_npcSpace = 0;
+        std::vector<net::NpcState> m_myNpcs;
+        std::map<uint32_t, SentNpc> m_sentNpcs;
+        uint32_t m_lastNpcsSent = 0;
+        uint32_t m_npcUpdatesSent = 0, m_npcBytesSent = 0;
+        uint32_t m_playerCommandsSent = 0, m_playerCommandBytesSent = 0;
+        std::map<uint32_t, net::NpcAttack> m_npcShots;
+        std::map<uint32_t, NpcGearSent> m_npcGear;
+        std::vector<net::NpcAttack> m_npcAttacks;
+        std::map<uint32_t, RemoteNpc> m_npcs;
+        bool m_warnedNpcs = false;
+        std::vector<net::DoorState> m_myDoors;
+        std::map<uint32_t, net::DoorState> m_sentDoors;
+        uint32_t m_lastDoorsSent = 0;
+        std::vector<net::DoorState> m_doorUses;
+        FriendDoors m_friendDoors;
+        std::map<uint8_t, HostView> m_views;
+        std::vector<ItemChangeFrom> m_itemChanges;
+        FriendContainer m_friendContainer;
+        std::vector<net::ItemCount> m_refunds;
+        std::vector<net::ItemState> m_myItems;
+        std::map<uint32_t, net::ItemState> m_sentItems;
+        uint32_t m_lastItemsSent = 0;
+        bool m_itemsNew = false;
+        std::vector<ItemTakeFrom> m_itemTakes;
+        std::vector<ItemDropFrom> m_itemDrops;
+        std::vector<ItemMoveFrom> m_itemMoves;
+        std::map<uint32_t, uint32_t> m_lastMoveSent;
+        DesyncTracker m_desyncs;
+        std::vector<net::CompanionState> m_myCompanions;
+        bool m_companionsChanged = false;
+        uint32_t m_lastCompanionsSent = 0;
+        std::vector<CompanionOrderFrom> m_companionOrders;
+        std::map<uint32_t, uint8_t> m_companions;
+        std::vector<net::PlayerCommand> m_playerCommands;
+        std::vector<uint8_t> m_welcomed;
+        std::map<uint32_t, net::RadioLine> m_radioLines;
+        uint32_t m_nextRadioResend = 0;
+        std::map<uint32_t, uint32_t> m_radioStartedAt;
+        std::vector<ChatHeard> m_chat;
+        std::vector<VoiceHeard> m_voice;
+        std::vector<net::NpcPile> m_piles;
+        std::vector<MineFrom> m_mines;
+        bool m_myLooksSent = false;
+        std::map<uint8_t, net::PlayerLooks> m_looks;
+        bool m_myAnimSent = true;
+        bool m_myPartyPerksSent = true;
+        std::map<uint8_t, uint8_t> m_partyPerks;
+        std::map<uint8_t, std::string> m_anims;
+        bool m_myModAnimsSent = true;
+        std::map<uint8_t, std::vector<std::string>> m_modAnims;
+        int32_t m_hostXp = 0;
+        bool m_hostXpWaiting = false;
+        DesyncCounts m_desyncsSent;
+        uint32_t m_nextDesyncSweep = 0;
+        std::vector<std::string> m_desyncNotices;
+        FriendItems m_friendItems;
+        ModList m_hostMods;
+        bool m_hostModsDone = false;
+        bool m_modsDiffer = false;
+        bool m_checkOnly = false;
+        std::vector<JoinAsk> m_joinAsks;
+        bool m_askingHost = false;
+        std::vector<net::ExplosionAt> m_explosions;
+        uint32_t m_hostExplosionsSince = 0, m_hostExplosions = 0;
+        std::vector<ModDownload::Wanted> m_modsWanted;
+        std::vector<std::string> m_modsExtra;
+        bool m_downloading = false;
+        std::vector<net::QuestState> m_questStates;
+        std::vector<net::RefEnable> m_refEnables;
+        std::vector<net::ObjectState> m_objectStates;
+        std::vector<std::pair<uint8_t, net::ObjectLow>> m_objectLows;
+        std::vector<net::TerminalUse> m_terminalUses;
+        std::vector<net::ActivatorUse> m_activatorUses;
+        std::vector<QuestCommandFrom> m_questCommands;
+        std::vector<net::Progress> m_progress;
+        std::vector<net::Reputation> m_reputations;
+        std::vector<uint32_t> m_travelMarkers;
+        std::vector<uint8_t> m_teleports;
+        std::vector<std::pair<uint8_t, net::ReputationGain>> m_repGains;
+        TalkLock m_talk;
+        std::vector<DialogueLineFrom> m_dialogueLines;
+        std::vector<net::Subtitle> m_subtitles;
+        LoadGate m_loads;
+        bool m_frozen = false;
+        uint8_t m_frozenFor = 0;
+        std::vector<net::SaveOrder> m_saveOrders;
+        bool m_loadRefused = false;
+        std::vector<SaveAsk> m_saveAsks;
+        uint32_t m_lastSaveAsk = 0;
+        WaitVote m_wait;
+        std::vector<WaitEvent> m_waitEvents;
+        net::GameTime m_myGameTime;
+        bool m_hasGameTime = false;
+        uint32_t m_lastGameTimeSent = 0;
+        net::GameTime m_hostTime;
+        bool m_hostTimeNew = false;
+    };
+
+    class Coop : private SessionState
     {
     public:
+        using MineFrom = SessionState::MineFrom;
+        using CompanionOrderFrom = SessionState::CompanionOrderFrom;
+        using ChatHeard = SessionState::ChatHeard;
+        using VoiceHeard = SessionState::VoiceHeard;
+        using ItemChangeFrom = SessionState::ItemChangeFrom;
+        using ItemTakeFrom = SessionState::ItemTakeFrom;
+        using ItemDropFrom = SessionState::ItemDropFrom;
+        using ItemMoveFrom = SessionState::ItemMoveFrom;
+        using QuestCommandFrom = SessionState::QuestCommandFrom;
+        using DialogueLineFrom = SessionState::DialogueLineFrom;
+        using WaitEvent = SessionState::WaitEvent;
+        using SaveAsk = SessionState::SaveAsk;
         void SetMods(ModList mods) { m_mods = std::move(mods); m_modsPrint = ModsFingerprint(m_mods); }
         void SetModFolders(ModFolders folders) { m_modFolders = std::move(folders); }
         bool Host(uint16_t port, const std::string& myName);
@@ -178,30 +371,31 @@ namespace coop
         void ReportMine(uint32_t ref, uint8_t state);
         void SetFighting(uint8_t playerId, bool fighting);
         bool HostSaysFighting() const { return m_hostSaysFighting; }
-        struct MineFrom { uint8_t playerId; net::MineChange change; };
         std::vector<MineFrom> TakeMines() { return std::move(m_mines); }
         std::vector<HitReport> TakeHits() { return std::move(m_hits); }
-        void Attack(uint8_t shots, bool release = false);
+        void Attack(uint8_t shots, bool release = false, bool reload = false);
         void ShareExplosion(const net::ExplosionAt& e);
         void SawDesync(const Disagreement& d);
         void SetCompanions(const std::vector<net::CompanionState>& companions);
-        struct CompanionOrderFrom { uint8_t playerId; net::CompanionOrder order; };
         std::vector<CompanionOrderFrom> TakeCompanionOrders() { return std::move(m_companionOrders); }
         bool CompanionLeader(uint32_t hostRef, uint8_t& leader) const;
         void OrderCompanion(uint32_t hostRef, net::CompanionOrderKind order);
         void SharePlayerCommand(const net::PlayerCommand& c);
+        void SharePlayerCommandWith(uint8_t playerId, const net::PlayerCommand& c);
+        std::vector<uint8_t> TakeWelcomed() { return std::move(m_welcomed); }
         void KilledByScript();
         void ShareRadioLine(net::RadioLine line, uint32_t startedAt);
-        struct ChatHeard { uint8_t player = 0; std::string name, text; VoiceStyle style; };
         void SendChat(const std::string& text, VoiceStyle style = {});
         std::vector<ChatHeard> TakeChat() { return std::move(m_chat); }
-        struct VoiceHeard { uint8_t player = 0; net::Bytes data; };
         void SendVoice(const net::Bytes& data);
         std::vector<VoiceHeard> TakeVoice() { return std::move(m_voice); }
         void SetMyLooks(const net::PlayerLooks& looks);
         const std::map<uint8_t, net::PlayerLooks>& Looks() const { return m_looks; }
         uint32_t LooksChanges() const { return m_looksChanges; }
         void SetMyAnim(const std::string& path);
+        void SetMyPartyPerks(uint8_t perks);
+        uint8_t MyPartyPerks() const { return m_myPartyPerks; }
+        const std::map<uint8_t, uint8_t>& PartyPerks() const { return m_partyPerks; }
         const std::map<uint8_t, std::string>& Anims() const { return m_anims; }
         uint32_t AnimChanges() const { return m_animChanges; }
         void SetMyModAnims(const std::vector<std::string>& paths);
@@ -219,6 +413,9 @@ namespace coop
         float TakeDamage() { float d = m_damage; m_damage = 0; return d; }
         void Revive(uint8_t playerId);
         bool TakeRevived() { bool r = m_revived; m_revived = false; return r; }
+        void GiveHeal(uint8_t target, uint32_t item, uint8_t medicine, bool fastMetabolism);
+        bool TakeHeal(net::HealAlly& out);
+        bool TakeHealRefund(uint32_t& item);
         void Drag(uint8_t target, bool on);
         int DraggedBy(uint8_t target) const;
         int Dragging(uint8_t dragger) const;
@@ -235,19 +432,16 @@ namespace coop
         std::vector<net::DoorState> ObserveDoors(uint32_t now, const std::vector<LocalDoor>& local);
         std::vector<uint32_t> ViewedContainers() const;
         void SetContainerContents(uint32_t ref, const std::vector<net::ItemCount>& items);
-        struct ItemChangeFrom { uint8_t playerId; net::ContainerChange change; };
         std::vector<ItemChangeFrom> TakeContainerChanges() { return std::move(m_itemChanges); }
         void ContainerChangeDone(uint8_t playerId, uint32_t seq, const net::ItemCount& refund);
         void ViewContainer(uint32_t hostRef, bool open = true);
         std::vector<net::ItemCount> LookAtContainer(const std::vector<net::ItemCount>& local);
         void ContainerSettled(const std::vector<net::ItemCount>& local) { m_friendContainer.Settle(local); }
+        void ClosedContainer(const std::vector<net::ItemCount>& local);
         std::vector<net::ItemCount> TakeItemRefunds() { return std::move(m_refunds); }
         void SetWorldItems(const std::vector<net::ItemState>& items);
-        struct ItemTakeFrom { uint8_t playerId; net::ItemTake take; };
-        struct ItemDropFrom { uint8_t playerId; net::ItemDrop drop; };
         std::vector<ItemTakeFrom> TakeItemTakes() { return std::move(m_itemTakes); }
         std::vector<ItemDropFrom> TakeItemDrops() { return std::move(m_itemDrops); }
-        struct ItemMoveFrom { uint8_t playerId; net::ItemMove move; };
         std::vector<ItemMoveFrom> TakeItemMoves() { return std::move(m_itemMoves); }
         void RefundItems(uint8_t playerId, const net::ItemCount& refund);
         ItemActions LookAtItems(const std::vector<LocalItem>& local, bool sameArea);
@@ -256,6 +450,17 @@ namespace coop
         uint32_t Joins() const { return m_joins; }
         void SendRefEnables(const std::vector<net::RefEnable>& changes);
         std::vector<net::RefEnable> TakeRefEnables() { return std::move(m_refEnables); }
+        void SendObjectStates(const std::vector<net::ObjectState>& states);
+        std::vector<net::ObjectState> TakeObjectStates() { return std::move(m_objectStates); }
+        void SendObjectLows(const std::vector<net::ObjectLow>& lows);
+        std::vector<std::pair<uint8_t, net::ObjectLow>> TakeObjectLows() { return std::move(m_objectLows); }
+        bool PlayerPose(uint8_t playerId, Pose& out) const { return PoseOf(playerId, out); }
+        void SendTerminalUse(const net::TerminalUse& use);
+        std::vector<net::TerminalUse> TakeTerminalUses() { return std::move(m_terminalUses); }
+        void SendActivatorUse(const net::ActivatorUse& use);
+        std::vector<net::ActivatorUse> TakeActivatorUses() { return std::move(m_activatorUses); }
+        void SendQuestCommand(const net::QuestCommand& command);
+        std::vector<QuestCommandFrom> TakeQuestCommands() { return std::move(m_questCommands); }
         void ShareProgress(int32_t xp, int32_t karma);
         void SetMyXp(int32_t xp) { m_myXp = xp < 0 ? 0 : xp > net::kMaxXp ? net::kMaxXp : xp; }
         bool TakeHostXp(int32_t& xp)
@@ -282,18 +487,9 @@ namespace coop
         void SendDialogueLine(const net::DialogueLine& line);
         void ShareSubtitle(net::Subtitle s);
         std::vector<net::Subtitle> TakeSubtitles() { return std::move(m_subtitles); }
-        struct DialogueLineFrom { uint8_t playerId; net::DialogueLine line; };
         std::vector<DialogueLineFrom> TakeDialogueLines() { return std::move(m_dialogueLines); }
         void AskToWait(uint8_t hours, bool sleep);
         void AnswerWait(bool yes);
-        struct WaitEvent
-        {
-            enum class Kind { Asked, Start, Refused } kind;
-            uint8_t requester = 0;
-            uint8_t hours = 0;
-            bool sleep = false;
-            uint8_t refusedBy = net::kNobody;
-        };
         std::vector<WaitEvent> TakeWaitEvents() { return std::move(m_waitEvents); }
         void SetMyGameTime(const net::GameTime& t) { m_myGameTime = t; m_hasGameTime = true; }
         bool TakeGameTime(net::GameTime& out)
@@ -312,7 +508,6 @@ namespace coop
         void AskHostToSave(const std::string& ourSave);
         void AskHostToLoad(const std::string& hostSave);
         bool TakeLoadRefused() { bool r = m_loadRefused; m_loadRefused = false; return r; }
-        struct SaveAsk { uint8_t playerId; bool load; std::string name; };
         std::vector<SaveAsk> TakeSaveAsks() { return std::move(m_saveAsks); }
         void RefuseLoad(uint8_t playerId);
         std::vector<net::QuestState> TakeQuestStates() { return std::move(m_questStates); }
@@ -335,6 +530,7 @@ namespace coop
         void HostReceived(net::PeerId peer, const net::Bytes& data);
         void FriendReceived(const net::Bytes& data);
         void Kick(net::PeerId peer, const std::string& reason);
+        void SendContainerChanges(const std::vector<net::ContainerChange>& changes);
         void SendModList(net::PeerId peer);
         void Admit(net::PeerId peer, Player& player);
         void WelcomePlayer(net::PeerId peer, Player& player);
@@ -352,10 +548,13 @@ namespace coop
         void ForgetOldNpcs(uint32_t now);
         void HeardNpcs(const net::NpcStates& m);
         void SetRemoteGear(uint8_t id, std::vector<uint32_t> items);
-        void QueueAttack(uint8_t playerId, uint8_t shots, bool release);
+        void QueueAttack(uint8_t playerId, uint8_t shots, bool release, bool reload);
         void CheckDowned(uint32_t now);
         void EndGame(net::GameOverReason reason, uint8_t playerId);
         void HostRevive(uint8_t reviver, uint8_t target);
+        void HostHeal(const net::HealAlly& m);
+        void HealArrived(const net::HealAlly& m);
+        void Refund(uint8_t giver, const net::HealAlly& m);
         void HostDrag(uint8_t dragger, uint8_t target, bool on);
         void EndDrag(uint8_t target);
         bool HealthOf(uint8_t playerId, float& health, float& maxHealth) const;
@@ -366,184 +565,54 @@ namespace coop
         void PullMe(uint8_t leader, const Pose& to);
         uint8_t FreePlayerId() const;
 
+        void HeardPartyPerks(uint8_t player, uint8_t perks);
+        void HeardAnim(uint8_t player, const std::string& path);
+        void HeardModAnims(uint8_t player, const std::vector<std::string>& paths);
+        void SendCompanions(uint32_t now);
+        void SweepDesyncs(uint32_t now);
+        static bool WithinLimit(uint32_t& since, uint32_t& count, uint32_t most);
+        net::PeerId PeerOfPlayer(uint8_t playerId) const;
+        bool IsPlayer(uint8_t id) const;
+        void SendTalk(net::PeerId to);
+        void ExpectLoads(uint8_t except, uint32_t now);
+        void UpdateFreeze(uint32_t now);
+        void SendArrived();
+        void StartWaitVote(uint8_t requester, uint8_t hours, bool sleep, net::PeerId from);
+        void CheckWaitVote(uint32_t now);
+        void SendWaitResult(const net::WaitResult& m);
+
         net::Session m_enet;
         std::unique_ptr<net::Transport> m_other;
         net::Transport* m_net = &m_enet;
-        Role m_role = Role::None;
-        std::string m_myName;
-        uint8_t m_myId = 0;
-        FriendState m_friendState = FriendState::Disconnected;
-        std::map<net::PeerId, Player> m_players;
-        uint32_t m_lastPingLog = 0;
-        std::map<uint8_t, RemotePlayer> m_remotes;
-        Pose m_myPose, m_sentPose;
-        bool m_hasPose = false;
-        uint32_t m_lastPoseSent = 0;
         std::vector<uint32_t> m_myGear;
-        bool m_gearToSend = false;
-        std::vector<HitReport> m_hits;
-        std::vector<AttackReport> m_attacks;
-        float m_myHealth = 0, m_myMaxHealth = 0;
-        bool m_healthToSend = false;
-        uint32_t m_lastHealthSent = 0;
-        float m_damage = 0;
-        bool m_hostSaysFighting = false;
         SaveMode m_mode;
-        bool m_revived = false;
-        bool m_gameOver = false;
-        net::GameOver m_gameOverInfo;
-        std::map<uint8_t, uint32_t> m_downedSince;
-        std::map<uint8_t, uint8_t> m_drags;
-        std::map<uint8_t, uint32_t> m_dragSince;
-        bool m_gameOverSent = false;
+        uint16_t m_healSeq = 0;
         uint32_t m_bleedOutMs = kBleedOutMs;
-        Pose m_place;
-        bool m_hasPlace = false;
-        bool m_regroup = false;
-        Pose m_expect;
-        bool m_expecting = false;
-        Pose m_travel;
-        uint8_t m_travelLeader = 0;
-        bool m_hasTravel = false;
-        Pose m_groupPlace;
-        uint8_t m_groupLeader = 0;
-        uint32_t m_groupMovedAt = 0;
-        bool m_hasGroupPlace = false;
         uint32_t m_travelCooldownMs = kTravelCooldownMs;
-        struct SentNpc { net::NpcState state; uint32_t at = 0; };
-        uint32_t m_npcSpace = 0;
-        std::vector<net::NpcState> m_myNpcs;
-        std::map<uint32_t, SentNpc> m_sentNpcs;
-        uint32_t m_lastNpcsSent = 0;
-        uint32_t m_npcUpdatesSent = 0, m_npcBytesSent = 0;
-        uint32_t m_playerCommandsSent = 0, m_playerCommandBytesSent = 0;
-        std::map<uint32_t, net::NpcAttack> m_npcShots;
-        struct NpcGearSent { std::vector<net::WornItem> items; uint32_t sentAt = 0; bool changed = true; };
-        std::map<uint32_t, NpcGearSent> m_npcGear;
-        std::vector<net::NpcAttack> m_npcAttacks;
-        std::map<uint32_t, RemoteNpc> m_npcs;
-        bool m_warnedNpcs = false;
-        std::vector<net::DoorState> m_myDoors;
-        std::map<uint32_t, net::DoorState> m_sentDoors;
-        uint32_t m_lastDoorsSent = 0;
-        std::vector<net::DoorState> m_doorUses;
-        FriendDoors m_friendDoors;
-        struct HostView
-        {
-            uint32_t ref = 0;
-            uint32_t seen = 0;
-            bool sent = false;
-            uint32_t sentSeen = 0;
-            std::vector<net::ItemCount> sentItems;
-        };
-        std::map<uint8_t, HostView> m_views;
-        std::vector<ItemChangeFrom> m_itemChanges;
-        FriendContainer m_friendContainer;
-        std::vector<net::ItemCount> m_refunds;
-        std::vector<net::ItemState> m_myItems;
-        std::map<uint32_t, net::ItemState> m_sentItems;
-        uint32_t m_lastItemsSent = 0;
-        bool m_itemsNew = false;
-        std::vector<ItemTakeFrom> m_itemTakes;
-        std::vector<ItemDropFrom> m_itemDrops;
-        std::vector<ItemMoveFrom> m_itemMoves;
-        std::map<uint32_t, uint32_t> m_lastMoveSent;
-        DesyncTracker m_desyncs;
-        std::vector<net::CompanionState> m_myCompanions;
-        bool m_companionsChanged = false;
-        uint32_t m_lastCompanionsSent = 0;
-        std::vector<CompanionOrderFrom> m_companionOrders;
-        std::map<uint32_t, uint8_t> m_companions;
-        std::vector<net::PlayerCommand> m_playerCommands;
-        std::map<uint32_t, net::RadioLine> m_radioLines;
-        uint32_t m_nextRadioResend = 0;
-        std::map<uint32_t, uint32_t> m_radioStartedAt;
-        std::vector<ChatHeard> m_chat;
-        std::vector<VoiceHeard> m_voice;
-        std::vector<net::NpcPile> m_piles;
-        std::vector<MineFrom> m_mines;
         net::PlayerLooks m_myLooks;
-        bool m_hasMyLooks = false, m_myLooksSent = false;
-        std::map<uint8_t, net::PlayerLooks> m_looks;
+        bool m_hasMyLooks = false;
         uint32_t m_looksChanges = 0;
         std::string m_myAnim;
-        bool m_myAnimSent = true;
-        std::map<uint8_t, std::string> m_anims;
+        uint8_t m_myPartyPerks = 0;
         uint32_t m_animChanges = 0;
-        void HeardAnim(uint8_t player, const std::string& path);
         std::vector<std::string> m_myModAnims;
-        bool m_myModAnimsSent = true;
-        std::map<uint8_t, std::vector<std::string>> m_modAnims;
-        void HeardModAnims(uint8_t player, const std::vector<std::string>& paths);
         int32_t m_myXp = 0;
-        int32_t m_hostXp = 0;
-        bool m_hostXpWaiting = false;
-        void SendCompanions(uint32_t now);
-        DesyncCounts m_desyncsSent;
-        uint32_t m_nextDesyncSweep = 0;
-        std::vector<std::string> m_desyncNotices;
-        void SweepDesyncs(uint32_t now);
-        FriendItems m_friendItems;
         uint32_t m_joins = 0;
         ModList m_mods;
         net::Hash m_modsPrint{};
-        ModList m_hostMods;
-        bool m_hostModsDone = false;
-        bool m_modsDiffer = false;
-        bool m_checkOnly = false;
         bool m_modsMatched = false;
         net::ModsMatch m_matchedHost;
         std::string m_currentSave;
         std::vector<std::string> m_questMods;
         bool m_autoApprove = true;
-        std::vector<JoinAsk> m_joinAsks;
         uint32_t m_nextAskId = 1;
         std::set<std::string> m_approved;
-        bool m_askingHost = false;
-        std::vector<net::ExplosionAt> m_explosions;
-        uint32_t m_hostExplosionsSince = 0, m_hostExplosions = 0;
-        static bool WithinLimit(uint32_t& since, uint32_t& count, uint32_t most);
         std::string m_modReport;
         ModFolders m_modFolders;
         ModServer m_modServer;
-        std::vector<ModDownload::Wanted> m_modsWanted;
-        std::vector<std::string> m_modsExtra;
         std::string m_modQuestion;
         ModDownload m_download;
-        bool m_downloading = false;
         std::string m_modFixResult;
         std::string m_rejectReason;
-        std::vector<net::QuestState> m_questStates;
-        std::vector<net::RefEnable> m_refEnables;
-        std::vector<net::Progress> m_progress;
-        std::vector<net::Reputation> m_reputations;
-        std::vector<uint32_t> m_travelMarkers;
-        std::vector<uint8_t> m_teleports;
-        bool IsPlayer(uint8_t id) const;
-        std::vector<std::pair<uint8_t, net::ReputationGain>> m_repGains;
-        TalkLock m_talk;
-        void SendTalk(net::PeerId to);
-        std::vector<DialogueLineFrom> m_dialogueLines;
-        std::vector<net::Subtitle> m_subtitles;
-        LoadGate m_loads;
-        bool m_frozen = false;
-        uint8_t m_frozenFor = 0;
-        void ExpectLoads(uint8_t except, uint32_t now);
-        void UpdateFreeze(uint32_t now);
-        void SendArrived();
-        std::vector<net::SaveOrder> m_saveOrders;
-        bool m_loadRefused = false;
-        std::vector<SaveAsk> m_saveAsks;
-        uint32_t m_lastSaveAsk = 0;
-        WaitVote m_wait;
-        std::vector<WaitEvent> m_waitEvents;
-        void StartWaitVote(uint8_t requester, uint8_t hours, bool sleep, net::PeerId from);
-        void CheckWaitVote(uint32_t now);
-        void SendWaitResult(const net::WaitResult& m);
-        net::GameTime m_myGameTime;
-        bool m_hasGameTime = false;
-        uint32_t m_lastGameTimeSent = 0;
-        net::GameTime m_hostTime;
-        bool m_hostTimeNew = false;
     };
 }

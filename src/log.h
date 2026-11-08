@@ -8,6 +8,7 @@ namespace Log
 {
     void Open(const char* folder);
     void EchoToConsole(bool on);
+    void SetLevel(LogLevel level);
     void Flush();
     void Write(LogLevel level, const char* fmt, ...);
 }

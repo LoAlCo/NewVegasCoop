@@ -37,6 +37,7 @@ namespace game::addr
     constexpr uintptr_t kExplosionInitSlot = 0x0108F108;
     constexpr uintptr_t kExplosionInit = 0x009ACD60;
     constexpr uint32_t kExplosionSource = 0xC8;
+    constexpr uintptr_t kAiThreadsRunning = 0x011DFA19;
     constexpr uint32_t kExplosionProcess = 0x68;
     constexpr uintptr_t kAlwaysActiveSetting = 0x011DEED8;
     constexpr uintptr_t kGameTimeGlobals = 0x011DE7B8;
@@ -50,6 +51,7 @@ namespace game::addr
     constexpr uintptr_t kInterfaceManager = 0x011D8A80;
     constexpr uintptr_t kNiAVObjectUpdate = 0x00A59C60;
     constexpr uintptr_t kDisplayHeightSetting = 0x011C718C, kMenuUnitsPerPixel = 0x011D8A48;
+    constexpr uintptr_t kDisplayWidthSetting = 0x011C73DC;
     constexpr uint32_t kMenuStack = 0x114;
     constexpr int kMenuStackSlots = 10;
     constexpr uintptr_t kMessageBoxBusy = 0x011DA4EC;
@@ -64,11 +66,17 @@ namespace game::addr
     constexpr uint32_t kAnimGroupInfoSize = 0x24;
     constexpr uintptr_t kProcessManager = 0x011E0E80;
     constexpr uintptr_t kTopicInfoRunResultScript = 0x0061F170;
+    constexpr uintptr_t kTerminalRunEntry = 0x00501830;
+    constexpr uintptr_t kTerminalRunEntryCalls[2] = {0x00758160, 0x0075819A};
+    constexpr uintptr_t kComputersMenu = 0x011D9334;
+    constexpr uintptr_t kRefActivate = 0x00573170;
     constexpr uintptr_t kTopicInfoGetResultScript = 0x0061EB60;
     constexpr uintptr_t kDialogMenu = 0x011D9510;
     constexpr uintptr_t kShowSubtitle = 0x00705210;
     constexpr int kProcessSaySlot = 0x2A4 / 4;
     constexpr uintptr_t kPickLineCall = 0x0061B361;
+    constexpr uintptr_t kDetectionTeammateCall = 0x00973817;
+    constexpr uintptr_t kActorIsTeammate = 0x00566950;
     constexpr uintptr_t kRadioSetOn = 0x008324E0;
     constexpr uintptr_t kRadioSetStation = 0x00832240;
     constexpr uintptr_t kRadioOn = 0x011DD434;
@@ -94,6 +102,7 @@ namespace game::addr
     constexpr uint32_t kRaceChild = 0x04;
     constexpr uintptr_t kRemakeHead = 0x008D3FA0;
     constexpr uintptr_t kLoadFaceGenEgt = 0x011D5AE0;
+    constexpr uint32_t kVtblFaceGenNodeBiped = 0x1AC;
     constexpr uintptr_t kSetTimeMultiplier = 0x00AA4DB0;
     constexpr uintptr_t kInMenuMode = 0x00702360;
     constexpr uintptr_t kPauseMenuUp = 0x004A4040;
@@ -101,8 +110,26 @@ namespace game::addr
         0x00837D05, 0x008387C5, 0x0089C6CA, 0x0089C74A, 0x0089CEBA, 0x0089CF56, 0x008A7EA9, 0x008D1AA1};
     constexpr uintptr_t kTimeGlobal = 0x011F6394;
     constexpr uintptr_t kVatsTimeCalls[] = {0x009C7E7D, 0x009C7EA9, 0x009C7EC6, 0x009C852D, 0x009C8565};
+    constexpr uintptr_t kVatsTargetFovMin = 0x011CEA44;
+    constexpr uintptr_t kDefaultWorldFov = 0x0120315C;
+    constexpr uint32_t kSettingValue = 0x04;
+    constexpr uintptr_t kVatsPickCameraPath = 0x0058BB50;
+    constexpr uintptr_t kVatsPickCameraPathCall = 0x009C7489;
+    constexpr uintptr_t kVatsShotStage = 0x009E32D0;
+    constexpr uintptr_t kVatsMeleeShotStageCall = 0x009C96E0;
+    constexpr uintptr_t kVatsCameraData = 0x011F2250;
+    constexpr uint32_t kVatsCameraMode = 0x08;
+    constexpr uintptr_t kVatsPlayerDeathPlayback = 0x009CA1F0;
+    constexpr uintptr_t kPlayerUpdateDeathPlaybackCall = 0x009438F1;
     constexpr uintptr_t kLevelUpSkillPoints = 0x00648BC0;
     constexpr uintptr_t kLevelUpSkillPointsCall = 0x00784EE3;
+    constexpr uintptr_t kLevelUpPerkAlphaPush = 0x00785931;
+    constexpr uintptr_t kLevelUpPerkAlpha = 0x007864E0;
+    constexpr uintptr_t kLevelUpTextAlphaTrait = 0x011D9FF4;
+    constexpr uintptr_t kLevelUpPerkDescribeCall = 0x0078543A;
+    constexpr uintptr_t kLevelUpMenu = 0x011D9FDC;
+    constexpr uint32_t kLevelUpMenuPage = 0x28;
+    constexpr uintptr_t kPerkDescribe = 0x005EBAC0;
     constexpr uintptr_t kMineReactsToTarget = 0x009C3930;
     constexpr uintptr_t kMineReactsCall = 0x009C3BD1;
     constexpr uintptr_t kProjectileTurnOff = 0x009C43E0;
@@ -137,6 +164,8 @@ namespace game::process
 {
     constexpr uint32_t kGetAnimDataOffset = 0x1B8;
     constexpr uint32_t kLevel = 0x28;
+    constexpr uint32_t kFadeState = 0x3E8;
+    constexpr uint32_t kFadeTeleportOut = 4;
     constexpr uint32_t kCachedValues = 0x2C;
     constexpr uint32_t kCachedWalkSpeed = 0x38;
     constexpr uint32_t kCachedRunSpeed = 0x3C;
@@ -190,6 +219,18 @@ namespace game::opcodes
         0x1268,
         0x1279,
     };
+    constexpr uint16_t kStartConversation = 0x1056;
+    constexpr uint16_t kOpensScreenToo[] = {
+        0x1055,
+        0x1178,
+        0x1185,
+        0x11B2,
+        0x11EE,
+        0x1245,
+        0x1252,
+        0x1254,
+        0x1256,
+    };
     constexpr uint16_t kOnReference = 0x1C;
 }
 
@@ -215,6 +256,14 @@ namespace game::ids
     constexpr uint32_t kStandInBase = 0x00120EB1;
     constexpr uint32_t kIntroQuest = 0x00104C1C;
     constexpr uint32_t kPlayerFaction = 0x0001B2A4;
+    constexpr uint32_t kFortuneFinderOdds = 0x000645CC;
+    constexpr uint32_t kFortuneFinderChangeOdds = 0x000645CE;
+    constexpr uint32_t kScroungerOdds = 0x000645CD;
+    constexpr float kOddsFileValue = 100;
+    constexpr float kFortuneFinderValue = 90;
+    constexpr float kScroungerValue = 25;
+    constexpr uint32_t kThemsGoodEatinListLocal = 0x0098C8;
+    constexpr uint32_t kCertifiedTechListLocal = 0x00C42D;
     constexpr uint32_t kDocMitchellHouse = 0x00103DF9;
     constexpr uint32_t kLvlPowderGanger = 0x0015F315;
     constexpr uint32_t kStimpak = 0x00015169;
@@ -230,6 +279,7 @@ namespace game::ids
 namespace game::layout
 {
     constexpr uint8_t kExtraLeveledCreature = 0x2E;
+    constexpr uint8_t kExtraGhost = 0x1F;
     constexpr uint32_t kLeveledBaseForm = 0x0C;
     constexpr uint32_t kLeveledActorBase = 0x10;
     constexpr uint8_t kExtraLock = 0x2A;
@@ -238,6 +288,7 @@ namespace game::layout
     constexpr uint32_t kMerchantContainerRef = 0x0C;
     constexpr uint32_t kLockData = 0x0C;
     constexpr uint32_t kLockLevel = 0x00;
+    constexpr uint32_t kLockKey = 0x04;
     constexpr uint32_t kLockFlags = 0x08;
     constexpr uint8_t kLockLocked = 0x01;
     constexpr uintptr_t kTesSingleton = 0x011DEA10;
@@ -246,6 +297,33 @@ namespace game::layout
     constexpr uint32_t kGridCellArray = 0x10;
     constexpr uint32_t kCellWorldSpace = 0xC0;
     constexpr uint32_t kWorldPersistentCell = 0x34;
+    constexpr uint32_t kTesSceneRoot = 0x0C;
+    constexpr uintptr_t kTesFillGridSlot = 0x00451A50;
+    constexpr uintptr_t kTesFillGridSlotCall = 0x00453121;
+    constexpr uint32_t kTesExteriorBuffer = 0x3C;
+    constexpr uintptr_t kExteriorBufferSetting = 0x011C3C90;
+    constexpr uintptr_t kDataHandlerDeleteCell = 0x00462290;
+    constexpr uint32_t kTesGridCentre = 0x24;
+    constexpr uint32_t kTesWorldSpace = 0x88;
+    constexpr uint32_t kTesAttachedList = 0x8C;
+    constexpr uintptr_t kWorldSpaceCellAt = 0x00585B30;
+    constexpr uintptr_t kDataHandlerGetOrCreateCell = 0x00461C20;
+    constexpr uintptr_t kWorldSpaceAddCellRefs = 0x00588150;
+    constexpr uintptr_t kCellSetFlag10 = 0x00551440;
+    constexpr uintptr_t kCellState = 0x00450FD0;
+    constexpr uintptr_t kCellAttachStart = 0x00552970;
+    constexpr uintptr_t kCellAttachFinish = 0x0054BCF0;
+    constexpr uintptr_t kCellDetach = 0x00552BD0;
+    constexpr uintptr_t kCellNode = 0x00545CF0;
+    constexpr uintptr_t kNodeAfterAttach = 0x00A5A040;
+    constexpr uintptr_t kNodeIsUpdated = 0x00453470;
+    constexpr uintptr_t kNodeUpdate = 0x00A59C60;
+    constexpr uintptr_t kUpdateDataMake = 0x0043D410;
+    constexpr uintptr_t kTesAddCellToBuffer = 0x00454B90;
+    constexpr uintptr_t kListPushFront = 0x005AE3D0;
+    constexpr uintptr_t kOutdoorHavokWorld = 0x00451010;
+    constexpr uintptr_t kHavokBeforeAttach = 0x00C66300;
+    constexpr uintptr_t kHavokAfterAttach = 0x00C6B540;
     constexpr uint8_t kFormTypeArmor = 0x18;
     constexpr uint8_t kFormTypeAlchemy = 0x2F;
     constexpr uint8_t kFormTypeLevItem = 0x34;
@@ -280,6 +358,20 @@ namespace game::layout
     constexpr uint32_t kRefPersistent = 0x400;
     constexpr uint32_t kRefDeleted = 0x20;
     constexpr uint32_t kRefDisabled = 0x800;
+    constexpr uint32_t kRefDestroyed = 0x00800000;
+    constexpr uint32_t kRefDestructible = 0x01000000;
+    constexpr uint32_t kMenuTerminal = 0xA8;
+    constexpr uint32_t kMenuTerminalRef = 0xAC;
+    constexpr uint32_t kTerminalEntries = 0x98;
+    constexpr uint32_t kTerminalEntryText = 0x00;
+    constexpr uint32_t kActivatorDestructible = 0x68;
+    constexpr uint32_t kDestructibleData = 0x04;
+    constexpr uint32_t kDestructibleHealth = 0x00;
+    constexpr uint32_t kDestructibleStageCount = 0x04;
+    constexpr uint32_t kDestructibleStages = 0x08;
+    constexpr uint32_t kStageSelfDamage = 0x04;
+    constexpr uint8_t kExtraObjectHealth = 0x56;
+    constexpr uint32_t kObjectHealthValue = 0x0C;
     constexpr uint8_t kExtraEnableStateParent = 0x37;
     constexpr uint32_t kEnableParentRef = 0x0C;
     constexpr uint32_t kProjFlags = 0xC8;
@@ -292,6 +384,9 @@ namespace game::layout
     constexpr uint32_t kChildNodeNext = 0x00, kChildNodeTile = 0x08;
     constexpr uint32_t kNiLocalTranslate = 0x58, kNiLocalScale = 0x64;
     constexpr uint32_t kNiNodeChildren = 0xA0, kNiNodeChildSlots = 0xA6;
+    constexpr uint32_t kHudPromptRef = 0x1B8;
+    constexpr uint32_t kHudPromptTiles[] = {0x9C, 0xA8, 0xAC, 0xB0};
+    constexpr uint32_t kTileVisible = 0xFA3;
     constexpr uint32_t kDialogMenuPartner = 0x80;
     constexpr uint32_t kDialogMenuTopicNode = 0x70;
     constexpr uint32_t kMenuTopicResponses = 0x0C;
@@ -316,6 +411,7 @@ namespace game::layout
     constexpr uint32_t kWorldSpaceCell = 0x34;
     constexpr uint32_t kCellObjects = 0xAC;
     constexpr uint32_t kPlayerDisabledControls = 0x680;
+    constexpr uint32_t kActorKiller = 0xC0;
     constexpr uint8_t kExtraMapMarker = 0x2C;
     constexpr uint32_t kMapMarkerData = 0x0C;
     constexpr uint32_t kMarkerName = 0x04;
@@ -359,6 +455,7 @@ namespace game::layout
     constexpr int kControlAttack = 4, kControlAimBlock = 6, kControlReadyItem = 7, kControlRun = 9,
         kControlAlwaysRun = 0x0A, kControlJump = 0x0C, kControlVats = 0x10, kControlGrab = 0x1B;
     constexpr uint32_t kPlayerAlwaysRun = 0x651;
+    constexpr uint32_t kPlayerKillCamMode = 0x7C0;
 }
 
 namespace game::steamslots

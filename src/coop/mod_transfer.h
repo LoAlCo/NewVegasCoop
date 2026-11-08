@@ -31,6 +31,7 @@ namespace coop
         bool Ask(net::PeerId peer, uint16_t index, const std::string& path, uint64_t offset, uint32_t length);
         bool Take(Piece& out);
         void Forget(net::PeerId peer);
+        void Clear();
 
     private:
         struct Job
@@ -40,6 +41,7 @@ namespace coop
             std::string path;
             uint64_t offset;
             uint32_t length;
+            uint32_t gen = 0;
         };
         void Run();
         size_t WaitingFor(net::PeerId peer) const;
@@ -50,6 +52,7 @@ namespace coop
         std::deque<Job> m_jobs;
         std::deque<Piece> m_done;
         bool m_stop = false;
+        uint32_t m_gen = 0;
     };
 
     class ModDownload

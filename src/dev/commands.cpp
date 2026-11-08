@@ -5,6 +5,7 @@
 #include "dev/inspect_text.h"
 #include "game/addresses.h"
 #include "game/dialogue.h"
+#include "game/far_cells.h"
 #include "game/sleepwait.h"
 #include "game/game.h"
 #include "game/inspector.h"
@@ -20,6 +21,7 @@
 #include <windows.h>
 #include <psapi.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -127,10 +129,15 @@ namespace dev
             Say("coop check: check the memory map again");
             Say("coop menus: which menus are open (as the crash log says)");
             Say("coop spawn: a lab dummy next to you (inspected); coop remove: delete it");
+            Say("coop killcam N: the kill camera mode (0 none, 2 cinematic), held; -1: co-op turns it off again");
+            Say("coop vatscam 0|1: VATS playback with the game's camera (0, lab) or your own view (1, co-op's)");
+            Say("coop deathcam 0|1: while downed, no death playback (0, co-op's) or the game's (1, lab)");
             Say("coop flags N: make the selected or inspected actor move with flags N (1 forward, 512 run, ...)");
             Say("coop release: give it back to its AI's path");
             Say("coop mirror: the lab dummy (or selected actor) copies you like a friend's puppet; again to stop");
             Say("coop npcs: list the actors near you (the game's high-process list)");
+            Say("coop talk: start a conversation with the nearest actor as if you pressed E (your own, on a friend's "
+                "game too); coop greet: the nearest actor starts one with you");
             Say("coop doors: list the doors near you; coop door N: the selected door 0 closes, 1 opens, 2 locks, 3 unlocks");
             Say("coop doorpick K: coop door N changes door K of that list when none is selected");
             Say("coop boxes: list the containers near you; coop openbox K: open container K of that list");
@@ -193,6 +200,53 @@ namespace dev
                 return Say(game::TravelTo(here) ? "Went to %.0f, %.0f, %.0f" : "Couldn't go to %.0f, %.0f, %.0f", gx, gy,
                     gz);
             }
+            if (_strnicmp(action, "aimat:", 6) == 0)
+            {
+                unsigned id = 0;
+                if (sscanf_s(action + 6, "%x", &id) != 1)
+                    return Say("coop aimat:<ref id, hex>");
+                TESObjectREFR* who = game::LookupRef(id);
+                coop::Pose me, at;
+                if (!game::IsActor(who) || !game::GetPose(game::Player(), me) || !game::GetPose(who, at))
+                    return Say("%08X: no such actor here", id);
+                float dx = at.x - me.x, dy = at.y - me.y, flat = std::sqrt(dx * dx + dy * dy);
+                game::Turn(game::Player(), std::atan2(dx, dy));
+                game::SetPitch(game::Player(), -std::atan2((at.z + 50) - (me.z + 120), flat));
+                return Say("Aiming at %08X, %.0f units away", id, flat);
+            }
+            if (_strnicmp(action, "legs:", 5) == 0)
+            {
+                unsigned id = 0, flags = 0;
+                if (sscanf_s(action + 5, "%x:%u", &id, &flags) != 2)
+                    return Say("coop legs:<ref id, hex>:<flags> (513 run forward, 0 back to its AI)");
+                TESObjectREFR* who = game::LookupRef(id);
+                if (!game::IsActor(who))
+                    return Say("%08X: no such actor here", id);
+                bool done = flags ? game::AskMovementFlags(who, flags) : game::ReleaseMovementFlags(who);
+                return Say(done ? "Told %08X to move %s (%u)" : "Couldn't move %08X (%s, %u)", id,
+                    MoveFlagNames(flags).c_str(), flags);
+            }
+            if (_strnicmp(action, "attach:", 7) == 0 || _strnicmp(action, "detach:", 7) == 0 ||
+                _strnicmp(action, "cell:", 5) == 0)
+            {
+                int cx = 0, cy = 0;
+                const char* at = strchr(action, ':') + 1;
+                if (sscanf_s(at, "%d:%d", &cx, &cy) != 2)
+                    return Say("coop attach:X:Y, detach:X:Y or cell:X:Y (cell coordinates)");
+                std::string why;
+                if (_strnicmp(action, "attach:", 7) == 0)
+                {
+                    bool done = game::AttachFarCell(cx, cy, why);
+                    return Say(done ? "Cell %d, %d attached" : "Cell %d, %d not attached: %s", cx, cy, why.c_str());
+                }
+                if (_strnicmp(action, "detach:", 7) == 0)
+                {
+                    bool done = game::DetachFarCell(cx, cy, why);
+                    return Say(done ? "Cell %d, %d detached" : "Cell %d, %d not detached: %s", cx, cy, why.c_str());
+                }
+                return Say("Cell %d, %d: state %d%s", cx, cy, game::FarCellState(cx, cy),
+                    game::IsGridCell(cx, cy) ? " (one of the player's grid cells)" : "");
+            }
             if (_stricmp(action, "menus") == 0)
             {
                 char menus[96];
@@ -251,6 +305,41 @@ namespace dev
                 else
                     Say("No lab dummy to remove");
                 g_dummy = 0;
+            }
+            else if (_stricmp(action, "vatscam") == 0)
+            {
+                if (!hasNumber || (number != 0 && number != 1))
+                    Say("coop vatscam 1: VATS playback in your own view (co-op's); 0: the game's camera (lab)");
+                else
+                {
+                    game::SetVatsOwnViewPlayback(number == 1);
+                    Say(number == 1 ? "VATS playback: your own view" : "VATS playback: the game's camera");
+                }
+            }
+            else if (_stricmp(action, "deathcam") == 0)
+            {
+                if (!hasNumber || (number != 0 && number != 1))
+                    Say("coop deathcam 0: no death playback while downed (co-op's); 1: the game's (lab)");
+                else
+                {
+                    game::SetDownedDeathPlayback(number == 1);
+                    Say(number == 1 ? "Death playback while downed: the game's" : "Death playback while downed: off");
+                }
+            }
+            else if (_stricmp(action, "killcam") == 0)
+            {
+                if (!hasNumber || number < -1 || number > 2)
+                    Say("coop killcam N: the kill camera mode (0 none, 2 cinematic), held; coop killcam -1: co-op's again");
+                else if (number == -1)
+                {
+                    game::SetKillCamMode(2, false);
+                    Say("Kill camera: co-op's again (mode 2 left for it to turn off)");
+                }
+                else
+                {
+                    game::SetKillCamMode(static_cast<uint32_t>(number), true);
+                    Say("Kill camera mode %d, held", number);
+                }
             }
             else if (_stricmp(action, "flags") == 0)
             {
@@ -572,7 +661,16 @@ namespace dev
                 Say("%08X at %.0f %.0f %.0f, turned %.0f %.0f %.0f; its 3D %s %.0f %.0f %.0f", game::RefId(ref), w.x, w.y,
                     w.z, w.rx * 57.29578f, w.ry * 57.29578f, w.rz * 57.29578f, loaded ? "at" : "not loaded", x, y, z);
                 if (game::IsActor(ref))
-                    Say("  %s, health %.0f", game::IsDead(ref) ? "dead" : "alive", game::Health(ref));
+                {
+                    dev::ActorState state;
+                    game::ReadActorState(ref, state);
+                    std::vector<TESObjectREFR*> actors;
+                    game::NearbyActors(actors);
+                    bool listed = std::find(actors.begin(), actors.end(), ref) != actors.end();
+                    Say("  %s, health %.0f, switched %s, process level %d, %s the nearby actors list%s", game::IsDead(ref) ?
+                        "dead" : "alive", game::Health(ref), game::IsEnabled(ref) ? "on" : "off", state.processLevel,
+                        listed ? "in" : "not in", game::IsGhost(ref) ? ", a ghost" : "");
+                }
             }
             else if (_stricmp(action, "stopsay") == 0)
             {
@@ -1328,6 +1426,7 @@ namespace dev
                     return Say("No one near you");
                 if (_stricmp(action, "talk") == 0)
                 {
+                    game::Dialogue::LabOwnActivate();
                     game::Activate(nearest);
                     Say("You start a conversation with %s (%08X)", game::Name(nearest), game::RefId(nearest));
                     return;

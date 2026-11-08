@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include "net/fake_lag.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -22,6 +24,11 @@ struct Config
     bool friendMarkers = true;
     bool talkLog = true;
     int talkLogSize = 65;
+    int talkLogPlace = 0;
+    int talkLogX = 2, talkLogY = 25;
+    int talkLogWidth = 600;
+    int talkLogAlign = 0;
+    bool talkLogPreview = false;
     int talkLogLines = 4;
     int talkLogSeconds = 15;
     int talkLogGap = 6;
@@ -32,6 +39,7 @@ struct Config
     int talkLogRed = 255, talkLogGreen = 255, talkLogBlue = 255;
     bool coopBalanced = false;
     bool friendlyFire = false;
+    bool farAreas = true;
     bool askMode = true;
     bool askHardcore = true;
     std::vector<std::string> patches;
@@ -52,7 +60,9 @@ struct Config
     int voiceChatVolume = 100;
     bool mouths = true;
     bool skipDlcPopups = true;
+    bool farCells = true;
     bool labChannel = false;
+    net::FakeLag fakeLag;
     bool lanCoop = false;
     bool ipHosting = false;
     std::string joinAddress;
@@ -62,4 +72,5 @@ struct Config
     static Config Load(const std::string& iniPath);
     void LoadPlayer(const std::string& path);
     void WriteSwitches(const std::string& path) const;
+    void EndTalkLogPreview(const std::string& path);
 };

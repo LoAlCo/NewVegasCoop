@@ -79,9 +79,9 @@ namespace game
         SetPitch(actor, want.pitch);
     }
 
-    void Mirror::Attack(uint8_t shots, bool release)
+    void Mirror::Attack(uint8_t shots, bool release, bool reload)
     {
         if (m_refId)
-            m_puppet.Attack(LookupRef(m_refId), shots, release);
+            m_puppet.Attack(LookupRef(m_refId), shots, release, reload);
     }
 }

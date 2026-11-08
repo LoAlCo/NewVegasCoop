@@ -16,6 +16,32 @@ namespace net
         bool On() const { return pingMs || jitterMs || lossPercent; }
     };
 
+    inline bool ParseFakeLag(const char* text, FakeLag& out)
+    {
+        out = FakeLag{};
+        uint32_t values[3] = {};
+        int count = 0;
+        const char* p = text;
+        while (p && *p && count < 3)
+        {
+            if (*p < '0' || *p > '9')
+                return false;
+            uint64_t v = 0;
+            while (*p >= '0' && *p <= '9')
+                if ((v = v * 10 + static_cast<uint64_t>(*p++ - '0')) > 10000)
+                    return false;
+            values[count++] = static_cast<uint32_t>(v);
+            if (*p == ',' && p[1])
+                ++p;
+            else if (*p)
+                return false;
+        }
+        if (!count || (p && *p) || values[2] > 100)
+            return false;
+        out = {values[0], values[1], values[2]};
+        return true;
+    }
+
     template <class T>
     class LagQueue
     {

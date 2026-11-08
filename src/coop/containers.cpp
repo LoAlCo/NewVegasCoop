@@ -51,6 +51,19 @@ namespace coop
         return {};
     }
 
+    void FriendContainer::Closing(const std::vector<net::ItemCount>& local,
+        std::vector<net::ContainerChange>& changes)
+    {
+        if (!m_ref || !m_open)
+            return;
+        if (m_hasSnapshot)
+            for (const net::ItemCount& d : ItemDiff(m_snapshot, local))
+                changes.push_back({m_ref, ++m_seq, d});
+        m_snapshot = local;
+        m_hasSnapshot = true;
+        m_open = false;
+    }
+
     void FriendContainer::Heard(const net::ContainerContents& m)
     {
         if (m.ref != m_ref || !m_ref)

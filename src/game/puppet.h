@@ -20,7 +20,7 @@ namespace game
         void Release(TESObjectREFR* actor);
         void Update(TESObjectREFR* actor, const coop::Pose& want, uint32_t now, const coop::Pose* latest = nullptr);
         void SetGear(TESObjectREFR* actor, const std::vector<uint32_t>& gear);
-        void Attack(TESObjectREFR* actor, uint8_t shots, bool release = false);
+        void Attack(TESObjectREFR* actor, uint8_t shots, bool release = false, bool reload = false);
 
     private:
         void UpdateWeaponOut(TESObjectREFR* actor, bool want, uint32_t now);

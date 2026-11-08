@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.1.11
+- Everyone needs 0.1.11 to play together.
+- New: heal an ally. Hold E for two seconds on a hurt, standing friend to give them one of your Stimpaks (or a Super
+  Stimpak if that's all you have). Your own Medicine skill and perks decide how much it heals.
+- New: party perks. Scrounger, Fortune Finder, Them's Good Eatin' and Certified Tech now count for the whole party:
+  one player takes the perk and everyone gets the extra loot. In everyone else's level-up menu that perk shows in
+  red, with a note that someone in your party already has it and it doesn't stack.
+- New: VATS feels real-time. No aiming zoom, a quicker turn to the target, shots right after you accept, the
+  playback stays in your own view, and the kill camera no longer plays outside VATS.
+- New: areas around far friends. The host's game now loads the area around a friend who wanders far away, so both
+  players see the same NPCs and creatures (one player used to meet ghouls at REPCONN the other couldn't see). On by
+  default; a switch under Co-op Settings in the Mod Configuration Menu. NPCs the host's game hasn't loaded yet hold
+  still and can't be talked to until it has.
+- New: shared world objects. Terminals, switches and other activators a friend uses now work for everyone, Dead
+  Money's speakers can be destroyed by any player, and what the host's scripts do to objects shows in every game.
+- Casinos' weapon checks, the Fort and Dead Money now work for every player: the gear taken at the door comes back
+  to its owner, and only its owner. Walking in and out of the Tops no longer loses anyone's weapons. Honest Hearts'
+  reward footlocker gives each player their own reward.
+- Quest objectives a friend completes through doors, containers and picked-up items now count for the whole group.
+- Other players' characters no longer show an "E) Talk" prompt and no longer speak NPC lines (greetings, idle
+  chatter, combat shouts).
+- Sneaking: a friend looking at you no longer makes you [DETECTED]; only real NPCs count, like companions.
+- Dying from a fall no longer leaves the camera circling forever with no way to open the menu.
+- A friend's game no longer crashes in VATS on certain levelled creatures: friends now get the same roll as the
+  host, so gecko nests and the like spawn the same creature for everyone.
+- Reloading now shows on your friends' screens.
+- Looting: grabbing Take All the moment a body's screen opens no longer keeps items out of the host's game, and
+  friends' copies of NPCs no longer carry hundreds of free rounds of ammo in their bodies.
+- Dead Money: Christine's Auto-Doc no longer locks up the other player's game, and a friend's game no longer
+  crashes when the host kills a ghost person (their copy wouldn't stay dead).
+- A friend's character's face keeps its skin tone (the head could be a different colour than the hands after
+  joining mid-game, loads or doors).
+- A crash reading another mod's check of a quest that isn't running is fixed (by LoAlCo; seen with Just Assorted
+  Mods' loot menu).
+- The nearby conversations log can be moved, resized and right aligned, with a preview while you set it up (by
+  LoAlCo), and now sits just above the HP bar by default so it doesn't cover quest messages.
+- The Mod Configuration Menu + MCM Extender are now listed as required (the mod tells you at startup if they're
+  missing).
+- Under the hood: a LogLevel setting in NVCoop.ini, and a big internal cleanup and code review.
+
 ## 0.1.10
 - Everyone needs 0.1.10 to play together.
 - New: a log of nearby conversations on the left of the screen (by LoAlCo). When a friend near you talks to someone,

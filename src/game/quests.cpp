@@ -40,12 +40,8 @@ namespace game
 
     void Quests::Stop()
     {
-        if (!m_detached.empty())
-        {
-            PutBackQuestScripts(m_detached);
-            LOG_INFO("Quests: put back %zu quest scripts", m_detached.size());
-        }
-        m_detached.clear();
+        if (size_t putBack = PutBackQuestScripts())
+            LOG_INFO("Quests: put back %zu quest scripts", putBack);
         m_detachedAll = false;
         m_prints.clear();
         m_loadOrder.clear();
@@ -166,12 +162,12 @@ namespace game
         if (!m_detachedAll)
         {
             m_loadOrder = LoadOrder();
-            m_detached = DetachQuestScripts([](uint32_t id, const void* c) {
+            size_t detached = DetachQuestScripts([](uint32_t id, const void* c) {
                 auto* q = static_cast<const Quests*>(c);
                 return coop::HostRunsQuestsOf(id, q->m_loadOrder, *q->m_questMods); }, this);
             m_detachedAll = true;
             m_quietUntil = now + kQuietAfterJoinMs;
-            LOG_INFO("Quests: detached %zu quest scripts (the host's game runs the story)", m_detached.size());
+            LOG_INFO("Quests: detached %zu quest scripts (the host's game runs the story)", detached);
         }
 
         bool quiet = !coop::IsDue(now, m_quietUntil);

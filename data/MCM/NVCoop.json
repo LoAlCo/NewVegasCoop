@@ -374,6 +374,18 @@
 							"default": 0
 						}
 					]
+				},
+				"31": {
+					"title": "Areas Around Far Friends",
+					"type": 5,
+					"enable": 1,
+					"mouse": "When you host, the area around a friend far from you runs in your game too, so its creatures are the same for both of you. About 10 MB of memory a cell; off: they wait, held still, until you come near",
+					"vars": [
+						{
+							"configINI": "Settings:bFarAreas",
+							"default": 1
+						}
+					]
 				}
 			}
 		},
@@ -392,7 +404,7 @@
 					"title": "Show Nearby Conversations",
 					"type": 5,
 					"enable": 1,
-					"mouse": "When a friend near you talks to someone, what they both say is listed at the top left",
+					"mouse": "When a friend near you talks to someone, what they both say is listed on your screen",
 					"vars": [
 						{
 							"configINI": "Settings:bTalkLog",
@@ -401,6 +413,18 @@
 					]
 				},
 				"3": {
+					"title": "Preview",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Fills the log with sample lines so you can try its position and look. Close the menu to see it. It turns itself off when a game loads",
+					"vars": [
+						{
+							"configINI": "Settings:bTalkLogPreview",
+							"default": 0
+						}
+					]
+				},
+				"4": {
 					"title": "Distance",
 					"type": 2,
 					"enable": 1,
@@ -418,7 +442,7 @@
 						"valueMax": 8000
 					}
 				},
-				"4": {
+				"5": {
 					"title": "Lines",
 					"type": 2,
 					"enable": 1,
@@ -436,7 +460,7 @@
 						"valueMax": 10
 					}
 				},
-				"5": {
+				"6": {
 					"title": "Seconds",
 					"type": 2,
 					"enable": 1,
@@ -454,12 +478,103 @@
 						"valueMax": 60
 					}
 				},
-				"6": {
+				"7": {
+					"title": "Position",
+					"enable": 1,
+					"type": 0
+				},
+				"8": {
+					"title": "Place",
+					"type": 1,
+					"enable": 1,
+					"mouse": "Above HP Bar: the log sits just above your HP bar and grows upward. Custom: it goes where the two sliders below say",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogPlace",
+							"default": 0
+						}
+					],
+					"strings": [
+						"Above HP Bar",
+						"Custom"
+					]
+				},
+				"9": {
+					"title": "Horizontal Position",
+					"type": 2,
+					"enable": 1,
+					"mouse": "With Place set to Custom: how far across the screen the log starts, in percent. It stays on screen",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogX",
+							"default": 2
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 0,
+						"valueMax": 100
+					}
+				},
+				"10": {
+					"title": "Vertical Position",
+					"type": 2,
+					"enable": 1,
+					"mouse": "With Place set to Custom: how far down the screen the log starts, in percent. It stays on screen",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogY",
+							"default": 25
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 0,
+						"valueMax": 100
+					}
+				},
+				"11": {
+					"title": "Width",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How wide the log gets before a line moves down to the next one. Lower it to keep clear of other parts of the HUD",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogWidth",
+							"default": 600
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 20,
+						"valueMin": 200,
+						"valueMax": 1200
+					}
+				},
+				"12": {
+					"title": "Alignment",
+					"type": 1,
+					"enable": 1,
+					"mouse": "Which side of the log the lines sit against. Right suits a log on the right of the screen",
+					"vars": [
+						{
+							"configINI": "Settings:iTalkLogAlign",
+							"default": 0
+						}
+					],
+					"strings": [
+						"Left",
+						"Right"
+					]
+				},
+				"13": {
 					"title": "Look",
 					"enable": 1,
 					"type": 0
 				},
-				"7": {
+				"14": {
 					"title": "Text Size",
 					"type": 2,
 					"enable": 1,
@@ -477,7 +592,7 @@
 						"valueMax": 150
 					}
 				},
-				"8": {
+				"15": {
 					"title": "Spacing",
 					"type": 2,
 					"enable": 1,
@@ -495,7 +610,7 @@
 						"valueMax": 40
 					}
 				},
-				"9": {
+				"16": {
 					"title": "Readability",
 					"type": 1,
 					"enable": 1,
@@ -513,7 +628,7 @@
 						"Dark Bar"
 					]
 				},
-				"10": {
+				"17": {
 					"title": "Dividers",
 					"type": 5,
 					"enable": 1,
@@ -525,12 +640,12 @@
 						}
 					]
 				},
-				"11": {
+				"18": {
 					"title": "Colour",
 					"enable": 1,
 					"type": 0
 				},
-				"12": {
+				"19": {
 					"title": "Use HUD Colour",
 					"type": 5,
 					"enable": 1,
@@ -542,7 +657,7 @@
 						}
 					]
 				},
-				"13": {
+				"20": {
 					"title": "Red",
 					"type": 2,
 					"enable": 1,
@@ -560,7 +675,7 @@
 						"valueMax": 255
 					}
 				},
-				"14": {
+				"21": {
 					"title": "Green",
 					"type": 2,
 					"enable": 1,
@@ -578,7 +693,7 @@
 						"valueMax": 255
 					}
 				},
-				"15": {
+				"22": {
 					"title": "Blue",
 					"type": 2,
 					"enable": 1,

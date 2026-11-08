@@ -93,8 +93,17 @@ namespace game
                 }
         }
 
+        void NoteAiFlag(const char* where)
+        {
+            static std::atomic<int> s_said{0};
+            int bit = AiThreadsRunning() ? 1 : 2;
+            if (!(s_said.fetch_or(bit) & bit))
+                LOG_INFO("Frame: the AI threads' flag read %d in %s (thread %lu)", bit == 1, where, GetCurrentThreadId());
+        }
+
         void __fastcall OnRelease(void* m)
         {
+            NoteAiFlag("an actor's movement release");
             g_nextRelease(m);
             KeepHold(m);
         }

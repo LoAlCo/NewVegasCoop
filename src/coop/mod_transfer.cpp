@@ -82,7 +82,7 @@ namespace coop
             std::lock_guard lock(m_mutex);
             if (WaitingFor(peer) >= kMaxWaiting)
                 return false;
-            m_jobs.push_back({peer, index, path, offset, length});
+            m_jobs.push_back({peer, index, path, offset, length, m_gen});
             if (!m_thread.joinable())
                 m_thread = std::thread(&ModServer::Run, this);
         }
@@ -109,6 +109,14 @@ namespace coop
         for (size_t i = m_done.size(); i-- > 0;)
             if (m_done[i].peer == peer)
                 m_done.erase(m_done.begin() + i);
+    }
+
+    void ModServer::Clear()
+    {
+        std::lock_guard lock(m_mutex);
+        ++m_gen;
+        m_jobs.clear();
+        m_done.clear();
     }
 
     void ModServer::Run()
@@ -150,7 +158,8 @@ namespace coop
                 LOG_WARN("Mods: couldn't read %s at %llu", job.path.c_str(), static_cast<unsigned long long>(job.offset));
             }
             std::lock_guard lock(m_mutex);
-            m_done.push_back(std::move(piece));
+            if (job.gen == m_gen)
+                m_done.push_back(std::move(piece));
         }
         if (file != INVALID_HANDLE_VALUE)
             CloseHandle(file);
