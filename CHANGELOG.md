@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- New: pings. Press G (change it, turn it off, or pick the range and icons on the Mod Configuration Menu's Pings page) to mark the spot you're
+- New: pings. Press G (change it, turn it off, or pick the sound and icons on the Mod Configuration Menu's Pings page) to mark the spot you're
   aiming at. Players near you see an icon, your name and how far away it is, for 15 seconds, at the edge of the screen
   if it's out of view. Containers and items show a loot icon and their name, workbenches and the like a utility icon.
   If you aim at nothing, it says "Over here" where you stand. Ping a character and the icon sits over their head and

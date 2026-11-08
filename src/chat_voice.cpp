@@ -239,7 +239,7 @@
             g_coop.SendPing(ping);
             s_board.Add(g_coop.MyPlayerId(), "You", ping.name, ping.x, ping.y, ping.z, now, static_cast<uint8_t>(ping.kind),
                 ping.target);
-            game::PlayPingSound();
+            game::PlayPingSound(g_config.pingSound);
         }
         s_keyWas = key;
         const auto& remotes = g_coop.Remotes();
@@ -248,7 +248,7 @@
             coop::Pose sender;
             auto remote = remotes.find(h.ping.player);
             bool known = remote != remotes.end() && remote->second.motion.Newest(sender);
-            bool inRange = placed && h.ping.space == me.space && coop::PingInRange(&me, known ? &sender : nullptr, g_config.pingRadius);
+            bool inRange = placed && h.ping.space == me.space && coop::PingInRange(&me, known ? &sender : nullptr, coop::kPingRadius);
             uint8_t kind = static_cast<uint8_t>(h.ping.kind);
             TESObjectREFR* who = PingedThing(kind, h.ping.target);
             LOG_INFO("Pings: %s marks %.0f %.0f %.0f in place %08X (%s, kind %u, target %08X, ours %08X), %s", h.who.c_str(),
@@ -259,7 +259,7 @@
             if (h.ping.kind == net::PingKind::Friend && h.ping.target == g_coop.MyPlayerId())
                 h.ping.name = "You";
             s_board.Add(h.ping.player, h.who, h.ping.name, h.ping.x, h.ping.y, h.ping.z, now, kind, h.ping.target);
-            game::PlayPingSound();
+            game::PlayPingSound(g_config.pingSound);
         }
         s_board.Expire(now);
         std::array<game::PingMark, coop::kPingSlots> marks;

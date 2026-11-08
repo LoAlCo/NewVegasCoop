@@ -20,6 +20,8 @@ namespace coop
     constexpr uint32_t kPingRelayGapMs = 500;
     constexpr int kPingSlots = 5;
     constexpr float kPingUnitsPerMetre = 70.0f;
+    // How near the sender a player must be to see a ping, in game units (about 115 m).
+    constexpr int kPingRadius = 8000;
 
     class PingGate
     {

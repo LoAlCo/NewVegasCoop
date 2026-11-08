@@ -3905,16 +3905,19 @@ namespace game
         }
     }
 
-    void PlayPingSound()
+    void PlayPingSound(int choice)
     {
         struct SoundHandle { uint32_t id = 0xFFFFFFFF; uint8_t assumeSuccess = 0; uint32_t state = 0; };
-        constexpr const char* kSound = "UIPopUpMapMarkerAdded";
+        static const char* const kSounds[] = {"UIPopUpMapMarkerAdded", "UIPopUpMessageGeneral", "UIPopUpQuestNew",
+            "UIRadioSignalFound", "UIMenuOK"};
+        if (choice < 1 || choice > static_cast<int>(std::size(kSounds)))
+            return;
         void* audio = reinterpret_cast<void*(__cdecl*)()>(addr::kAudioSingleton)();
         if (!audio)
             return;
         SoundHandle sound;
         reinterpret_cast<void*(__thiscall*)(void*, SoundHandle*, const char*, uint32_t)>(addr::kSoundHandleByEditorId)(audio,
-            &sound, kSound, 0x121);
+            &sound, kSounds[choice - 1], 0x121);
         if (sound.id != 0xFFFFFFFF)
             reinterpret_cast<bool(__thiscall*)(SoundHandle*, bool)>(addr::kSoundHandlePlay)(&sound, false);
     }

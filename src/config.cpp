@@ -78,7 +78,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iVoiceChatVolume", voiceChatVolume);
         Write(path, "bPings", pings);
         Write(path, "iPingKey", pingKey);
-        Write(path, "iPingRadius", pingRadius);
+        Write(path, "iPingSound", pingSound);
         Write(path, "iPingIcons", pingIcons);
         Write(path, "bMouths", mouths);
         Write(path, "bSkipDlcPopups", skipDlcPopups);
@@ -138,7 +138,7 @@ void Config::LoadPlayer(const std::string& path)
     voiceChatVolume = number("iVoiceChatVolume", voiceChatVolume, 0, 100);
     pings = flag("bPings", pings);
     pingKey = number("iPingKey", pingKey, 1, 255);
-    pingRadius = number("iPingRadius", pingRadius, 0, 1000000);
+    pingSound = number("iPingSound", pingSound, 0, 5);
     pingIcons = number("iPingIcons", pingIcons, 0, 2);
     mouths = flag("bMouths", mouths);
     skipDlcPopups = flag("bSkipDlcPopups", skipDlcPopups);

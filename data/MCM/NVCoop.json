@@ -747,23 +747,24 @@
 					}
 				},
 				"3": {
-					"title": "Ping Range",
-					"type": 2,
+					"title": "Ping Sound",
+					"type": 1,
 					"enable": 1,
-					"mouse": "How near a player must be for you to see their ping. 0 means no limit. Only changes what you see",
+					"mouse": "The sound you hear when a ping appears",
 					"vars": [
 						{
-							"configINI": "Settings:iPingRadius",
-							"default": 8000
+							"configINI": "Settings:iPingSound",
+							"default": 1
 						}
 					],
-					"scale": {
-						"valueDecimal": 0,
-						"valueIncrement": 500,
-						"valueMin": 0,
-						"valueMax": 20000,
-						"suffix": ""
-					}
+					"strings": [
+						"Off",
+						"Map marker",
+						"Message",
+						"New quest",
+						"Radio signal",
+						"Menu OK"
+					]
 				},
 				"4": {
 					"title": "Ping Icons",
