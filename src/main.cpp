@@ -709,6 +709,11 @@ namespace
         }
         else if (!emote.path.empty() && emote.path != g_coop.MyEmote().path)
             LOG_INFO("Emotes: you play %s (song %08X)", emote.path.c_str(), emote.song);
+        // a friend's emote we joined: shown as ours, without its song (that plays from them)
+        if (!emote.path.empty())
+            StopJoinedEmote("we started our own emote");
+        else if (JoinedAnEmote() && g_coop.InGame() && g_config.emotes)
+            emote = {JoinedEmote(), 0};
         g_coop.SetMyEmote(emote.path, emote.song);
     }
 
@@ -2267,7 +2272,7 @@ namespace
         if (g_coop.InGame())
         {
             g_cutscene = (game::PlayerDisabledControls() & 1) && !g_downed && !g_waitForHostLoad;
-            g_standIns.SetEmotes(g_config.emotes, g_config.emoteDanceAlong);
+            g_standIns.SetEmotes(g_config.emotes, g_config.emoteDanceAlong, JoinedAnEmote());
             g_standIns.Update(g_coop, now, me, g_cutscene);
         }
         else

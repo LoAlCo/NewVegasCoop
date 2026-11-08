@@ -196,10 +196,98 @@
         return true;
     }
 
-    // Too Many Emotes: looking at a friend who's emoting shows "[E] Join Emote"; pressing E starts the same emote here.
+    // Too Many Emotes: looking at a friend who's emoting shows "[E] Join Emote"; pressing E dances the same emote here,
+    // at the same point of it as their character, and follows it (intro, then loop) until they stop, we move, or E
+    // again. Only the animation: the song already plays from their character, and our own copy of the mod isn't told
+    // (so it doesn't start the song again, or make people nearby dance). Friends see us dancing it, with no song.
     bool g_joinKeyWas = false;
+    int g_joinedWith = -1;
+    std::string g_joinedAnim;
+    uint32_t g_joinedAt = 0, g_joinSyncAt = 0;
+    bool g_joinCamera = false;
+    constexpr uint32_t kJoinStopAfterMs = 500;
+    constexpr uint32_t kJoinSyncMs = 100, kJoinSyncAgainMs = 2000;
+    constexpr float kJoinSyncSlack = 0.1f;
+    // moving, attacking, aiming, drawing a weapon or jumping ends it (as the mod's own emotes)
+    constexpr int kJoinStopControls[] = {0, 1, 2, 3, game::layout::kControlAttack, game::layout::kControlAimBlock,
+        game::layout::kControlReadyItem, game::layout::kControlJump};
 
-    bool UpdateJoinEmote()
+    const std::string& JoinedEmote() { return g_joinedAnim; }
+    bool JoinedAnEmote() { return g_joinedWith >= 0; }
+
+    void StopJoinedEmote(const char* why)
+    {
+        if (g_joinedWith < 0)
+            return;
+        if (TESObjectREFR* player = game::Player(); player && !g_joinedAnim.empty())
+            game::StopAnimFile(player, g_joinedAnim);
+        if (g_joinCamera)
+            game::EmoteCameraBack();
+        LOG_INFO("Emotes: stopped dancing with %s (%s)", g_coop.NameOf(static_cast<uint8_t>(g_joinedWith)).c_str(), why);
+        g_joinedWith = -1;
+        g_joinedAnim.clear();
+        g_joinCamera = false;
+    }
+
+    void FollowJoinedEmote(uint32_t now)
+    {
+        if (g_joinedWith < 0)
+            return;
+        uint8_t id = static_cast<uint8_t>(g_joinedWith);
+        TESObjectREFR* player = game::Player();
+        if (!player || !g_coop.InGame() || g_downed || g_gameOver || !g_config.emotes || !g_config.emoteJoin)
+        {
+            StopJoinedEmote("can't dance now");
+            return;
+        }
+        auto remote = g_coop.Remotes().find(id);
+        auto emote = g_coop.Emotes().find(id);
+        TESObjectREFR* them = g_standIns.Character(id);
+        if (remote == g_coop.Remotes().end() || remote->second.Downed() || emote == g_coop.Emotes().end() ||
+            emote->second.path.empty() || !them)
+        {
+            StopJoinedEmote("they stopped");
+            return;
+        }
+        if (now - g_joinedAt >= kJoinStopAfterMs)
+            for (int control : kJoinStopControls)
+                if (game::IsControlPressed(control))
+                {
+                    StopJoinedEmote("we moved");
+                    return;
+                }
+        const std::string& want = emote->second.path;
+        if (want != g_joinedAnim)
+        {
+            // joined, or their intro ended and the loop began
+            if (!g_joinedAnim.empty())
+                game::StopAnimFile(player, g_joinedAnim);
+            game::PlayAnimFile(player, want);
+            LOG_INFO("Emotes: dancing %s with %s", want.c_str(), remote->second.name.c_str());
+            g_joinedAnim = want;
+            g_joinSyncAt = now + kJoinSyncMs;
+            return;
+        }
+        if (!coop::IsDue(now, g_joinSyncAt))
+            return;
+        g_joinSyncAt = now + kJoinSyncMs;
+        if (!game::IsPlayingAnimFile(player, g_joinedAnim))
+        {
+            game::PlayAnimFile(player, g_joinedAnim);
+            return;
+        }
+        // in step with their character: the same point of the animation (tried until both have started, then now and
+        // then)
+        float moved = 0;
+        if (game::MatchAnimFileTime(player, them, g_joinedAnim, kJoinSyncSlack, &moved))
+        {
+            if (moved != 0)
+                LOG_DEBUG("Emotes: in step with %s (moved %.2f s)", remote->second.name.c_str(), moved);
+            g_joinSyncAt = now + kJoinSyncAgainMs;
+        }
+    }
+
+    bool UpdateJoinEmote(uint32_t now)
     {
         bool key = game::IsControlPressed(game::layout::kControlActivate), pressed = key && !g_joinKeyWas;
         g_joinKeyWas = key;
@@ -210,21 +298,31 @@
             return false;
         for (auto& [id, emote] : g_coop.Emotes())
         {
-            if (g_standIns.Character(id) != aimed)
+            if (emote.path.empty() || g_standIns.Character(id) != aimed)
                 continue;
             const auto remote = g_coop.Remotes().find(id);
             if (remote == g_coop.Remotes().end() || remote->second.Downed())
                 return false;
-            bool same = !g_coop.MyEmote().path.empty() && g_coop.MyEmote().path == emote.path;
-            g_reviveHint = same ? "Dancing with " + remote->second.name : "[E] Join Emote (" + remote->second.name + ")";
-            if (pressed && !same)
+            const std::string& name = remote->second.name;
+            bool with = g_joinedWith == id;
+            if (!with && g_joinedWith < 0 && !g_coop.MyEmote().path.empty())
             {
-                int how = game::JoinEmote(emote.path);
-                LOG_INFO("Emotes: joining %s's emote %s: %s", remote->second.name.c_str(), emote.path.c_str(),
-                    how == 2 ? "straight into its loop" : how == 1 ? "from the start" : "couldn't (the wheel is open, "
-                    "or it isn't in Too Many Emotes' list)");
-                if (!how)
-                    game::Notify("Couldn't join that emote");
+                // our own emote from the wheel is on: it has to end first
+                g_reviveHint = name + " is dancing too";
+                return true;
+            }
+            g_reviveHint = with ? "[E] Stop dancing with " + name : "[E] Join Emote (" + name + ")";
+            if (pressed && with)
+                StopJoinedEmote("E again");
+            else if (pressed)
+            {
+                StopJoinedEmote("joined someone else");
+                g_joinedWith = id;
+                g_joinedAnim.clear();
+                g_joinedAt = now;
+                g_joinCamera = game::EmoteCameraOut();
+                LOG_INFO("Emotes: joining %s's emote (%s)", name.c_str(), emote.path.c_str());
+                FollowJoinedEmote(now);
             }
             return true;
         }
@@ -290,6 +388,7 @@
         bool grab = game::IsControlPressed(game::layout::kControlGrab), grabTapped = grab && !g_grabWas;
         g_grabWas = grab;
         g_reviveHint.clear();
+        FollowJoinedEmote(now);
         if (!g_coop.InGame() || g_gameOver || g_waitForHostLoad)
         {
             SetDowned(false, now);
@@ -414,7 +513,7 @@
             g_reviveHint = "Dragging " + g_coop.NameOf(static_cast<uint8_t>(dragging)) + ": Z to let go";
         else if (target >= 0)
             g_reviveHint = "Hold E to revive " + name + ", Z to drag";
-        if (dragging < 0 && target < 0 && UpdateJoinEmote())
+        if (dragging < 0 && target < 0 && UpdateJoinEmote(now))
         {
             g_reviving = g_healing = -1;
             return;

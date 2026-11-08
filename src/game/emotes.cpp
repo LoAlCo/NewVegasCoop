@@ -19,7 +19,7 @@ namespace game
         Script* g_emoteSongPlaying = nullptr;
         Script* g_emoteSongStop = nullptr;
         Script* g_emoteNoDance = nullptr;
-        Script* g_emoteJoin = nullptr;
+        Script* g_emoteCamera = nullptr;
 
         bool ModLoaded(const char* file)
         {
@@ -93,6 +93,8 @@ namespace game
             "End\n");
         // The mod makes everyone near you dance along, friends' characters too, but they aren't dancing in their own
         // game. This takes one out of the mod's list of dancers (TMEWheel.wfNPC), so it stops making them dance.
+        // (A script made while playing can't name another script's array as TMEWheel.wfNPC: "Invalid operands for
+        // operator :=". GetArrayVariable reads it by name.)
         g_emoteNoDance = Compile("Too Many Emotes: not a dancer",
             "ref rWho\n"
             "ref rIn\n"
@@ -100,11 +102,11 @@ namespace game
             "int n\n"
             "array_var aIn\n"
             "Begin Function {rWho}\n"
-            "  let aIn := TMEWheel.wfNPC\n"
+            "  let aIn := GetArrayVariable \"wfNPC\" TMEWheel\n"
             "  let n := ar_Size aIn\n"
             "  while i < n\n"
             "    let rIn := aIn[i]\n"
-            "    if rIn == rWho\n"
+            "    if eval (rIn == rWho)\n"
             "      ar_Erase aIn i\n"
             "      SetFunctionValue 1\n"
             "      return\n"
@@ -112,55 +114,19 @@ namespace game
             "    let i += 1\n"
             "  loop\n"
             "End\n");
-        // Join a friend's emote: find it in the mod's list of every emote (TMEVars.wfAll; owning it isn't needed) and hand
-        // it to the mod's wheel as if it had just been picked, so the mod plays it, its song, and stops it as usual.
-        // Joining one already in its loop part starts straight on the loop and its song (the intro is left out).
-        // Not while the wheel is open (it's using its list).
-        g_emoteJoin = Compile("Too Many Emotes: join an emote",
-            "string_var sPath\n"
-            "string_var sIn\n"
-            "string_var sLoop\n"
-            "array_var aAll\n"
-            "array_var aE\n"
-            "array_var aGo\n"
-            "ref rNone\n"
-            "int i\n"
-            "int n\n"
-            "int iHow\n"
-            "Begin Function {sPath}\n"
-            "  if TMEWheel.wfOpen\n"
-            "    return\n"
+        // Joining a friend's emote: third person while dancing, as the mod does for its own (when its camera option
+        // is on; called only from first person). Called with 1, back to first person.
+        g_emoteCamera = Compile("Too Many Emotes: emote camera",
+            "int iBack\n"
+            "int iMoved\n"
+            "Begin Function {iBack}\n"
+            "  if iBack\n"
+            "    ToggleFirstPerson 1\n"
+            "  elseif TMECamera\n"
+            "    ToggleFirstPerson 0\n"
+            "    set iMoved to 1\n"
             "  endif\n"
-            "  let aAll := TMEVars.wfAll\n"
-            "  let n := ar_Size aAll\n"
-            "  while i < n\n"
-            "    let aE := aAll[i]\n"
-            "    let sIn := aE[1]\n"
-            "    let sLoop := aE[2]\n"
-            "    set iHow to 0\n"
-            "    if eval (sPath == sIn)\n"
-            "      set iHow to 1\n"
-            "    elseif eval (sv_Length sLoop) > 0\n"
-            "      if eval (sPath == sLoop)\n"
-            "        set iHow to 2\n"
-            "      endif\n"
-            "    endif\n"
-            "    if iHow\n"
-            "      let aGo := ar_Copy aE\n"
-            "      if iHow == 2\n"
-            "        let aGo[1] := sLoop\n"
-            "        let aGo[3] := 0\n"
-            "        let aGo[4] := aE[5]\n"
-            "        let aGo[5] := rNone\n"
-            "      endif\n"
-            "      let TMEWheel.wfData := ar_List aGo\n"
-            "      set TMEWheel.wfIdx to 0\n"
-            "      set TMEWheel.wfGo to 1\n"
-            "      SetFunctionValue iHow\n"
-            "      return\n"
-            "    endif\n"
-            "    let i += 1\n"
-            "  loop\n"
+            "  SetFunctionValue iMoved\n"
             "End\n");
         if (!g_emoteNow)
             LOG_ERROR("Emotes: Too Many Emotes is loaded but its emotes can't be read, so they won't show for friends");
@@ -220,15 +186,21 @@ namespace game
             g_scripts->CallFunctionAlt(g_emoteSongStop, from, 2, form, from);
     }
 
-    int JoinEmote(const std::string& path)
+    bool EmoteCameraOut()
     {
-        std::string file = _strnicmp(path.c_str(), "meshes\\", 7) == 0 ? path.substr(7) : path;
         NVSEArrayVarInterface::Element result;
         TESObjectREFR* me = Player();
-        if (!EmotesReady() || !g_emoteJoin || !me || file.empty() ||
-            !g_scripts->CallFunction(g_emoteJoin, me, nullptr, &result, 1, file.c_str()))
-            return 0;
-        return static_cast<int>(result.GetNumber());
+        if (!EmotesReady() || !g_emoteCamera || !me || static_cast<PlayerCharacter*>(me)->IsThirdPerson() ||
+            !g_scripts->CallFunction(g_emoteCamera, me, nullptr, &result, 1, static_cast<uint32_t>(0)))
+            return false;
+        return result.GetNumber() != 0;
+    }
+
+    void EmoteCameraBack()
+    {
+        TESObjectREFR* me = Player();
+        if (EmotesReady() && g_emoteCamera && me)
+            g_scripts->CallFunctionAlt(g_emoteCamera, me, 1, static_cast<uint32_t>(1));
     }
 
     bool LeaveEmoteDance(TESObjectREFR* who)

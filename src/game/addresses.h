@@ -184,6 +184,8 @@ namespace game::process
     constexpr uint32_t kSequenceState = 0x44;
     constexpr uint32_t kSequenceCycle = 0x24;
     constexpr uint32_t kSequenceDeactivate = 0x8C;
+    constexpr uint32_t kSequenceFrequency = 0x28, kSequenceBegin = 0x2C, kSequenceEnd = 0x30;
+    constexpr uint32_t kSequenceScaledTime = 0x3C, kSequenceOffset = 0x48;
     constexpr int kAnimLayers = 8;
     constexpr uint32_t kManagerObjects = 0x08;
     constexpr uint32_t kManagerCapacity = 0x0C;

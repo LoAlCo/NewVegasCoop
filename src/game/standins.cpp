@@ -28,6 +28,11 @@ namespace game
         constexpr uint32_t kSongStartMs = 1000;
         constexpr uint32_t kDanceCheckMs = 250;
         constexpr float kEmoteDrift = 64;
+        // dancing the same emote as someone here: in step with them, checked again now and then
+        constexpr uint32_t kSyncFirstMs = 100;
+        constexpr uint32_t kSyncTryMs = 2000;
+        constexpr uint32_t kSyncAgainMs = 2000;
+        constexpr float kSyncSlack = 0.1f;
     }
 
     void StandIns::Update(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, bool cutscene)
@@ -198,6 +203,7 @@ namespace game
                 e.modAnims = wantAnims;
             }
             Emote(coop, id, e, now);
+            SyncDance(coop, id, e, now);
             if (Furniture(coop, id, e, pose, now))
                 continue;
             coop::Pose target = pose;
@@ -297,6 +303,8 @@ namespace game
                 PlayAnimFile(e.ref, want);
             }
             e.emoting = emote && !want.empty();
+            e.syncAt = e.emoting ? now + kSyncFirstMs : 0;
+            e.syncUntil = now + kSyncFirstMs + kSyncTryMs;
             LOG_INFO("%s's character %s %s", coop.NameOf(id).c_str(), want.empty() ? "stops" : "plays",
                 want.empty() ? e.anim.c_str() : want.c_str());
             e.anim = want;
@@ -310,6 +318,11 @@ namespace game
             {
                 LOG_DEBUG("%s's character isn't playing %s; again", coop.NameOf(id).c_str(), e.anim.c_str());
                 PlayAnimFile(e.ref, e.anim);
+                if (e.emoting)
+                {
+                    e.syncAt = now + kSyncFirstMs;
+                    e.syncUntil = now + kSyncFirstMs + kSyncTryMs;
+                }
             }
         }
         if (!e.anim.empty() && coop::IsDue(now, e.nextHoldAt))
@@ -368,9 +381,48 @@ namespace game
                     StopIdle(e.ref);
                 else
                     PlayAnimFile(e.ref, e.anim);
+                if (e.emoting)
+                {
+                    e.syncAt = now + kSyncFirstMs;
+                    e.syncUntil = now + kSyncFirstMs + kSyncTryMs;
+                }
                 LOG_DEBUG("Emotes: %s's character won't dance along with you", coop.NameOf(id).c_str());
             }
         }
+    }
+
+    // Someone here dancing the same emote: this character joins in at the same point of it, not from the start. The
+    // player's own emote (from Too Many Emotes) leads and is checked again every few seconds, since the mod restarts its
+    // loop each time it ends; when we joined a friend's emote, our dance follows their character instead. Another
+    // friend's character only at the start (both loop smoothly after that).
+    void StandIns::SyncDance(const coop::Coop& coop, uint8_t id, Entry& e, uint32_t now)
+    {
+        if (!e.emoting || !e.syncAt || !coop::IsDue(now, e.syncAt))
+            return;
+        bool first = !coop::IsDue(now, e.syncUntil);
+        TESObjectREFR* lead = nullptr;
+        if (!m_following && IsPlayingAnimFile(Player(), e.anim, false))
+            lead = Player();
+        for (auto& [otherId, other] : m_entries)
+            if (!lead && first && otherId != id && other.emoting && other.anim == e.anim && Live(other))
+                lead = other.ref;
+        float moved = 0;
+        if (lead && MatchAnimFileTime(e.ref, lead, e.anim, kSyncSlack, &moved))
+        {
+            if (moved != 0)
+                LOG_DEBUG("Emotes: %s's character dances in step with %s (moved %.2f s)", coop.NameOf(id).c_str(),
+                    lead == Player() ? "you" : "another friend", moved);
+            if (lead != Player())
+            {
+                e.syncAt = 0;
+                return;
+            }
+            e.syncAt = now + kSyncAgainMs;
+            e.syncUntil = now;
+            return;
+        }
+        // nobody to follow yet (or it hasn't started): keep looking for a while, then only now and then
+        e.syncAt = now + (first ? kSyncFirstMs : kSyncAgainMs);
     }
 
     void StandIns::StopSong(Entry& e)

@@ -210,6 +210,10 @@ namespace game
     void PlayAnimFile(TESObjectREFR* actor, const std::string& path);
     void StopAnimFile(TESObjectREFR* actor, const std::string& path);
     bool IsPlayingAnimFile(TESObjectREFR* actor, const std::string& path, bool loop = true);
+    // Puts actor's playing animation file at the same point as other's (same file), if it's more than `slack` seconds
+    // off. False if either isn't playing it (or hasn't started yet); *moved gets the seconds it was moved by.
+    bool MatchAnimFileTime(TESObjectREFR* actor, TESObjectREFR* other, const std::string& path, float slack,
+        float* moved = nullptr);
     void SetCollision(TESObjectREFR* actor, bool on);
     void SetActorAlpha(TESObjectREFR* actor, float alpha);
     uint8_t PlayerDisabledControls();
@@ -322,8 +326,9 @@ namespace game
     bool EmoteSongPlaying(TESObjectREFR* from, uint32_t song);
     void StopEmoteSong(TESObjectREFR* from, uint32_t song);
     bool LeaveEmoteDance(TESObjectREFR* who);
-    // 0: couldn't (not one of the mod's emotes, or its wheel is open); 1: from the start; 2: straight into its loop
-    int JoinEmote(const std::string& path);
+    // Third person for dancing (the mod's camera option on, and in first person now): true if it switched.
+    bool EmoteCameraOut();
+    void EmoteCameraBack();
     float DistanceToPlayer(const TESObjectREFR* ref);
     bool InLoadingScreen();
 
