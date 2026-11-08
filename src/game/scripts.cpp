@@ -154,8 +154,8 @@ namespace game
         Script* g_speedMult = nullptr;
         Script* g_actorAlpha = nullptr;
         Script* g_hasSpell = nullptr;
-        Script* g_castOnSelf = nullptr;
-        Script* g_dispel = nullptr;
+        Script* g_addSpell = nullptr;
+        Script* g_removeSpell = nullptr;
         Script* g_collision = nullptr;
         TESForm* g_teleporter = nullptr;
         Script* g_armorDR = nullptr;
@@ -1015,14 +1015,15 @@ namespace game
             "Begin Function {rSpell}\n"
             "  SetFunctionValue IsSpellTarget rSpell\n"
             "End\n");
-        g_castOnSelf = Compile("cast on self",
+        g_addSpell = Compile("add spell",
             "ref rSpell\n"
             "Begin Function {rSpell}\n"
-            "  CastImmediateOnSelf rSpell\n"
+            "  AddSpell rSpell\n"
             "End\n");
-        g_dispel = Compile("dispel",
+        g_removeSpell = Compile("remove spell",
             "ref rSpell\n"
             "Begin Function {rSpell}\n"
+            "  RemoveSpell rSpell\n"
             "  Dispel rSpell\n"
             "End\n");
         g_reviveBar = Compile("revive bar",
