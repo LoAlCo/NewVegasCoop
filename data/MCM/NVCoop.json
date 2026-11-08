@@ -747,26 +747,6 @@
 					}
 				},
 				"3": {
-					"title": "Ping Sound",
-					"type": 1,
-					"enable": 1,
-					"mouse": "The sound you hear when a ping appears",
-					"vars": [
-						{
-							"configINI": "Settings:iPingSound",
-							"default": 1
-						}
-					],
-					"strings": [
-						"Off",
-						"Map marker",
-						"Message",
-						"New quest",
-						"Radio signal",
-						"Menu OK"
-					]
-				},
-				"4": {
 					"title": "Ping Range",
 					"type": 2,
 					"enable": 1,
@@ -784,6 +764,23 @@
 						"valueMax": 20000,
 						"suffix": ""
 					}
+				},
+				"4": {
+					"title": "Ping Icons",
+					"type": 1,
+					"enable": 1,
+					"mouse": "The icon on each ping: off, in your HUD's colour, or each kind in its own colour",
+					"vars": [
+						{
+							"configINI": "Settings:iPingIcons",
+							"default": 1
+						}
+					],
+					"strings": [
+						"Off",
+						"HUD colour",
+						"Own colours"
+					]
 				}
 			}
 		}

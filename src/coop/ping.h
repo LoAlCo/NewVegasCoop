@@ -174,6 +174,14 @@ namespace coop
         return {net::PingKind::Person, name.empty() ? "Someone" : name, c.hostRef};
     }
 
+    // How the menu's Ping Icons option shows them.
+    enum class PingIcons : uint8_t
+    {
+        Off,
+        HudColour,
+        OwnColours
+    };
+
     // Loot pings follow the item when the sender knows the host's ref for it.
     inline uint32_t PingItemTarget(net::PingKind kind, uint32_t hostRef)
     {

@@ -3870,8 +3870,11 @@ namespace game
         return g_wouldAttack && Number(g_wouldAttack, actor) != 0;
     }
 
-    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks)
+    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks, coop::PingIcons icons)
     {
+        static coop::PingIcons s_icons = coop::PingIcons::HudColour;
+        bool iconsChanged = icons != s_icons;
+        s_icons = icons;
         static std::string s_text[coop::kPingSlots];
         static bool s_shown[coop::kPingSlots] = {};
         std::array<coop::PingLabelSpot, coop::kPingSlots> spots;
@@ -3893,28 +3896,25 @@ namespace game
                 continue;
             MakeChatHud();
             coop::PingLabelSpot spot = spots[slot];
-            bool changed = show && (!s_shown[slot] || s_text[slot] != m.text);
-            g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 5, m.text.empty() ? " " : m.text.c_str(),
+            bool changed = show && (iconsChanged || !s_shown[slot] || s_text[slot] != m.text);
+            g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 6, m.text.empty() ? " " : m.text.c_str(),
                 *reinterpret_cast<uint32_t*>(&spot.x), *reinterpret_cast<uint32_t*>(&spot.y),
-                static_cast<uint32_t>(!show ? 0 : changed ? 2 : 1), static_cast<uint32_t>(m.kind));
+                static_cast<uint32_t>(!show ? 0 : changed ? 2 : 1), static_cast<uint32_t>(m.kind), static_cast<uint32_t>(icons));
             s_text[slot] = show ? m.text : std::string();
             s_shown[slot] = show;
         }
     }
 
-    void PlayPingSound(int choice)
+    void PlayPingSound()
     {
         struct SoundHandle { uint32_t id = 0xFFFFFFFF; uint8_t assumeSuccess = 0; uint32_t state = 0; };
-        static const char* const kSounds[] = {"UIPopUpMapMarkerAdded", "UIPopUpMessageGeneral", "UIPopUpQuestNew",
-            "UIRadioSignalFound", "UIMenuOK"};
-        if (choice < 1 || choice > static_cast<int>(std::size(kSounds)))
-            return;
+        constexpr const char* kSound = "UIPopUpMapMarkerAdded";
         void* audio = reinterpret_cast<void*(__cdecl*)()>(addr::kAudioSingleton)();
         if (!audio)
             return;
         SoundHandle sound;
         reinterpret_cast<void*(__thiscall*)(void*, SoundHandle*, const char*, uint32_t)>(addr::kSoundHandleByEditorId)(audio,
-            &sound, kSounds[choice - 1], 0x121);
+            &sound, kSound, 0x121);
         if (sound.id != 0xFFFFFFFF)
             reinterpret_cast<bool(__thiscall*)(SoundHandle*, bool)>(addr::kSoundHandlePlay)(&sound, false);
     }

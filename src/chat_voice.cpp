@@ -239,7 +239,7 @@
             g_coop.SendPing(ping);
             s_board.Add(g_coop.MyPlayerId(), "You", ping.name, ping.x, ping.y, ping.z, now, static_cast<uint8_t>(ping.kind),
                 ping.target);
-            game::PlayPingSound(g_config.pingSound);
+            game::PlayPingSound();
         }
         s_keyWas = key;
         const auto& remotes = g_coop.Remotes();
@@ -259,7 +259,7 @@
             if (h.ping.kind == net::PingKind::Friend && h.ping.target == g_coop.MyPlayerId())
                 h.ping.name = "You";
             s_board.Add(h.ping.player, h.who, h.ping.name, h.ping.x, h.ping.y, h.ping.z, now, kind, h.ping.target);
-            game::PlayPingSound(g_config.pingSound);
+            game::PlayPingSound();
         }
         s_board.Expire(now);
         std::array<game::PingMark, coop::kPingSlots> marks;
@@ -283,7 +283,7 @@
             marks[slot].at[2] = p.z;
             marks[slot].kind = p.kind;
         }
-        game::ShowPings(marks);
+        game::ShowPings(marks, static_cast<coop::PingIcons>(g_config.pingIcons));
     }
 
     bool g_labTalking = false;
