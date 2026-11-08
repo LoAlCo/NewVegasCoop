@@ -17,6 +17,8 @@ namespace coop
         bool playerOrStandIn = false;
         bool ourCopy = false;
         bool sharedByHost = false;
+        // A companion of our own save, shown in the host's game as a copy (Visitors' Companions): its AI runs here.
+        bool ourCompanion = false;
         bool enabled = true;
         bool alive = true;
         bool loaded = true;
@@ -25,8 +27,8 @@ namespace coop
 
     inline bool ShouldHold(const LocalActor& a, bool hostListFull)
     {
-        return !hostListFull && a.ref != 0 && !a.playerOrStandIn && !a.ourCopy && !a.sharedByHost && a.enabled &&
-            a.alive && a.loaded && a.samePlace;
+        return !hostListFull && a.ref != 0 && !a.playerOrStandIn && !a.ourCopy && !a.sharedByHost && !a.ourCompanion &&
+            a.enabled && a.alive && a.loaded && a.samePlace;
     }
 
     class Holds

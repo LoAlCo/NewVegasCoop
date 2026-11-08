@@ -544,6 +544,30 @@
 							"default": 1
 						}
 					]
+				},
+				"45": {
+					"title": "Visitors' Companions",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Friends' companions from their own saves show in the host's game and fight beside you, their hits and hurts kept in step. Off: they stay in their owners' games only, held still there like anything the host's game doesn't have",
+					"vars": [
+						{
+							"configINI": "Settings:bVisitorCompanions",
+							"default": 1
+						}
+					]
+				},
+				"46": {
+					"title": "Same Companion, One Each",
+					"type": 5,
+					"enable": 1,
+					"mouse": "If you host and a visitor's save has the same companion as yours, you each keep your own. Off: only one shows (yours), so there are no duplicates",
+					"vars": [
+						{
+							"configINI": "Settings:bCompanionsBoth",
+							"default": 1
+						}
+					]
 				}
 			}
 		},

@@ -90,6 +90,8 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bShotPaths", shotPaths);
         Write(path, "bGifts", gifts);
         Write(path, "bGiftSave", giftSave);
+        Write(path, "bVisitorCompanions", visitorCompanions);
+        Write(path, "bCompanionsBoth", companionsBoth);
         Write(path, "iFieldOfView", fieldOfView);
         Write(path, "bFriendMarkers", friendMarkers);
         Write(path, "bTalkLog", talkLog);
@@ -168,6 +170,8 @@ void Config::LoadPlayer(const std::string& path)
     shotPaths = flag("bShotPaths", shotPaths);
     gifts = flag("bGifts", gifts);
     giftSave = flag("bGiftSave", giftSave);
+    visitorCompanions = flag("bVisitorCompanions", visitorCompanions);
+    companionsBoth = flag("bCompanionsBoth", companionsBoth);
     fieldOfView = number("iFieldOfView", fieldOfView, 0, 120);
     friendMarkers = flag("bFriendMarkers", friendMarkers);
     talkLog = flag("bTalkLog", talkLog);
@@ -278,6 +282,8 @@ Config Config::Load(const std::string& iniPath)
     c.blockDiscordOverlay = Read(iniPath, "BlockDiscordOverlay", "1") != "0";
     c.borderless = Read(iniPath, "Borderless", "1") != "0";
     c.desyncNotices = Read(iniPath, "DesyncNotices", "1") != "0";
+    c.visitorCompanions = Read(iniPath, "VisitorCompanions", "1") != "0";
+    c.companionsBoth = Read(iniPath, "CompanionsBoth", "1") != "0";
     c.syncRadio = Read(iniPath, "SyncRadio", "1") != "0";
     c.syncWeather = Read(iniPath, "SyncWeather", "1") != "0";
     c.chat = Read(iniPath, "Chat", "1") != "0";

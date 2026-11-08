@@ -23,6 +23,8 @@ struct Config
     bool shotPaths = true;
     bool gifts = true;
     bool giftSave = true;
+    bool visitorCompanions = true;
+    bool companionsBoth = true;
     int fieldOfView = 0;
     bool friendMarkers = true;
     bool talkLog = true;

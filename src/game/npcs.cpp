@@ -4,6 +4,7 @@
 
 #include "coop/copy_kill.h"
 #include "coop/levelled_roll.h"
+#include "coop/visitor_companions.h"
 
 #include "coop/clock.h"
 #include "game/addresses.h"
@@ -21,6 +22,7 @@ namespace game
     namespace
     {
         constexpr uint32_t kStatsEveryMs = 30000;
+        constexpr uint32_t kHealthCheckEveryMs = 2000;
         constexpr uint32_t kPuppetStatsEveryMs = 30000;
         float ShowDistance() { return LoadedReach() - 192; }
         constexpr float kShowMargin = 800;
@@ -91,7 +93,15 @@ namespace game
                 pile.kind == net::kPileGoo ? "goo" : "ash");
         }
 
-        NearbyActors(m_nearby);
+        if (m_shareOnly)
+        {
+            m_nearby.clear();
+            for (uint32_t id : m_shareList)
+                if (TESObjectREFR* a = LookupRef(id))
+                    m_nearby.push_back(a);
+        }
+        else
+            NearbyActors(m_nearby);
         std::vector<coop::Pose> players{myPose};
         for (const auto& [id, remote] : coop.Remotes())
             if (coop::Pose p; remote.motion.Sample(now, p) && p.space == myPose.space)
@@ -123,13 +133,14 @@ namespace game
             uint32_t ref = RefId(actor);
             coop::Pose at;
             uint32_t base = 0;
-            if (net::IsMadeWhilePlaying(ref))
+            const bool needsBase = net::IsMadeWhilePlaying(ref) || m_shareOnly;
+            if (needsBase)
             {
                 BaseInfo b = DescribeBase(actor);
                 base = b.leveledBase ? b.leveledBase : b.base;
             }
             if (actor == Player() || standIns.IsStandIn(actor) || !net::IsSharedRef(ref) || !IsEnabled(actor) ||
-                (net::IsMadeWhilePlaying(ref) && (!base || net::IsMadeWhilePlaying(base))))
+                (needsBase && (!base || net::IsMadeWhilePlaying(base))))
             {
                 ++notShared;
                 continue;
@@ -233,7 +244,7 @@ namespace game
         std::vector<net::NpcState> npcs;
         for (size_t i = 0; i < found.size() && i < coop::kMaxNpcs; ++i)
             npcs.push_back(found[i].second);
-        if (found.empty() != m_foundNone)
+        if (found.empty() != m_foundNone && !m_shareOnly)
         {
             m_foundNone = found.empty();
             LOG_INFO("NPCs: %s near us (%zu actors: %u players, switched off or ones a friend can't make, %u in "
@@ -337,6 +348,9 @@ namespace game
         {
             m_nextHoldLook = now + kHoldLookEveryMs;
             NearbyActors(m_nearby);
+            std::vector<uint32_t> team;
+            if (m_spareOwnCompanions)
+                team = Teammates();
             std::vector<coop::LocalActor> nearby;
             nearby.reserve(m_nearby.size());
             for (TESObjectREFR* actor : m_nearby)
@@ -346,6 +360,7 @@ namespace game
                 a.playerOrStandIn = actor == Player() || standIns.IsStandIn(actor);
                 a.ourCopy = m_entries.count(a.ref) || (net::IsMadeWhilePlaying(a.ref) && HostRefOf(a.ref) != 0);
                 a.sharedByHost = coop.Npcs().count(a.ref) != 0;
+                a.ourCompanion = std::find(team.begin(), team.end(), a.ref) != team.end();
                 a.enabled = IsEnabled(actor);
                 a.alive = !IsDead(actor);
                 a.loaded = Is3DLoaded(actor);
@@ -419,7 +434,7 @@ namespace game
 
     void Npcs::UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
     {
-        const auto& shared = coop.Npcs();
+        const auto& shared = m_copyFrom ? *m_copyFrom : coop.Npcs();
         TakeBackWhenClosed();
         StepRevives(coop, now);
 
@@ -680,7 +695,13 @@ namespace game
             }
             e.puppet.Update(actor, pose, now);
 
-            if (npc.health != e.hostHealth)
+            bool drifted = false;
+            if (coop::IsDue(now, e.nextHealthCheck))
+            {
+                e.nextHealthCheck = now + kHealthCheckEveryMs;
+                drifted = coop::CopyHealthDrifted(Health(actor), npc.health);
+            }
+            if (npc.health != e.hostHealth || drifted)
             {
                 float max = MaxHealth(actor);
                 if (std::fabs(max - npc.maxHealth) > 0.5f)
@@ -927,7 +948,10 @@ namespace game
         m_entries.erase(it);
     }
 
-    bool Npcs::OursIsMade(uint32_t ref) const { return net::IsMadeWhilePlaying(ref) || m_rerolled.count(ref); }
+    bool Npcs::OursIsMade(uint32_t ref) const
+    {
+        return net::IsMadeWhilePlaying(ref) || m_rerolled.count(ref) || KeptApart(ref);
+    }
 
     TESObjectREFR* Npcs::Find(uint32_t ref) const
     {
@@ -949,7 +973,14 @@ namespace game
             return nullptr;
         m_nextMakeAt = now + kMakeEveryMs;
         uint32_t from = coop::MakeCopyFrom(npc.base, npc.rolled);
-        TESObjectREFR* actor = PlaceActor(from);
+        // A companion of our own save: the host doesn't say what its one of the same ref is made from.
+        if (!from)
+            if (TESObjectREFR* real = LookupRef(ref))
+            {
+                BaseInfo b = DescribeBase(real);
+                from = b.leveledBase ? b.leveledBase : b.base;
+            }
+        TESObjectREFR* actor = from ? PlaceActor(from) : nullptr;
         if (!actor)
         {
             LOG_WARN("NPCs: couldn't make a copy of the host's %08X from %08X (not an NPC or creature here: mods "
@@ -958,6 +989,8 @@ namespace game
             return nullptr;
         }
         Move(actor, pose);
+        if (m_copyFrom)
+            SideWithPlayer(actor);
         Made m;
         m.localId = RefId(actor);
         m_made[ref] = m;
@@ -1043,6 +1076,50 @@ namespace game
         return ids;
     }
 
+    void Npcs::ShareOnly(std::vector<uint32_t> refs)
+    {
+        m_shareOnly = true;
+        m_shareList = std::move(refs);
+    }
+
+    void Npcs::UpdateFrom(const std::map<uint32_t, coop::RemoteNpc>& list, const coop::Coop& coop, uint32_t now,
+        const coop::Pose& myPose, const StandIns& standIns)
+    {
+        m_copyFrom = &list;
+        UpdateCopies(coop, now, myPose, standIns);
+    }
+
+    void Npcs::SetKeptApart(const std::set<uint32_t>& refs)
+    {
+        if (refs == m_keptApart)
+            return;
+        for (uint32_t ref : m_keptApart)
+            if (!refs.count(ref) && m_made.count(ref))
+                Unmake(ref);
+        for (uint32_t ref : refs)
+            if (!m_keptApart.count(ref))
+            {
+                // Until now our real one may have been the host's copy.
+                Release(ref);
+                m_killed.erase(ref);
+                m_nextRevive.erase(ref);
+                m_switchedOff.erase(ref);
+            }
+        m_keptApart = refs;
+    }
+
+    bool Npcs::IsCopy(uint32_t ourRef) const
+    {
+        if (net::IsMadeWhilePlaying(ourRef))
+        {
+            for (auto& [hostRef, m] : m_made)
+                if (m.localId == ourRef)
+                    return true;
+            return false;
+        }
+        return !KeptApart(ourRef) && m_entries.count(ourRef) != 0;
+    }
+
     void Npcs::ReleaseAll()
     {
         ReleaseHolds();
@@ -1072,6 +1149,7 @@ namespace game
         m_entries.clear();
         m_made.clear();
         m_rerolled.clear();
+        m_keptApart.clear();
         m_killed.clear();
         m_nextRevive.clear();
         m_revive.Clear();
@@ -1085,7 +1163,7 @@ namespace game
 
     void Npcs::LogStats(uint32_t now, size_t shared)
     {
-        if (!coop::IsDue(now, m_nextStats))
+        if (m_shareOnly || m_copyFrom || !coop::IsDue(now, m_nextStats))
             return;
         bool first = m_nextStats == 0;
         m_nextStats = now + kStatsEveryMs;

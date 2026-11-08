@@ -1514,7 +1514,22 @@ namespace net
             w.U32(m.companions[i].ref);
             w.U8(m.companions[i].leader);
         }
+        w.U8((m.bothKeep ? 1 : 0) | (m.visitorsShown ? 2 : 0));
         return w.Take();
+    }
+
+    Bytes Encode(const CompanionHurt& m)
+    {
+        Writer w(MsgType::CompanionHurt);
+        w.U32(m.ref);
+        w.F32(m.damage);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, CompanionHurt& m)
+    {
+        return r.U32(m.ref) && r.F32(m.damage) && r.AtEnd() && IsSharedRef(m.ref) && m.damage > 0 &&
+            m.damage <= kMaxHealth;
     }
 
     bool Decode(Reader& r, CompanionStates& m)
@@ -1533,6 +1548,11 @@ namespace net
                 if (m.companions[j].ref == c.ref)
                     return false;
         }
+        uint8_t flags = 0;
+        if (!r.U8(flags) || flags > 3)
+            return false;
+        m.bothKeep = (flags & 1) != 0;
+        m.visitorsShown = (flags & 2) != 0;
         return r.AtEnd();
     }
 

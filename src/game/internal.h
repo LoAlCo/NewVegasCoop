@@ -111,6 +111,8 @@ namespace game
     extern Script* g_maxHealth;
     extern Script* g_changeHealth;
     extern Script* g_makeCompanion;
+    extern Script* g_sideWithPlayer;
+    extern std::vector<uint32_t> g_hitWatch;
     extern Script* g_stopFighting;
     extern Script* g_kill;
     extern Script* g_unprotect;
