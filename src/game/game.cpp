@@ -3838,16 +3838,16 @@ namespace game
         }
     }
 
-    // Just above a character's head, wherever their model is on this screen. Standing, the top of their bound is close to
-    // the top of their head; lying down it's a little above the body.
-    bool OverHead(TESObjectREFR* ref, float (&at)[3])
+    // Just above a character's head or an item, wherever its model is on this screen. Standing, the top of a character's
+    // bound is close to the top of their head; lying down, or for an item, it's a little above it.
+    bool OverHead(TESObjectREFR* ref, float (&at)[3], float fallbackHeight)
     {
-        constexpr float kFallbackHeight = 130.0f, kAbove = 12.0f;
+        constexpr float kAbove = 12.0f;
         if (!ref || !ref->GetNiNode())
             return false;
         at[0] = ref->posX;
         at[1] = ref->posY;
-        at[2] = ref->posZ + kFallbackHeight;
+        at[2] = ref->posZ + fallbackHeight;
         float sphere[4];
         if (BoundOf(ref, sphere) && std::isfinite(sphere[0] + sphere[1] + sphere[2] + sphere[3]) && sphere[3] > 4 &&
             sphere[3] < 1500 && std::fabs(sphere[0] - ref->posX) < 1500 && std::fabs(sphere[1] - ref->posY) < 1500 &&
@@ -3855,7 +3855,7 @@ namespace game
         {
             at[0] = sphere[0];
             at[1] = sphere[1];
-            at[2] = (std::max)(sphere[2] + sphere[3] * 0.85f, ref->posZ + 10.0f) + kAbove;
+            at[2] = (std::max)(sphere[2] + sphere[3] * 0.85f, ref->posZ) + kAbove;
         }
         return true;
     }

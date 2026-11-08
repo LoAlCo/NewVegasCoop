@@ -364,7 +364,7 @@ namespace game
     };
     bool CrosshairPoint(CrosshairPick& out);
     bool SpotOnScreen(const float (&at)[3], float& x, float& y, bool& inView);
-    bool OverHead(TESObjectREFR* ref, float (&at)[3]);
+    bool OverHead(TESObjectREFR* ref, float (&at)[3], float fallbackHeight = 130.0f);
     bool WouldAttackPlayer(TESObjectREFR* actor);
     struct PingMark
     {

@@ -453,6 +453,8 @@ namespace coop
         void RefundItems(uint8_t playerId, const net::ItemCount& refund);
         ItemActions LookAtItems(const std::vector<LocalItem>& local, bool sameArea);
         void ItemMade(uint32_t hostRef, uint32_t ourRef) { m_friendItems.Made(hostRef, ourRef); }
+        uint32_t OurItemOf(uint32_t hostRef) const { return m_friendItems.OurRefOf(hostRef); }
+        uint32_t HostItemOf(uint32_t ourRef) const { return m_friendItems.HostRefOf(ourRef); }
         void SendQuestStates(const std::vector<net::QuestState>& quests);
         uint32_t Joins() const { return m_joins; }
         void SendRefEnables(const std::vector<net::RefEnable>& changes);

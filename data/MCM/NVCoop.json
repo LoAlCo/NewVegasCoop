@@ -498,6 +498,18 @@
 							"default": 1
 						}
 					]
+				},
+				"40": {
+					"title": "Ping Follows Items",
+					"type": 5,
+					"enable": 1,
+					"mouse": "A ping on loot, such as a weapon or a Stimpak, stays on it if it's knocked, thrown or carried away. Off: it stays where the item was",
+					"vars": [
+						{
+							"configINI": "Settings:bPingFollowItems",
+							"default": 1
+						}
+					]
 				}
 			}
 		},

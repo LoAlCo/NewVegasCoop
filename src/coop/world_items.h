@@ -73,6 +73,10 @@ namespace coop
         void Heard(const net::ItemState& host, uint32_t now = 0);
         ItemActions Look(const std::vector<LocalItem>& local, bool sameArea = true, uint32_t now = 0);
         void Made(uint32_t hostRef, uint32_t ourRef);
+        // A visitor's own item for the host's, and back. Items from the game's data share their ref on every screen;
+        // ones made while playing only match through a copy, and 0 means there's none.
+        uint32_t OurRefOf(uint32_t hostRef) const;
+        uint32_t HostRefOf(uint32_t ourRef) const;
         void Clear();
         size_t Copies() const { return m_copies.size(); }
 

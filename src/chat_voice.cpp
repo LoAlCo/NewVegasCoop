@@ -144,17 +144,28 @@
         game::ShowFriendMarkers(friends);
     }
 
-    // The character a ping follows, as this game has them: a player by ID, or an NPC or body by the host's ref, which a
-    // visitor turns into its own copy (made, rerolled or held).
-    TESObjectREFR* PingedCharacter(uint8_t kind, uint32_t target)
+    // What a ping follows, as this game has it: a player by ID, or an NPC, body or item by the host's ref, which a visitor
+    // turns into its own copy (an NPC made, rerolled or held; an item placed in its stead).
+    TESObjectREFR* PingedThing(uint8_t kind, uint32_t target)
     {
         if (kind == static_cast<uint8_t>(net::PingKind::Friend))
             return target == g_coop.MyPlayerId() ? game::Player() : g_standIns.Character(static_cast<uint8_t>(target));
         if (!target || (kind != static_cast<uint8_t>(net::PingKind::Enemy) && kind != static_cast<uint8_t>(net::PingKind::Person) &&
                 kind != static_cast<uint8_t>(net::PingKind::Loot)))
             return nullptr;
-        TESObjectREFR* ref = g_coop.GetRole() == coop::Role::Host ? game::LookupRef(target) : g_npcs.OurRefOf(target);
-        return ref && game::IsActor(ref) ? ref : nullptr;
+        if (g_coop.GetRole() == coop::Role::Host)
+            return game::LookupRef(target);
+        if (TESObjectREFR* npc = g_npcs.OurRefOf(target); npc && game::IsActor(npc))
+            return npc;
+        if (kind != static_cast<uint8_t>(net::PingKind::Loot))
+            return nullptr;
+        TESObjectREFR* item = game::LookupRef(g_coop.OurItemOf(target));
+        return item && !game::IsActor(item) ? item : nullptr;
+    }
+
+    bool PingSpotOn(TESObjectREFR* thing, float (&at)[3])
+    {
+        return game::OverHead(thing, at, game::IsActor(thing) ? 130.0f : 8.0f);
     }
 
     void UpdatePings()
@@ -183,6 +194,18 @@
             ping.y = hit ? aim.at[1] : me.y;
             ping.z = hit ? aim.at[2] : me.z;
             ping.name = look.name;
+            if (chosen == coop::PingThing::Loot)
+            {
+                bool host = g_coop.GetRole() == coop::Role::Host;
+                ping.target = coop::PingItemTarget(ping.kind, host ? aim.ref : g_coop.HostItemOf(aim.ref), g_config.pingFollowItems);
+                float above[3];
+                if (ping.target && PingSpotOn(game::LookupRef(aim.ref), above))
+                {
+                    ping.x = above[0];
+                    ping.y = above[1];
+                    ping.z = above[2];
+                }
+            }
             TESObjectREFR* who = chosen == coop::PingThing::Actor ? game::LookupRef(aim.ref) : nullptr;
             if (who && game::IsActor(who))
             {
@@ -197,7 +220,7 @@
                 ping.name = pinged.name;
                 ping.target = pinged.target;
                 float head[3];
-                if (game::OverHead(who, head))
+                if (PingSpotOn(who, head))
                 {
                     ping.x = head[0];
                     ping.y = head[1];
@@ -228,7 +251,7 @@
             bool known = remote != remotes.end() && remote->second.motion.Newest(sender);
             bool inRange = placed && h.ping.space == me.space && coop::PingInRange(&me, known ? &sender : nullptr, g_config.pingRadius);
             uint8_t kind = static_cast<uint8_t>(h.ping.kind);
-            TESObjectREFR* who = PingedCharacter(kind, h.ping.target);
+            TESObjectREFR* who = PingedThing(kind, h.ping.target);
             LOG_INFO("Pings: %s marks %.0f %.0f %.0f in place %08X (%s, kind %u, target %08X, ours %08X), %s", h.who.c_str(),
                 h.ping.x, h.ping.y, h.ping.z, h.ping.space, h.ping.name.c_str(), static_cast<unsigned>(kind), h.ping.target,
                 game::RefId(who), inRange ? "shown" : "out of range");
@@ -252,7 +275,7 @@
                 continue;
             }
             float head[3];
-            if (TESObjectREFR* who = PingedCharacter(p.kind, p.target); who && game::OverHead(who, head))
+            if (TESObjectREFR* thing = PingedThing(p.kind, p.target); thing && PingSpotOn(thing, head))
                 s_board.Follow(slot, head[0], head[1], head[2]);
             marks[slot].active = true;
             marks[slot].text = coop::PingLine(p.who, p.name, p.x - me.x, p.y - me.y);

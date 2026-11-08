@@ -3400,6 +3400,30 @@ TEST(a_character_ping_says_who_and_follows_the_host_ref)
     CHECK(board.Slots()[0].until == 1000 + coop::kPingLifeMs);
 }
 
+TEST(a_loot_ping_follows_the_item_on_every_screen)
+{
+    using net::PingKind;
+    CHECK(coop::PingItemTarget(PingKind::Loot, 0x172217, true) == 0x172217);
+    CHECK(coop::PingItemTarget(PingKind::Loot, 0x172217, false) == 0);
+    CHECK(coop::PingItemTarget(PingKind::Utility, 0x172217, true) == 0);
+    CHECK(coop::PingItemTarget(PingKind::Spot, 0x172217, true) == 0);
+    CHECK(coop::PingItemTarget(PingKind::Loot, 0, true) == 0);
+
+    coop::FriendItems items;
+    // An item from the game's data is the same ref on every screen.
+    CHECK(items.OurRefOf(0x172217) == 0x172217 && items.HostRefOf(0x172217) == 0x172217);
+    // One the host made while playing only matches through our copy of it.
+    CHECK(items.OurRefOf(0xFF00131C) == 0);
+    items.Heard({0xFF00131C, 0x15169, 2, true, 100, 0, 0});
+    items.Look({});
+    CHECK(items.OurRefOf(0xFF00131C) == 0);
+    items.Made(0xFF00131C, 0xFF000200);
+    CHECK(items.OurRefOf(0xFF00131C) == 0xFF000200);
+    CHECK(items.HostRefOf(0xFF000200) == 0xFF00131C);
+    // One only we made has nothing on the host's side to follow.
+    CHECK(items.HostRefOf(0xFF000999) == 0 && items.HostRefOf(0) == 0);
+}
+
 TEST(ping_gate_allows_one_a_second)
 {
     coop::PingGate gate(coop::kPingSendGapMs);

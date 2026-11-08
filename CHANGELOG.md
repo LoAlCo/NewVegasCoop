@@ -6,6 +6,7 @@
   if it's out of view. Containers and items show a loot icon and their name, workbenches and the like a utility icon.
   If you aim at nothing, it says "Over here" where you stand. Ping a character and the icon sits over their head and
   follows them: a skull for enemies, a person for anyone else, including your friends. A body shows the loot icon.
+  A ping on loot stays on it if it's knocked, thrown or carried away.
 
 ## 0.1.11
 - Everyone needs 0.1.11 to play together.
