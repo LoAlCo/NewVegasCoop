@@ -3,10 +3,10 @@
 #pragma once
 
 struct NVSEInterface;
-namespace game { class Inspector; class Mirror; }
+namespace game { class Inspector; class Mirror; class Weather; }
 
 namespace dev
 {
-    bool RegisterCommands(NVSEInterface* nvse, game::Inspector* inspector, game::Mirror* mirror);
+    bool RegisterCommands(NVSEInterface* nvse, game::Inspector* inspector, game::Mirror* mirror, game::Weather* weather);
     void EveryFrame();
 }

@@ -12,6 +12,7 @@
 #include "game/mirror.h"
 #include "game/mover.h"
 #include "game/npcs.h"
+#include "game/weather.h"
 #include "log.h"
 
 #include "nvse/PluginAPI.h"
@@ -34,6 +35,7 @@ namespace dev
         NVSEScriptInterface* g_scripts = nullptr;
         game::Inspector* g_inspector = nullptr;
         game::Mirror* g_mirror = nullptr;
+        game::Weather* g_weather = nullptr;
         uint32_t g_dummy = 0;
         bool g_pitching = false;
         float g_pitch = 0;
@@ -128,6 +130,7 @@ namespace dev
             Say("coop inspect: log what the selected actor (or you) is doing; coop stop: stop that");
             Say("coop check: check the memory map again");
             Say("coop menus: which menus are open (as the crash log says)");
+            Say("coop weather: this copy's weather, the host's, and whether we're following it");
             Say("coop spawn: a lab dummy next to you (inspected); coop remove: delete it");
             Say("coop killcam N: the kill camera mode (0 none, 2 cinematic), held; -1: co-op turns it off again");
             Say("coop vatscam 0|1: VATS playback with the game's camera (0, lab) or your own view (1, co-op's)");
@@ -1496,6 +1499,11 @@ namespace dev
                         Say("    base %08X (type %u)", b.base, b.baseType);
                 }
             }
+            else if (_stricmp(action, "weather") == 0)
+            {
+                if (g_weather)
+                    Say("%s", g_weather->Report().c_str());
+            }
             else if (_stricmp(action, "release") == 0)
             {
                 TESObjectREFR* who = Target(selected);
@@ -1532,10 +1540,11 @@ namespace dev
         };
     }
 
-    bool RegisterCommands(NVSEInterface* nvse, game::Inspector* inspector, game::Mirror* mirror)
+    bool RegisterCommands(NVSEInterface* nvse, game::Inspector* inspector, game::Mirror* mirror, game::Weather* weather)
     {
         g_inspector = inspector;
         g_mirror = mirror;
+        g_weather = weather;
         g_scripts = static_cast<NVSEScriptInterface*>(nvse->QueryInterface(kInterface_Script));
         nvse->SetOpcodeBase(kNVSEOpcodeTest);
         if (g_scripts && nvse->RegisterCommand(&kCoopCommand))

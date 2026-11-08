@@ -13,6 +13,7 @@
 #include "coop/reinforcements.h"
 #include "coop/revive.h"
 #include "coop/voice.h"
+#include "coop/weather.h"
 #include "coop/progress.h"
 #include "coop/quests.h"
 #include "coop/sha256.h"
@@ -7520,4 +7521,197 @@ TEST(friend_gift_reaches_other_friend)
         return false;
     }, 300);
     CHECK(ended.empty());
+}
+
+TEST(weather_messages_round_trip_and_bad_ones_are_rejected)
+{
+    WeatherState sent{0x0100ABCD, 0x0200BEEF, 0x000DA726, 0.25f, kWeatherPopped};
+    Bytes b = Encode(sent);
+    CHECK(b[0] == 80);
+    auto decode = [](const Bytes& bytes, WeatherState& m)
+    {
+        Reader r(bytes);
+        uint8_t type = 0;
+        return r.U8(type) && Decode(r, m);
+    };
+    WeatherState got;
+    CHECK(decode(b, got));
+    CHECK(got.weather == sent.weather && got.climate == sent.climate && got.rootSpace == sent.rootSpace);
+    CHECK(got.percent == 0.25f && got.flags == kWeatherPopped);
+    WeatherState out;
+    for (size_t cut = 0; cut < b.size(); ++cut)
+    {
+        Bytes shortOne(b.begin(), b.begin() + cut);
+        CHECK(!decode(shortOne, out));
+    }
+    Bytes longer = b;
+    longer.push_back(0);
+    CHECK(!decode(longer, out));
+    WeatherState bad = sent;
+    bad.percent = 1.5f;
+    CHECK(!decode(Encode(bad), out));
+    bad.percent = -0.1f;
+    CHECK(!decode(Encode(bad), out));
+    bad.percent = std::nanf("");
+    CHECK(!decode(Encode(bad), out));
+    bad = sent;
+    bad.weather = 0;
+    CHECK(!decode(Encode(bad), out));
+    bad = sent;
+    bad.flags = kWeatherHostOff;
+    CHECK(!decode(Encode(bad), out));
+    bad = sent;
+    bad.flags = 4;
+    CHECK(!decode(Encode(bad), out));
+    WeatherState off;
+    off.flags = kWeatherHostOff;
+    CHECK(decode(Encode(off), out));
+    CHECK(out.weather == 0 && (out.flags & kWeatherHostOff));
+}
+
+TEST(a_friend_follows_the_hosts_weather_only_outdoors_in_the_same_place)
+{
+    using coop::WeatherAction;
+    WeatherState host{10, 20, 30, 1.f, 0};
+    coop::WeatherLocal me;
+    me.allowed = true;
+    me.mode = coop::kSkyExterior;
+    me.climate = 20;
+    me.rootSpace = 30;
+
+    CHECK(coop::WeatherFollow(nullptr, me) == WeatherAction::None);
+    CHECK(coop::WeatherFollow(&host, me) == WeatherAction::Pop);
+
+    me.following = true;
+    me.slot = 10;
+    CHECK(coop::WeatherFollow(&host, me) == WeatherAction::None);
+    CHECK(coop::WeatherFollow(&host, me) == WeatherAction::None);
+
+    WeatherState next = host;
+    next.weather = 11;
+    CHECK(coop::WeatherFollow(&next, me) == WeatherAction::Fade);
+    next.flags = kWeatherPopped;
+    CHECK(coop::WeatherFollow(&next, me) == WeatherAction::Pop);
+
+    me.slot = 0;
+    CHECK(coop::WeatherFollow(&host, me) == WeatherAction::Pop);
+    me.slot = 10;
+
+    auto leaves = [&](coop::WeatherLocal changed)
+    {
+        CHECK(coop::WeatherFollow(&host, changed) == WeatherAction::Release);
+        changed.following = false;
+        CHECK(coop::WeatherFollow(&host, changed) == WeatherAction::None);
+    };
+    coop::WeatherLocal changed = me;
+    changed.mode = 1;
+    leaves(changed);
+    changed = me;
+    changed.mode = 2;
+    leaves(changed);
+    changed = me;
+    changed.climate = 21;
+    leaves(changed);
+    changed = me;
+    changed.rootSpace = 31;
+    leaves(changed);
+    changed = me;
+    changed.allowed = false;
+    leaves(changed);
+    CHECK(coop::WeatherFollow(nullptr, me) == WeatherAction::Release);
+
+    WeatherState noPlace = host;
+    noPlace.climate = 0;
+    coop::WeatherLocal nowhere = me;
+    nowhere.climate = 0;
+    CHECK(coop::WeatherFollow(&noPlace, nowhere) == WeatherAction::Release);
+}
+
+TEST(the_host_reports_weather_changes_once_and_holds_it_indoors)
+{
+    coop::WeatherChanged watch;
+    coop::WeatherSky sky;
+    sky.weather = 10;
+    sky.climate = 20;
+    sky.rootSpace = 30;
+    sky.mode = 1;
+    CHECK(!watch.See(sky));
+    CHECK(!watch.Seen());
+    sky.mode = coop::kSkyExterior;
+    CHECK(watch.See(sky));
+    CHECK(watch.Seen() && watch.State().weather == 10 && watch.State().flags == kWeatherPopped);
+    CHECK(!watch.See(sky));
+
+    sky.weather = 11;
+    sky.previous = 10;
+    sky.percent = 0.f;
+    CHECK(watch.See(sky));
+    CHECK(watch.State().weather == 11 && watch.State().flags == 0);
+    sky.percent = 0.5f;
+    CHECK(!watch.See(sky));
+    CHECK(watch.State().percent == 0.5f);
+
+    sky.weather = 12;
+    sky.previous = 0;
+    sky.percent = 1.f;
+    CHECK(watch.See(sky));
+    CHECK(watch.State().flags == kWeatherPopped);
+
+    sky.climate = 21;
+    CHECK(watch.See(sky));
+    CHECK(watch.State().climate == 21 && watch.State().flags == 0);
+
+    coop::WeatherSky indoors = sky;
+    indoors.weather = 99;
+    indoors.mode = 1;
+    CHECK(!watch.See(indoors));
+    indoors.mode = 2;
+    CHECK(!watch.See(indoors));
+    CHECK(watch.State().weather == 12);
+
+    sky.percent = 7.f;
+    CHECK(!watch.See(sky));
+    CHECK(watch.State().percent == 1.f);
+
+    watch.Reset();
+    CHECK(!watch.Seen());
+    CHECK(watch.See(sky));
+}
+
+TEST(the_hosts_weather_reaches_friends_at_once_and_on_joining)
+{
+    coop::Coop host, a, b;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.InGame(); }));
+    WeatherState heard;
+    CHECK(!a.HostWeather(heard));
+
+    host.SetMyWeather(WeatherState{10, 20, 30, 1.f, kWeatherPopped}, true);
+    CHECK(RunUntil({&host, &a}, [&] { return a.HostWeather(heard) && heard.weather == 10; }, 1000));
+    CHECK(heard.climate == 20 && heard.rootSpace == 30 && heard.flags == kWeatherPopped);
+
+    host.SetMyWeather(WeatherState{11, 20, 30, 0.f, 0}, true);
+    CHECK(RunUntil({&host, &a}, [&] { return a.HostWeather(heard) && heard.weather == 11; }, 1000));
+
+    CHECK(b.Join("127.0.0.1", kTestPort, "B"));
+    CHECK(RunUntil({&host, &a, &b}, [&] { return b.InGame() && b.HostWeather(heard); }));
+    CHECK(heard.weather == 11);
+
+    host.StopMyWeather();
+    CHECK(RunUntil({&host, &a, &b}, [&] { return !a.HostWeather(heard) && !b.HostWeather(heard); }, 1000));
+    coop::Coop late;
+    CHECK(late.Join("127.0.0.1", kTestPort, "Late"));
+    CHECK(RunUntil({&host, &a, &b, &late}, [&] { return late.InGame(); }));
+    for (int i = 0; i < 20; ++i)
+        RunUntil({&host, &a, &b, &late}, [] { return true; });
+    CHECK(!late.HostWeather(heard));
+    late.Stop();
+    host.SetMyWeather(WeatherState{12, 20, 30, 1.f, kWeatherPopped}, true);
+    CHECK(RunUntil({&host, &a, &b}, [&] { return a.HostWeather(heard) && heard.weather == 12; }, 1000));
+
+    a.Stop();
+    CHECK(!a.HostWeather(heard));
+    b.Stop();
+    host.Stop();
 }

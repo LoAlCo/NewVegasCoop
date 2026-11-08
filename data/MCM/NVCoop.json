@@ -432,6 +432,18 @@
 							"default": 1
 						}
 					]
+				},
+				"37": {
+					"title": "Synced Weather",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Outdoors with the host, friends see the host's weather. Off for a friend: that friend keeps their own. Off for the host: everyone does",
+					"vars": [
+						{
+							"configINI": "Settings:bSyncWeather",
+							"default": 1
+						}
+					]
 				}
 			}
 		},
