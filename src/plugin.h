@@ -130,6 +130,7 @@ void StopGiftMenus();
 extern coop::GiftSaveTimer g_giftSaveTimer;
 
 void UpdateChat();
+void UpdatePings();
 void UpdateVoice();
 extern bool g_labTalking;
 extern std::vector<std::string> g_labChat;

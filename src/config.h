@@ -62,6 +62,12 @@ struct Config
     int voiceChatKey = 48;
     int voiceChatMode = 0;
     int voiceChatVolume = 100;
+    bool pings = true;
+    int pingKey = 34;
+    int pingSound = 1;
+    int pingRadius = 8000;
+    int pingIcons = 1;
+    bool pingObjects = true;
     bool mouths = true;
     bool skipDlcPopups = true;
     bool farCells = true;

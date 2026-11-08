@@ -3230,6 +3230,28 @@ namespace game
                     "<systemcolor>1</systemcolor><string> </string></text>";
                 g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
             }
+            for (int slot = 0; slot < coop::kPingSlots; ++slot)
+            {
+                std::string xml = "<text name=\"NVCoopPing" + std::to_string(slot) + "\"><visible>0</visible>"
+                    "<user0>0.5</user0><user1>0.5</user1>"
+                    "<x><copy src=\"screen()\" trait=\"width\"/><mul src=\"me()\" trait=\"user0\"/></x>"
+                    "<y><copy src=\"screen()\" trait=\"height\"/><mul src=\"me()\" trait=\"user1\"/><add>16</add></y>"
+                    "<font>2</font><justify>&center;</justify><wrapwidth>500</wrapwidth>"
+                    "<systemcolor>1</systemcolor><string> </string></text>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                static const char* const kIconFiles[] = {"ping_spot", "ping_loot", "ping_tool"};
+                static_assert(std::size(kIconFiles) == static_cast<size_t>(net::PingKind::Count));
+                for (int kind = 0; kind < static_cast<int>(net::PingKind::Count); ++kind)
+                {
+                    xml = "<image name=\"NVCoopPingIcon" + std::to_string(slot) + "x" + std::to_string(kind) + "\"><visible>0</visible>"
+                        "<filename>interface\\nvcoop\\" + kIconFiles[kind] + ".dds</filename>"
+                        "<user0>0.5</user0><user1>0.5</user1>"
+                        "<x><copy src=\"screen()\" trait=\"width\"/><mul src=\"me()\" trait=\"user0\"/><sub>16</sub></x>"
+                        "<y><copy src=\"screen()\" trait=\"height\"/><mul src=\"me()\" trait=\"user1\"/><sub>16</sub></y>"
+                        "<width>32</width><height>32</height><zoom>-1</zoom><systemcolor>1</systemcolor></image>";
+                    g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                }
+            }
             g_chatHudMade = true;
         }
 
@@ -3944,6 +3966,277 @@ namespace game
             g_chatShown = show;
         }
         return sent;
+    }
+
+    namespace
+    {
+        // The engine's pick data: where the ray runs, in Havok's units, and what stops it.
+        constexpr float kHavokUnitsPerGameUnit = 1.0f / 7.0f;
+        constexpr float kPingRayLength = 50000.0f;
+        constexpr int kPickSize = 0xB0;
+        constexpr int kPickFrom = 0x00, kPickTo = 0x10, kPickFilter = 0x24, kPickFraction = 0x40, kPickExtra = 0x44,
+            kPickShapeKey = 0x50;
+        constexpr uint32_t kPickLayer = 6;
+
+        // The player's own collision group: a ray carrying it passes through the player and what they hold.
+        uint32_t PlayerCollisionGroup()
+        {
+            __try
+            {
+                uintptr_t p = reinterpret_cast<uintptr_t>(Player());
+                for (uint32_t offset : {layout::kActorProcess, 0x138u, 0x594u, 8u})
+                {
+                    if (!p)
+                        return 0;
+                    p = *reinterpret_cast<uintptr_t*>(p + offset);
+                }
+                return p ? *reinterpret_cast<uint32_t*>(p + 0x2C) & 0xFFFF0000u : 0;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return 0;
+            }
+        }
+
+        bool RunPick(void* pick, void*& node)
+        {
+            __try
+            {
+                void* tes = *reinterpret_cast<void**>(layout::kTesSingleton);
+                if (!tes)
+                    return false;
+                node = reinterpret_cast<void*(__thiscall*)(void*, void*, bool)>(addr::kTesPick)(tes, pick, true);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        TESObjectREFR* RefFromNode(void* node)
+        {
+            __try
+            {
+                return node ? reinterpret_cast<TESObjectREFR*(__cdecl*)(void*)>(addr::kRefFromNode)(node) : nullptr;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return nullptr;
+            }
+        }
+
+        void RefName(TESObjectREFR* ref, char (&out)[64])
+        {
+            out[0] = 0;
+            __try
+            {
+                const char* name = reinterpret_cast<const char*(__thiscall*)(TESObjectREFR*)>(addr::kRefFullName)(ref);
+                if (name)
+                    strncpy_s(out, name, _TRUNCATE);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                out[0] = 0;
+            }
+        }
+
+        coop::PingThing ThingOf(TESObjectREFR* ref, std::string& name)
+        {
+            name.clear();
+            if (!ref)
+                return coop::PingThing::Scenery;
+            if (IsActor(ref))
+                return coop::PingThing::Actor;
+            TESForm* base = ref->baseForm;
+            if (!base)
+                return coop::PingThing::Scenery;
+            coop::PingThing thing = coop::PingThing::Scenery;
+            switch (base->typeID)
+            {
+            case kFormType_TESObjectCONT:
+            case kFormType_TESObjectARMO:
+            case kFormType_TESObjectBOOK:
+            case kFormType_TESObjectMISC:
+            case kFormType_TESObjectWEAP:
+            case kFormType_TESAmmo:
+            case kFormType_TESKey:
+            case kFormType_AlchemyItem:
+            case kFormType_BGSNote:
+            case kFormType_TESObjectIMOD:
+            case kFormType_TESCaravanCard:
+            case kFormType_TESCaravanMoney:
+                thing = coop::PingThing::Loot;
+                break;
+            case kFormType_TESObjectACTI:
+            case kFormType_BGSTerminal:
+            case kFormType_TESFurniture:
+                thing = coop::PingThing::Device;
+                break;
+            case kFormType_TESObjectDOOR:
+                thing = coop::PingThing::Door;
+                break;
+            default:
+                return thing;
+            }
+            char text[64];
+            RefName(ref, text);
+            name = text;
+            return thing;
+        }
+
+        void NodeName(const void* node, char (&out)[64])
+        {
+            out[0] = 0;
+            __try
+            {
+                const char* name = node ? *reinterpret_cast<const char* const*>(static_cast<const char*>(node) + 8) : nullptr;
+                if (name)
+                    strncpy_s(out, name, _TRUNCATE);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                out[0] = 0;
+            }
+        }
+
+        // The camera the game draws from, in first and third person. It looks along its own X axis.
+        bool CameraRay(float (&from)[3], float (&forward)[3])
+        {
+            __try
+            {
+                uintptr_t scene = *reinterpret_cast<uintptr_t*>(addr::kWorldSceneGraph);
+                uintptr_t camera = scene ? *reinterpret_cast<uintptr_t*>(scene + addr::kSceneGraphCamera) : 0;
+                if (!camera)
+                    return false;
+                const auto* place = reinterpret_cast<const float*>(camera + layout::kNodeWorldTranslate);
+                const auto* turn = reinterpret_cast<const float*>(camera + layout::kNodeWorldRotate);
+                for (int i = 0; i < 3; ++i)
+                {
+                    from[i] = place[i];
+                    forward[i] = turn[i * 3];
+                }
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+    }
+
+    bool CrosshairPoint(CrosshairPick& out)
+    {
+        float from[3], forward[3];
+        if (!Player() || !CameraRay(from, forward))
+            return false;
+        alignas(16) unsigned char pick[kPickSize] = {};
+        auto* start = reinterpret_cast<float*>(pick + kPickFrom);
+        auto* end = reinterpret_cast<float*>(pick + kPickTo);
+        for (int i = 0; i < 3; ++i)
+        {
+            start[i] = from[i] * kHavokUnitsPerGameUnit;
+            end[i] = (from[i] + forward[i] * kPingRayLength) * kHavokUnitsPerGameUnit;
+        }
+        *reinterpret_cast<uint32_t*>(pick + kPickFilter) = PlayerCollisionGroup() | kPickLayer;
+        *reinterpret_cast<float*>(pick + kPickFraction) = 1.0f;
+        *reinterpret_cast<int32_t*>(pick + kPickExtra) = -1;
+        *reinterpret_cast<int32_t*>(pick + kPickShapeKey) = -1;
+        void* node = nullptr;
+        if (!RunPick(pick, node))
+            return false;
+        float fraction = *reinterpret_cast<float*>(pick + kPickFraction);
+        out.hit = fraction >= 0 && fraction < 1;
+        out.distance = fraction * kPingRayLength;
+        for (int i = 0; i < 3; ++i)
+            out.at[i] = from[i] + forward[i] * out.distance;
+        NodeName(node, out.what);
+        TESObjectREFR* hitRef = out.hit ? RefFromNode(node) : nullptr;
+        // The game's own highlighted object first: small items can be easy to see and hard for a ray to touch.
+        TESObjectREFR* aimed = CrosshairRef();
+        if (aimed && !IsActor(aimed) && aimed != hitRef)
+        {
+            hitRef = aimed;
+            out.hit = true;
+            out.at[0] = aimed->posX;
+            out.at[1] = aimed->posY;
+            out.at[2] = aimed->posZ;
+        }
+        out.ref = RefId(hitRef);
+        out.thing = out.hit ? ThingOf(hitRef, out.name) : coop::PingThing::Nothing;
+        return true;
+    }
+
+    bool SpotOnScreen(const float (&at)[3], float& x, float& y, bool& inView)
+    {
+        NVSEArrayVarInterface::Element result;
+        x = y = 0;
+        inView = false;
+        if (!g_spotOnScreen || !g_arrays || !Player())
+            return false;
+        if (!g_scripts->CallFunction(g_spotOnScreen, Player(), nullptr, &result, 3, *reinterpret_cast<const uint32_t*>(&at[0]),
+                *reinterpret_cast<const uint32_t*>(&at[1]), *reinterpret_cast<const uint32_t*>(&at[2])) ||
+            !result.GetArray() || g_arrays->GetArraySize(result.GetArray()) != 3)
+            return false;
+        NVSEArrayVarInterface::Element e[3];
+        if (!g_arrays->GetElements(result.GetArray(), e, nullptr))
+            return false;
+        inView = e[0].GetNumber() != 0;
+        x = static_cast<float>(e[1].GetNumber());
+        y = static_cast<float>(e[2].GetNumber());
+        return true;
+    }
+
+    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks, coop::PingIcons icons)
+    {
+        static coop::PingIcons s_icons = coop::PingIcons::HudColour;
+        bool iconsChanged = icons != s_icons;
+        s_icons = icons;
+        static std::string s_text[coop::kPingSlots];
+        static bool s_shown[coop::kPingSlots] = {};
+        std::array<coop::PingLabelSpot, coop::kPingSlots> spots;
+        std::array<bool, coop::kPingSlots> shown = {};
+        for (int slot = 0; slot < coop::kPingSlots; ++slot)
+        {
+            float x = 0, y = 0;
+            bool inView = false;
+            shown[slot] = marks[slot].active && SpotOnScreen(marks[slot].at, x, y, inView);
+            if (shown[slot])
+                spots[slot] = coop::PlacePingLabel(x, y);
+        }
+        coop::SpreadPingLabels(spots, shown);
+        for (int slot = 0; slot < coop::kPingSlots; ++slot)
+        {
+            const PingMark& m = marks[slot];
+            bool show = shown[slot];
+            if ((!show && !s_shown[slot]) || !g_pingLabel[slot] || !Player())
+                continue;
+            MakeChatHud();
+            coop::PingLabelSpot spot = spots[slot];
+            bool changed = show && (iconsChanged || !s_shown[slot] || s_text[slot] != m.text);
+            g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 6, m.text.empty() ? " " : m.text.c_str(),
+                *reinterpret_cast<uint32_t*>(&spot.x), *reinterpret_cast<uint32_t*>(&spot.y),
+                static_cast<uint32_t>(!show ? 0 : changed ? 2 : 1), static_cast<uint32_t>(m.kind), static_cast<uint32_t>(icons));
+            s_text[slot] = show ? m.text : std::string();
+            s_shown[slot] = show;
+        }
+    }
+
+    void PlayPingSound(int choice)
+    {
+        struct SoundHandle { uint32_t id = 0xFFFFFFFF; uint8_t assumeSuccess = 0; uint32_t state = 0; };
+        static const char* const kSounds[] = {"UIPopUpMapMarkerAdded", "UIPopUpMessageGeneral", "UIPopUpQuestNew",
+            "UIRadioSignalFound", "UIMenuOK"};
+        if (choice < 1 || choice > static_cast<int>(std::size(kSounds)))
+            return;
+        void* audio = reinterpret_cast<void*(__cdecl*)()>(addr::kAudioSingleton)();
+        if (!audio)
+            return;
+        SoundHandle sound;
+        reinterpret_cast<void*(__thiscall*)(void*, SoundHandle*, const char*, uint32_t)>(addr::kSoundHandleByEditorId)(audio,
+            &sound, kSounds[choice - 1], 0x121);
+        if (sound.id != 0xFFFFFFFF)
+            reinterpret_cast<bool(__thiscall*)(SoundHandle*, bool)>(addr::kSoundHandlePlay)(&sound, false);
     }
 
     float DistanceToPlayer(const TESObjectREFR* ref)

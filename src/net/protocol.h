@@ -102,6 +102,7 @@ namespace net
         ShotPath = 81,
         Give = 88,
         BodyLoot = 82,
+        Ping = 87,
         MineChange = 63,
         ModsMatch = 48,
         WeatherState = 80,
@@ -848,6 +849,24 @@ namespace net
         std::string text;
         coop::VoiceStyle style;
     };
+    // Each kind has its own icon. None sends a target yet: a later kind can use it for an ID without changing the format.
+    enum class PingKind : uint8_t
+    {
+        Spot,
+        Loot,
+        Utility,
+        Count
+    };
+    constexpr size_t kMaxPingName = 48;
+    struct Ping
+    {
+        uint8_t player = 0;
+        PingKind kind = PingKind::Spot;
+        uint32_t target = 0;
+        uint32_t space = 0;
+        float x = 0, y = 0, z = 0;
+        std::string name;
+    };
     constexpr size_t kMaxChatText = 160;
     constexpr size_t kMaxVoiceBytes = 2048;
     struct VoiceData
@@ -883,6 +902,8 @@ namespace net
     bool Decode(Reader& r, VoiceData& m);
     Bytes Encode(const ChatLine& m);
     bool Decode(Reader& r, ChatLine& m);
+    Bytes Encode(const Ping& m);
+    bool Decode(Reader& r, Ping& m);
     Bytes Encode(const PlayerCommand& m);
     bool Decode(Reader& r, PlayerCommand& m);
     struct RadioPick

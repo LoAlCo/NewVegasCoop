@@ -3882,6 +3882,286 @@ TEST(items_keep_their_condition_and_weapon_mods)
     CHECK(!refused({{gun, 1, 47, 3}, {gun, 2, 47, 1}}));
 }
 
+TEST(ping_round_trips_and_rejects_bad_values)
+{
+    MsgType t;
+    net::Ping good;
+    good.player = 2;
+    good.space = 0xDA726;
+    good.x = 100.5f;
+    good.y = -200.25f;
+    good.z = 300;
+    good.name = "Marked spot";
+    Bytes b = Encode(good);
+    net::Ping m;
+    {
+        Reader r(b);
+        CHECK(r.Type(t) && t == MsgType::Ping && Decode(r, m));
+        CHECK(m.player == 2 && m.kind == net::PingKind::Spot && m.target == 0 && m.space == 0xDA726 && m.x == 100.5f &&
+            m.y == -200.25f && m.z == 300 && m.name == "Marked spot");
+    }
+    auto rejected = [&](net::Ping bad) {
+        Bytes x = Encode(bad);
+        Reader r(x);
+        net::Ping out;
+        return r.Type(t) && !Decode(r, out);
+    };
+    net::Ping bad = good;
+    bad.space = 0;
+    CHECK(rejected(bad));
+    bad = good;
+    bad.name.clear();
+    CHECK(rejected(bad));
+    bad = good;
+    bad.target = 0x1234;
+    CHECK(rejected(bad));
+    bad = good;
+    bad.kind = net::PingKind::Count;
+    CHECK(rejected(bad));
+    Bytes extra = b;
+    extra.push_back(0);
+    {
+        Reader r(extra);
+        CHECK(r.Type(t) && !Decode(r, m));
+    }
+    Bytes shorter(b.begin(), b.end() - 1);
+    {
+        Reader r(shorter);
+        CHECK(r.Type(t) && !Decode(r, m));
+    }
+    net::Ping longName = good;
+    longName.name = std::string(200, 'x');
+    Bytes trimmed = Encode(longName);
+    Reader r(trimmed);
+    CHECK(r.Type(t) && Decode(r, m) && m.name.size() == net::kMaxPingName);
+}
+
+TEST(a_ping_says_what_kind_of_thing_it_marks)
+{
+    using coop::ClassifyPing;
+    using coop::PingThing;
+    using net::PingKind;
+    auto is = [](const coop::PingLook& look, PingKind kind, const std::string& name) { return look.kind == kind && look.name == name; };
+    CHECK(is(ClassifyPing(PingThing::Nothing, ""), PingKind::Spot, "Over here"));
+    CHECK(is(ClassifyPing(PingThing::Scenery, "Rock"), PingKind::Spot, "Marked spot"));
+    CHECK(is(ClassifyPing(PingThing::Actor, "Raider"), PingKind::Spot, "Marked spot"));
+    CHECK(is(ClassifyPing(PingThing::Loot, "Ammo Box"), PingKind::Loot, "Ammo Box"));
+    CHECK(is(ClassifyPing(PingThing::Loot, ""), PingKind::Loot, "Loot"));
+    CHECK(is(ClassifyPing(PingThing::Door, "Door"), PingKind::Spot, "Door"));
+    CHECK(is(ClassifyPing(PingThing::Door, ""), PingKind::Spot, "Marked spot"));
+    CHECK(is(ClassifyPing(PingThing::Device, "Workbench"), PingKind::Utility, "Workbench"));
+    CHECK(is(ClassifyPing(PingThing::Device, "Reloading Bench"), PingKind::Utility, "Reloading Bench"));
+    CHECK(is(ClassifyPing(PingThing::Device, "Campfire"), PingKind::Utility, "Campfire"));
+    CHECK(is(ClassifyPing(PingThing::Device, "Magazine Vending Machine"), PingKind::Utility, "Magazine Vending Machine"));
+    CHECK(is(ClassifyPing(PingThing::Device, "Radio"), PingKind::Spot, "Radio"));
+    CHECK(is(ClassifyPing(PingThing::Device, ""), PingKind::Spot, "Marked spot"));
+    CHECK(ClassifyPing(PingThing::Loot, std::string(200, 'x')).name.size() == coop::kMaxPingThingName);
+
+    for (PingKind kind : {PingKind::Spot, PingKind::Loot, PingKind::Utility})
+    {
+        net::Ping sent;
+        sent.kind = kind;
+        sent.space = 7;
+        sent.name = "Workbench";
+        Bytes b = Encode(sent);
+        Reader r(b);
+        MsgType t;
+        net::Ping got;
+        CHECK(r.Type(t) && Decode(r, got) && got.kind == kind);
+    }
+    coop::PingBoard board;
+    board.Add(1, "Ann", "Ammo Box", 0, 0, 0, 1000, static_cast<uint8_t>(PingKind::Loot));
+    CHECK(board.Slots()[0].kind == static_cast<uint8_t>(PingKind::Loot));
+}
+
+TEST(recognising_objects_can_be_turned_off)
+{
+    using coop::ChosenPingThing;
+    using coop::PingThing;
+    CHECK(ChosenPingThing(PingThing::Loot, true) == PingThing::Loot);
+    CHECK(ChosenPingThing(PingThing::Device, true) == PingThing::Device);
+    CHECK(ChosenPingThing(PingThing::Loot, false) == PingThing::Scenery);
+    CHECK(ChosenPingThing(PingThing::Device, false) == PingThing::Scenery);
+    CHECK(ChosenPingThing(PingThing::Door, false) == PingThing::Scenery);
+    CHECK(ChosenPingThing(PingThing::Nothing, false) == PingThing::Nothing);
+    CHECK(coop::ClassifyPing(ChosenPingThing(PingThing::Loot, false), "Ammo Box").kind == net::PingKind::Spot);
+    CHECK(coop::ClassifyPing(ChosenPingThing(PingThing::Loot, false), "Ammo Box").name == "Marked spot");
+}
+
+TEST(ping_gate_allows_one_a_second)
+{
+    coop::PingGate gate(coop::kPingSendGapMs);
+    CHECK(gate.Allow(5000));
+    CHECK(!gate.Allow(5000));
+    CHECK(!gate.Allow(5999));
+    CHECK(gate.Allow(6000));
+    coop::PingGate wrap(coop::kPingSendGapMs);
+    CHECK(wrap.Allow(0xFFFFFF00u));
+    CHECK(!wrap.Allow(0x00000010u));
+    CHECK(wrap.Allow(0x00000400u));
+    coop::PingGate atZero(coop::kPingSendGapMs);
+    CHECK(atZero.Allow(0));
+    CHECK(!atZero.Allow(10));
+}
+
+TEST(a_new_ping_replaces_the_old_and_expires_after_15_seconds)
+{
+    auto used = [](const coop::PingBoard& board) {
+        int n = 0;
+        for (const coop::ActivePing& p : board.Slots())
+            n += p.used ? 1 : 0;
+        return n;
+    };
+    coop::PingBoard board;
+    board.Add(1, "Ann", "Marked spot", 1, 2, 3, 1000);
+    CHECK(used(board) == 1);
+    board.Add(1, "Ann", "Over here", 4, 5, 6, 2000);
+    CHECK(used(board) == 1 && board.Slots()[0].name == "Over here" && board.Slots()[0].x == 4);
+    board.Add(2, "Bob", "Marked spot", 7, 8, 9, 3000);
+    CHECK(used(board) == 2);
+    board.Expire(2000 + coop::kPingLifeMs - 1);
+    CHECK(used(board) == 2);
+    board.Expire(2000 + coop::kPingLifeMs);
+    CHECK(used(board) == 1 && !board.Slots()[0].used && board.Slots()[1].player == 2);
+    coop::PingBoard wrap;
+    wrap.Add(3, "Cat", "Marked spot", 0, 0, 0, 0xFFFFFFF0u);
+    wrap.Expire(0x00000010u);
+    CHECK(used(wrap) == 1);
+    wrap.Expire(0xFFFFFFF0u + coop::kPingLifeMs);
+    CHECK(used(wrap) == 0);
+    coop::PingBoard full;
+    for (uint8_t id = 0; id < coop::kPingSlots; ++id)
+        full.Add(id, "P", "Marked spot", 0, 0, 0, 1000u + id);
+    full.Add(9, "New", "Marked spot", 0, 0, 0, 2000);
+    CHECK(used(full) == coop::kPingSlots && full.Slots()[0].player == 9);
+}
+
+TEST(a_leaving_player_loses_their_ping)
+{
+    coop::PingBoard board;
+    board.Add(1, "Ann", "Marked spot", 0, 0, 0, 1000);
+    board.Add(2, "Bob", "Marked spot", 0, 0, 0, 1000);
+    board.Remove(1);
+    CHECK(!board.Slots()[0].used && board.Slots()[1].used);
+    board.Clear();
+    CHECK(!board.Slots()[1].used);
+}
+
+TEST(a_ping_only_reaches_players_near_the_sender)
+{
+    coop::Pose me, sender;
+    me.space = sender.space = 0xDA726;
+    me.x = 1000;
+    me.y = 1000;
+    me.z = 100;
+    sender = me;
+    sender.x += 7999;
+    CHECK(coop::PingInRange(&me, &sender, 8000));
+    sender.x = me.x + 8000;
+    CHECK(coop::PingInRange(&me, &sender, 8000));
+    sender.x = me.x + 8001;
+    CHECK(!coop::PingInRange(&me, &sender, 8000));
+    sender.x = me.x;
+    sender.z = me.z + 8001;
+    CHECK(!coop::PingInRange(&me, &sender, 8000));
+    sender.z = me.z;
+    sender.x = me.x + 1000000;
+    CHECK(coop::PingInRange(&me, &sender, 0));
+    sender.space = 0x1234;
+    sender.x = me.x;
+    CHECK(!coop::PingInRange(&me, &sender, 8000));
+    CHECK(!coop::PingInRange(&me, &sender, 0));
+    sender.space = me.space;
+    CHECK(!coop::PingInRange(&me, nullptr, 8000));
+    CHECK(!coop::PingInRange(&me, nullptr, 0));
+    CHECK(!coop::PingInRange(nullptr, &sender, 0));
+}
+
+TEST(ping_line_gives_name_and_distance)
+{
+    using coop::PingLine;
+    CHECK(PingLine("Zyr", "Marked spot", 0, 1610) == "Zyr: Marked spot (23 m)");
+    CHECK(PingLine("Zyr", "Marked spot", 0, -1610) == "Zyr: Marked spot (23 m)");
+    CHECK(PingLine("Zyr", "Ammo Box", 420, 560) == "Zyr: Ammo Box (10 m)");
+    CHECK(PingLine("You", "Over here", 0, 0) == "You: Over here (0 m)");
+    CHECK(PingLine("<b>Zyr", "Over here", 0, 0)[0] == '(');
+    CHECK(PingLine("{Zyr", "Over here", 0, 0)[0] == '(');
+}
+
+TEST(ping_labels_stay_on_screen)
+{
+    coop::PingLabelSpot middle = coop::PlacePingLabel(0.5f, 0.5f);
+    CHECK(middle.x == 0.5f && middle.y == 0.5f);
+    coop::PingLabelSpot right = coop::PlacePingLabel(1.0f, 0.5f);
+    CHECK(right.x < 1.0f && right.x > 0.5f);
+    coop::PingLabelSpot left = coop::PlacePingLabel(0.0f, 0.5f);
+    CHECK(left.x > 0 && left.x < 0.5f);
+    coop::PingLabelSpot huge = coop::PlacePingLabel(42332.75f, -9000.0f);
+    CHECK(huge.x == right.x && huge.y > 0 && huge.y < 0.5f);
+    CHECK(coop::PlacePingLabel(0.5f, 2.0f).y < 1.0f);
+}
+
+TEST(ping_icons_stay_on_their_spots_unless_they_would_overlap)
+{
+    std::array<coop::PingLabelSpot, coop::kPingSlots> spots;
+    std::array<bool, coop::kPingSlots> shown = {};
+    spots[0] = {0.5f, 0.5f};
+    spots[1] = {0.9f, 0.5f};
+    spots[2] = {0.5f, 0.5f};
+    spots[3] = {0.5f, 0.5f};
+    shown[0] = shown[1] = true;
+    coop::SpreadPingLabels(spots, shown);
+    CHECK(spots[0].y == 0.5f && spots[1].y == 0.5f);
+    shown[2] = shown[3] = true;
+    coop::SpreadPingLabels(spots, shown);
+    CHECK(spots[0].y == 0.5f && spots[2].y < 0.5f && spots[3].y < spots[2].y);
+}
+
+TEST(ping_goes_to_everyone_through_the_host)
+{
+    coop::Coop host, a, b;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(b.Join("127.0.0.1", kTestPort, "Bob"));
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        return a.GetFriendState() == coop::FriendState::Joined && b.GetFriendState() == coop::FriendState::Joined;
+    }));
+    net::Ping ping;
+    ping.player = 200;
+    ping.space = 0xDA726;
+    ping.x = 10;
+    ping.y = 20;
+    ping.z = 30;
+    ping.name = "Marked <spot>";
+    a.SendPing(ping);
+    ping.x = 99;
+    a.SendPing(ping);
+    std::vector<coop::Coop::PingHeard> atHost, atBob, atAnn;
+    auto drain = [&] {
+        for (auto& x : host.TakePings()) atHost.push_back(x);
+        for (auto& x : b.TakePings()) atBob.push_back(x);
+        for (auto& x : a.TakePings()) atAnn.push_back(x);
+    };
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        drain();
+        return !atHost.empty() && !atBob.empty();
+    }));
+    CHECK(atHost.size() == 1 && atHost[0].who == "Ann" && atHost[0].ping.player == a.MyPlayerId() && atHost[0].ping.x == 10);
+    CHECK(atBob.size() == 1 && atBob[0].who == "Ann" && atBob[0].ping.player == a.MyPlayerId() &&
+        atBob[0].ping.name == coop::CleanChat("Marked <spot>"));
+    CHECK(atAnn.empty());
+
+    atBob.clear();
+    ping.x = 50;
+    host.SendPing(ping);
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        drain();
+        return !atBob.empty() && !atAnn.empty();
+    }));
+    CHECK(atBob[0].ping.player == host.MyPlayerId() && atBob[0].who == "Host" && atAnn[0].ping.x == 50);
+    CHECK(atHost.size() == 1);
+}
+
 TEST(chat_goes_to_everyone_through_the_host)
 {
     MsgType t;
