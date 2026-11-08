@@ -140,24 +140,6 @@ namespace coop
         std::string name;
     };
 
-    // How the menu's Ping Icons option shows them.
-    enum class PingIcons : uint8_t
-    {
-        Off,
-        HudColour,
-        OwnColours
-    };
-
-    // What a ping marks once the player's Recognise Objects and Ping Characters choices are applied.
-    inline PingThing ChosenPingThing(PingThing seen, bool objects, bool characters = true)
-    {
-        if (seen == PingThing::Nothing)
-            return seen;
-        if (seen == PingThing::Actor)
-            return characters ? seen : PingThing::Scenery;
-        return objects ? seen : PingThing::Scenery;
-    }
-
     // A character under the sender's crosshair, as their game sees it.
     struct PingCharacter
     {
@@ -192,10 +174,10 @@ namespace coop
         return {net::PingKind::Person, name.empty() ? "Someone" : name, c.hostRef};
     }
 
-    // Loot pings follow the item when the sender knows the host's ref for it and chose to.
-    inline uint32_t PingItemTarget(net::PingKind kind, uint32_t hostRef, bool follow)
+    // Loot pings follow the item when the sender knows the host's ref for it.
+    inline uint32_t PingItemTarget(net::PingKind kind, uint32_t hostRef)
     {
-        return kind == net::PingKind::Loot && follow ? hostRef : 0;
+        return kind == net::PingKind::Loot ? hostRef : 0;
     }
 
     // Characters go through ClassifyCharacterPing; here they're only a spot.

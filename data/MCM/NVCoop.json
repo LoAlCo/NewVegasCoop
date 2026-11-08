@@ -386,130 +386,6 @@
 							"default": 1
 						}
 					]
-				},
-				"32": {
-					"title": "Pings",
-					"enable": 1,
-					"type": 0
-				},
-				"33": {
-					"title": "Pings",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Mark the spot you're aiming at for players near you",
-					"vars": [
-						{
-							"configINI": "Settings:bPings",
-							"default": 1
-						}
-					]
-				},
-				"34": {
-					"title": "Ping Key",
-					"type": 3,
-					"enable": 1,
-					"mouse": "The key that marks the spot you're aiming at",
-					"vars": [
-						{
-							"configINI": "Settings:iPingKey",
-							"default": 34
-						}
-					],
-					"keybind": {
-						"type": 0
-					}
-				},
-				"35": {
-					"title": "Ping Sound",
-					"type": 1,
-					"enable": 1,
-					"mouse": "The sound you hear when a ping appears",
-					"vars": [
-						{
-							"configINI": "Settings:iPingSound",
-							"default": 1
-						}
-					],
-					"strings": [
-						"Off",
-						"Map marker",
-						"Message",
-						"New quest",
-						"Radio signal",
-						"Menu OK"
-					]
-				},
-				"36": {
-					"title": "Ping Range",
-					"type": 2,
-					"enable": 1,
-					"mouse": "How near a player must be for you to see their ping. 0 means no limit. Only changes what you see",
-					"vars": [
-						{
-							"configINI": "Settings:iPingRadius",
-							"default": 8000
-						}
-					],
-					"scale": {
-						"valueDecimal": 0,
-						"valueIncrement": 500,
-						"valueMin": 0,
-						"valueMax": 20000,
-						"suffix": ""
-					}
-				},
-				"37": {
-					"title": "Ping Icons",
-					"type": 1,
-					"enable": 1,
-					"mouse": "The icon on each ping: off, in your HUD's colour, or each kind in its own colour",
-					"vars": [
-						{
-							"configINI": "Settings:iPingIcons",
-							"default": 1
-						}
-					],
-					"strings": [
-						"Off",
-						"HUD colour",
-						"Own colours"
-					]
-				},
-				"38": {
-					"title": "Recognise Objects",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Your pings name what you aim at and use its icon, such as loot or a workbench. Off: every ping you send is a plain marked spot",
-					"vars": [
-						{
-							"configINI": "Settings:bPingObjects",
-							"default": 1
-						}
-					]
-				},
-				"39": {
-					"title": "Ping Characters",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Pinging someone puts an icon over their head that follows them: a skull for enemies, a person for anyone else. Off: it's a plain marked spot",
-					"vars": [
-						{
-							"configINI": "Settings:bPingCharacters",
-							"default": 1
-						}
-					]
-				},
-				"40": {
-					"title": "Ping Follows Items",
-					"type": 5,
-					"enable": 1,
-					"mouse": "A ping on loot, such as a weapon or a Stimpak, stays on it if it's knocked, thrown or carried away. Off: it stays where the item was",
-					"vars": [
-						{
-							"configINI": "Settings:bPingFollowItems",
-							"default": 1
-						}
-					]
 				}
 			}
 		},
@@ -833,6 +709,80 @@
 						"valueIncrement": 5,
 						"valueMin": 0,
 						"valueMax": 255
+					}
+				}
+			}
+		},
+		"2": {
+			"listTitle": "Pings",
+			"pageTitle": "Pings",
+			"columns": 1,
+			"enable": 1,
+			"options": {
+				"1": {
+					"title": "Pings",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Mark the spot you're aiming at for players near you",
+					"vars": [
+						{
+							"configINI": "Settings:bPings",
+							"default": 1
+						}
+					]
+				},
+				"2": {
+					"title": "Ping Key",
+					"type": 3,
+					"enable": 1,
+					"mouse": "The key that marks the spot you're aiming at",
+					"vars": [
+						{
+							"configINI": "Settings:iPingKey",
+							"default": 34
+						}
+					],
+					"keybind": {
+						"type": 0
+					}
+				},
+				"3": {
+					"title": "Ping Sound",
+					"type": 1,
+					"enable": 1,
+					"mouse": "The sound you hear when a ping appears",
+					"vars": [
+						{
+							"configINI": "Settings:iPingSound",
+							"default": 1
+						}
+					],
+					"strings": [
+						"Off",
+						"Map marker",
+						"Message",
+						"New quest",
+						"Radio signal",
+						"Menu OK"
+					]
+				},
+				"4": {
+					"title": "Ping Range",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How near a player must be for you to see their ping. 0 means no limit. Only changes what you see",
+					"vars": [
+						{
+							"configINI": "Settings:iPingRadius",
+							"default": 8000
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 500,
+						"valueMin": 0,
+						"valueMax": 20000,
+						"suffix": ""
 					}
 				}
 			}

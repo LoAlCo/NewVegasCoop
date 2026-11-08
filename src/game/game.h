@@ -373,7 +373,7 @@ namespace game
         float at[3] = {};
         uint8_t kind = 0;
     };
-    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks, coop::PingIcons icons);
+    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks);
     void PlayPingSound(int choice);
     struct Item { uint32_t id; int32_t count; uint8_t health = net::kNoCondition; uint8_t mods = 0; };
     constexpr size_t kMaxItemKinds = 500;

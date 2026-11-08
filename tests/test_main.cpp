@@ -3308,31 +3308,6 @@ TEST(a_ping_says_what_kind_of_thing_it_marks)
     CHECK(board.Slots()[0].kind == static_cast<uint8_t>(PingKind::Loot));
 }
 
-TEST(recognising_objects_can_be_turned_off)
-{
-    using coop::ChosenPingThing;
-    using coop::PingThing;
-    CHECK(ChosenPingThing(PingThing::Loot, true) == PingThing::Loot);
-    CHECK(ChosenPingThing(PingThing::Device, true) == PingThing::Device);
-    CHECK(ChosenPingThing(PingThing::Loot, false) == PingThing::Scenery);
-    CHECK(ChosenPingThing(PingThing::Device, false) == PingThing::Scenery);
-    CHECK(ChosenPingThing(PingThing::Door, false) == PingThing::Scenery);
-    CHECK(ChosenPingThing(PingThing::Nothing, false) == PingThing::Nothing);
-    CHECK(coop::ClassifyPing(ChosenPingThing(PingThing::Loot, false), "Ammo Box").kind == net::PingKind::Spot);
-    CHECK(coop::ClassifyPing(ChosenPingThing(PingThing::Loot, false), "Ammo Box").name == "Marked spot");
-}
-
-TEST(pinging_characters_can_be_turned_off)
-{
-    using coop::ChosenPingThing;
-    using coop::PingThing;
-    CHECK(ChosenPingThing(PingThing::Actor, true, true) == PingThing::Actor);
-    CHECK(ChosenPingThing(PingThing::Actor, false, true) == PingThing::Actor);
-    CHECK(ChosenPingThing(PingThing::Actor, true, false) == PingThing::Scenery);
-    CHECK(ChosenPingThing(PingThing::Loot, true, false) == PingThing::Loot);
-    CHECK(ChosenPingThing(PingThing::Nothing, false, false) == PingThing::Nothing);
-}
-
 TEST(a_character_ping_says_who_and_follows_the_host_ref)
 {
     using coop::ClassifyCharacterPing;
@@ -3403,11 +3378,10 @@ TEST(a_character_ping_says_who_and_follows_the_host_ref)
 TEST(a_loot_ping_follows_the_item_on_every_screen)
 {
     using net::PingKind;
-    CHECK(coop::PingItemTarget(PingKind::Loot, 0x172217, true) == 0x172217);
-    CHECK(coop::PingItemTarget(PingKind::Loot, 0x172217, false) == 0);
-    CHECK(coop::PingItemTarget(PingKind::Utility, 0x172217, true) == 0);
-    CHECK(coop::PingItemTarget(PingKind::Spot, 0x172217, true) == 0);
-    CHECK(coop::PingItemTarget(PingKind::Loot, 0, true) == 0);
+    CHECK(coop::PingItemTarget(PingKind::Loot, 0x172217) == 0x172217);
+    CHECK(coop::PingItemTarget(PingKind::Utility, 0x172217) == 0);
+    CHECK(coop::PingItemTarget(PingKind::Spot, 0x172217) == 0);
+    CHECK(coop::PingItemTarget(PingKind::Loot, 0) == 0);
 
     coop::FriendItems items;
     // An item from the game's data is the same ref on every screen.

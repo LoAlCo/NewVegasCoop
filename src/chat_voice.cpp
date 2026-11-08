@@ -184,8 +184,7 @@
         {
             game::CrosshairPick aim;
             bool hit = game::CrosshairPoint(aim) && aim.hit;
-            coop::PingThing chosen = coop::ChosenPingThing(hit ? aim.thing : coop::PingThing::Nothing, g_config.pingObjects,
-                g_config.pingCharacters);
+            coop::PingThing chosen = hit ? aim.thing : coop::PingThing::Nothing;
             coop::PingLook look = coop::ClassifyPing(chosen, aim.name);
             net::Ping ping;
             ping.kind = look.kind;
@@ -197,7 +196,7 @@
             if (chosen == coop::PingThing::Loot)
             {
                 bool host = g_coop.GetRole() == coop::Role::Host;
-                ping.target = coop::PingItemTarget(ping.kind, host ? aim.ref : g_coop.HostItemOf(aim.ref), g_config.pingFollowItems);
+                ping.target = coop::PingItemTarget(ping.kind, host ? aim.ref : g_coop.HostItemOf(aim.ref));
                 float above[3];
                 if (ping.target && PingSpotOn(game::LookupRef(aim.ref), above))
                 {
@@ -284,7 +283,7 @@
             marks[slot].at[2] = p.z;
             marks[slot].kind = p.kind;
         }
-        game::ShowPings(marks, static_cast<coop::PingIcons>(g_config.pingIcons));
+        game::ShowPings(marks);
     }
 
     bool g_labTalking = false;
