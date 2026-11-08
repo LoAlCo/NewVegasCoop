@@ -1263,7 +1263,7 @@ namespace game
             "End\n");
         g_resurrect = Compile("resurrect",
             "Begin Function {}\n"
-            "  ResurrectActor 1\n"
+            "  ResurrectActor 0\n"
             "End\n");
 
         g_print = Compile("console print",

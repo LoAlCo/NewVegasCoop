@@ -223,7 +223,8 @@ namespace game
     struct GunState { uint32_t weapon = 0; int rounds = -1; };
     int CountShots(TESObjectREFR* ref, GunState& state);
     void StopIdle(TESObjectREFR* ref);
-    void Resurrect(TESObjectREFR* ref);
+    bool Resurrect(TESObjectREFR* ref);
+    void SwitchBody(TESObjectREFR* ref, bool on);
     void NoteMadeCharacters(const std::vector<uint32_t>& refIds);
     bool RunConsoleLine(const char* line, TESObjectREFR* on = nullptr);
     std::string Evaluate(const char* expression, TESObjectREFR* on = nullptr);

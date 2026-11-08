@@ -30,8 +30,8 @@ namespace game
         constexpr uint32_t kGunCheckEveryMs = 1000;
         constexpr uint32_t kMakeEveryMs = 250;
         constexpr uint32_t kSettleMs = 1500;
-        constexpr uint32_t kReviveAfterMs = 2000;
-        constexpr uint32_t kReviveEveryMs = 3000;
+        constexpr uint32_t kWakeAfterMs = 2000;
+        constexpr uint32_t kWakeEveryMs = 3000;
         constexpr uint32_t kWeaponCheckEveryMs = 2000;
         constexpr uint32_t kMaxWeaponGifts = 2;
         constexpr uint32_t kMaxGiftsPerCopy = 10;
@@ -53,6 +53,8 @@ namespace game
         }
 
         float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+        bool SafeToRevive() { return !InLoadingScreen() && !InMenuMode(); }
 
         uint32_t RolledAs(TESObjectREFR* actor)
         {
@@ -412,6 +414,7 @@ namespace game
     {
         const auto& shared = coop.Npcs();
         TakeBackWhenClosed();
+        StepRevives(coop, now);
 
         for (auto it = m_made.begin(); it != m_made.end();)
         {
@@ -469,6 +472,7 @@ namespace game
                 LOG_INFO("NPCs: %s (%08X) is %08X here but %08X in the host's game (each game rolls its own); "
                     "switched ours off, making a copy of the host's", Name(actor), ref, RolledAs(actor), npc.rolled);
                 Release(ref);
+                m_revive.Drop(ref);
                 SetEnabled(actor, false);
                 m_rerolled.insert(ref);
                 m_killed.erase(ref);
@@ -497,6 +501,8 @@ namespace game
 
             if (!IsEnabled(actor))
             {
+                if (m_revive.Busy(ref))
+                    continue;
                 SwitchedOff& off = m_switchedOff[ref];
                 if (!off.since)
                     off.since = now;
@@ -584,34 +590,23 @@ namespace game
             m_killed.erase(ref);
             if (!IsDead(actor) && !IsKnockedOut(actor))
                 m_nextRevive.erase(ref);
-            if (IsDead(actor))
-            {
-                auto due = m_nextRevive.find(ref);
-                if (due == m_nextRevive.end())
-                    m_nextRevive[ref] = now + kReviveAfterMs;
-                else if (coop::IsDue(now, due->second) && actor != OpenContainer())
-                {
-                    LOG_INFO("NPCs: %s (%08X) is dead here but alive on the host (health %.0f / %.0f there); bringing "
-                        "it back", Name(actor), ref, npc.health, npc.maxHealth);
-                    m_nextRevive[ref] = now + kReviveEveryMs;
-                    ++m_deadHere;
-                    Resurrect(actor);
-                    if (it != m_entries.end())
-                        it->second.hostHealth = -1;
-                }
+            // Never while we hold it still as one the host doesn't share, or while its body is open on our screen.
+            if (!m_revive.Busy(ref) && !m_holds.IsHeld(ref))
+                ApplyRevive(ref, actor, m_revive.Look(ref, now, IsDead(actor), true, Is3DLoaded(actor),
+                    SafeToRevive() && actor != OpenContainer()), npc);
+            if (IsDead(actor) || m_revive.Busy(ref))
                 continue;
-            }
             if (npc.down)
                 continue;
             if (IsKnockedOut(actor))
             {
                 auto due = m_nextRevive.find(ref);
                 if (due == m_nextRevive.end())
-                    m_nextRevive[ref] = now + kReviveAfterMs;
+                    m_nextRevive[ref] = now + kWakeAfterMs;
                 else if (coop::IsDue(now, due->second))
                 {
                     LOG_INFO("NPCs: %s (%08X) is knocked out here but up on the host; waking it", Name(actor), ref);
-                    m_nextRevive[ref] = now + kReviveEveryMs;
+                    m_nextRevive[ref] = now + kWakeEveryMs;
                     ++m_deadHere;
                     WakeUp(actor);
                     if (it != m_entries.end())
@@ -772,6 +767,82 @@ namespace game
                     LOG_DEBUG("NPCs: %08X plays idle %08X", ref, npc.idle);
                 }
             }
+        }
+    }
+
+    void Npcs::StepRevives(const coop::Coop& coop, uint32_t now)
+    {
+        const auto& shared = coop.Npcs();
+        for (uint32_t ref : m_revive.Bodies())
+        {
+            auto npc = shared.find(ref);
+            TESObjectREFR* actor = Find(ref);
+            bool isActor = actor && IsActor(actor);
+            if (npc == shared.end() || npc->second.dead || !isActor)
+            {
+                if (m_revive.Drop(ref) && isActor)
+                {
+                    SwitchBody(actor, true);
+                    LOG_INFO("NPCs: %s (%08X) was on its way back, but the host no longer has it alive; switched it "
+                        "back on as it was", Name(actor), ref);
+                }
+                continue;
+            }
+            if (m_revive.Busy(ref))
+                ApplyRevive(ref, actor, m_revive.Look(ref, now, IsDead(actor), IsEnabled(actor), Is3DLoaded(actor),
+                    SafeToRevive() && actor != OpenContainer()), npc->second);
+        }
+    }
+
+    void Npcs::ApplyRevive(uint32_t ref, TESObjectREFR* actor, const coop::ReviveSteps::Step& step,
+        const coop::RemoteNpc& npc)
+    {
+        using Steps = coop::ReviveSteps;
+        switch (step.news)
+        {
+        case Steps::News::None:
+            break;
+        case Steps::News::Waiting:
+            LOG_INFO("NPCs: %s (%08X) is dead here but alive on the host; waiting for the menu or loading screen to "
+                "end before bringing it back", Name(actor), ref);
+            break;
+        case Steps::News::Started:
+            LOG_INFO("NPCs: %s (%08X) is dead here but alive on the host (health %.0f / %.0f there); switching its "
+                "body off to bring it back (try %u)", Name(actor), ref, npc.health, npc.maxHealth, step.tries);
+            break;
+        case Steps::News::Revived:
+            ++m_deadHere;
+            LOG_INFO("NPCs: %s (%08X) is alive again; switching it back on (try %u)", Name(actor), ref, step.tries);
+            break;
+        case Steps::News::BodyStayed:
+            LOG_WARN("NPCs: %s (%08X): its body wouldn't unload (%s), so it wasn't brought back; left as it was, trying "
+                "again later (try %u of %u)", Name(actor), ref, IsEnabled(actor) ? "it never switched off" :
+                "switched off, 3D still there", step.tries, coop::kMaxReviveTries);
+            break;
+        case Steps::News::StillDead:
+            LOG_WARN("NPCs: %s (%08X) stayed dead after being brought back; trying again later (try %u of %u)",
+                Name(actor), ref, step.tries, coop::kMaxReviveTries);
+            break;
+        case Steps::News::GaveUp:
+            LOG_WARN("NPCs: gave up bringing back %s (%08X) after %u tries; it stays dead here while alive on the host",
+                Name(actor), ref, step.tries);
+            break;
+        }
+        switch (step.action)
+        {
+        case Steps::Do::Nothing:
+            break;
+        case Steps::Do::SwitchOff:
+            SwitchBody(actor, false);
+            break;
+        case Steps::Do::Resurrect:
+            if (Resurrect(actor))
+                if (auto entry = m_entries.find(ref); entry != m_entries.end())
+                    entry->second.hostHealth = -1;
+            break;
+        case Steps::Do::SwitchOn:
+            SwitchBody(actor, true);
+            break;
         }
     }
 
@@ -959,6 +1030,12 @@ namespace game
     void Npcs::ReleaseAll()
     {
         ReleaseHolds();
+        for (uint32_t ref : m_revive.TakeSwitchedOff())
+            if (TESObjectREFR* actor = Find(ref); actor && IsActor(actor))
+            {
+                SwitchBody(actor, true);
+                LOG_DEBUG("NPCs: co-op's over with %08X on its way back; switched it back on as it was", ref);
+            }
         while (!m_made.empty())
             Unmake(m_made.begin()->first);
         while (!m_entries.empty())
@@ -981,6 +1058,7 @@ namespace game
         m_rerolled.clear();
         m_killed.clear();
         m_nextRevive.clear();
+        m_revive.Clear();
         m_switchedOff.clear();
         for (auto it = m_localDeaths.begin(); it != m_localDeaths.end();)
             it = net::IsMadeWhilePlaying(it->first) ? m_localDeaths.erase(it) : std::next(it);

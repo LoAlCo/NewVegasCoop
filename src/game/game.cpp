@@ -892,10 +892,30 @@ namespace game
             g_scripts->CallFunctionAlt(g_forceStopIdle, ref, 0);
     }
 
-    void Resurrect(TESObjectREFR* ref)
+    // The Enable and Disable commands refuse a ref with an enable parent, as many scripted NPCs have. This fills the
+    // same queues they do, which the game empties once a frame, without that check. Only for a short switch off and on.
+    void SwitchBody(TESObjectREFR* ref, bool on)
     {
-        if (g_compiled && g_resurrect && ref)
-            g_scripts->CallFunctionAlt(g_resurrect, ref, 0);
+        if (!ref)
+            return;
+        if (on)
+            reinterpret_cast<void(__cdecl*)(TESObjectREFR*)>(addr::kQueueEnable)(ref);
+        else
+            reinterpret_cast<void(__cdecl*)(TESObjectREFR*, bool)>(addr::kQueueDisable)(ref, false);
+    }
+
+    bool Resurrect(TESObjectREFR* ref)
+    {
+        if (!g_compiled || !g_resurrect || !ref)
+            return false;
+        // Reviving with 3D loaded rebuilds the actor's animations on the spot, and that can crash the game.
+        if (Is3DLoaded(ref))
+        {
+            LOG_WARN("Not reviving %08X while its 3D is loaded", ref->refID);
+            return false;
+        }
+        g_scripts->CallFunctionAlt(g_resurrect, ref, 0);
+        return true;
     }
 
     uintptr_t ReloadFunction(TESObjectREFR* ref)
