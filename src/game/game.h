@@ -310,6 +310,18 @@ namespace game
     float CachedRunSpeed(TESObjectREFR* actor);
     std::vector<std::string> ModAnimFiles(TESObjectREFR* actor);
     void SetAnimOverride(TESObjectREFR* actor, const std::string& path, bool on);
+    // Too Many Emotes (does nothing without it): the local player's emote, and friends' songs.
+    struct MyEmote
+    {
+        std::string path;
+        uint32_t song = 0;
+    };
+    bool EmotesReady();
+    MyEmote ReadMyEmote();
+    void PlayEmoteSong(TESObjectREFR* from, uint32_t song);
+    bool EmoteSongPlaying(TESObjectREFR* from, uint32_t song);
+    void StopEmoteSong(TESObjectREFR* from, uint32_t song);
+    bool LeaveEmoteDance(TESObjectREFR* who);
     float DistanceToPlayer(const TESObjectREFR* ref);
     bool InLoadingScreen();
 

@@ -386,6 +386,35 @@
 							"default": 1
 						}
 					]
+				},
+				"32": {
+					"title": "Emotes (Too Many Emotes)",
+					"enable": 1,
+					"type": 0
+				},
+				"33": {
+					"title": "Show Emotes and Songs",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Friends see your Too Many Emotes dances and hear their songs from your character, and you see and hear theirs. Your own Too Many Emotes music switch still decides whether you hear songs. Does nothing without Too Many Emotes",
+					"vars": [
+						{
+							"configINI": "Settings:bEmotes",
+							"default": 1
+						}
+					]
+				},
+				"34": {
+					"title": "Friends Dance Along With You",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Too Many Emotes makes everyone near you dance along. On: friends' characters join in, but only on your screen (they aren't dancing in their own game). Off: only other people dance along",
+					"vars": [
+						{
+							"configINI": "Settings:bEmoteDanceAlong",
+							"default": 0
+						}
+					]
 				}
 			}
 		},

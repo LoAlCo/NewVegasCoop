@@ -275,6 +275,8 @@ namespace coop
         std::map<uint8_t, std::string> m_anims;
         bool m_myModAnimsSent = true;
         std::map<uint8_t, std::vector<std::string>> m_modAnims;
+        bool m_myEmoteSent = true;
+        std::map<uint8_t, net::PlayerEmote> m_emotes;
         int32_t m_hostXp = 0;
         bool m_hostXpWaiting = false;
         DesyncCounts m_desyncsSent;
@@ -400,6 +402,9 @@ namespace coop
         uint32_t AnimChanges() const { return m_animChanges; }
         void SetMyModAnims(const std::vector<std::string>& paths);
         const std::map<uint8_t, std::vector<std::string>>& ModAnims() const { return m_modAnims; }
+        void SetMyEmote(const std::string& path, uint32_t song);
+        const std::map<uint8_t, net::PlayerEmote>& Emotes() const { return m_emotes; }
+        const net::PlayerEmote& MyEmote() const { return m_myEmote; }
         std::map<uint32_t, net::RadioLine> TakeRadioLines() { return std::move(m_radioLines); }
         std::vector<net::PlayerCommand> TakePlayerCommands() { return std::move(m_playerCommands); }
         std::vector<std::string> TakeDesyncNotices() { return std::move(m_desyncNotices); }
@@ -568,6 +573,7 @@ namespace coop
         void HeardPartyPerks(uint8_t player, uint8_t perks);
         void HeardAnim(uint8_t player, const std::string& path);
         void HeardModAnims(uint8_t player, const std::vector<std::string>& paths);
+        void HeardEmote(uint8_t player, const std::string& path, uint32_t song);
         void SendCompanions(uint32_t now);
         void SweepDesyncs(uint32_t now);
         static bool WithinLimit(uint32_t& since, uint32_t& count, uint32_t most);
@@ -596,6 +602,7 @@ namespace coop
         uint8_t m_myPartyPerks = 0;
         uint32_t m_animChanges = 0;
         std::vector<std::string> m_myModAnims;
+        net::PlayerEmote m_myEmote;
         int32_t m_myXp = 0;
         uint32_t m_joins = 0;
         ModList m_mods;

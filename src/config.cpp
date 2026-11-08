@@ -79,6 +79,8 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bMouths", mouths);
         Write(path, "bSkipDlcPopups", skipDlcPopups);
         Write(path, "bSyncRadio", syncRadio);
+        Write(path, "bEmotes", emotes);
+        Write(path, "bEmoteDanceAlong", emoteDanceAlong);
         Write(path, "bDesyncNotices", desyncNotices);
         Write(path, "iFieldOfView", fieldOfView);
         Write(path, "bFriendMarkers", friendMarkers);
@@ -135,6 +137,8 @@ void Config::LoadPlayer(const std::string& path)
     mouths = flag("bMouths", mouths);
     skipDlcPopups = flag("bSkipDlcPopups", skipDlcPopups);
     syncRadio = flag("bSyncRadio", syncRadio);
+    emotes = flag("bEmotes", emotes);
+    emoteDanceAlong = flag("bEmoteDanceAlong", emoteDanceAlong);
     desyncNotices = flag("bDesyncNotices", desyncNotices);
     fieldOfView = number("iFieldOfView", fieldOfView, 0, 120);
     friendMarkers = flag("bFriendMarkers", friendMarkers);

@@ -1079,6 +1079,37 @@ namespace net
         return under && lower.size() > 3 && lower.compare(lower.size() - 3, 3, ".kf") == 0;
     }
 
+    bool IsEmotePath(const std::string& path)
+    {
+        if (path.empty() || path.size() > kMaxAnimPath || path.find("..") != std::string::npos)
+            return false;
+        std::string lower;
+        for (char c : path)
+        {
+            if (c == 0 || (!std::isalnum(static_cast<unsigned char>(c)) && !std::strchr(" _-.()\\", c)))
+                return false;
+            lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        auto starts = [&](const char* prefix) { return lower.compare(0, std::strlen(prefix), prefix) == 0; };
+        bool under = starts("toomanyemotes\\") || starts("meshes\\toomanyemotes\\");
+        return under && lower.size() > 3 && lower.compare(lower.size() - 3, 3, ".kf") == 0;
+    }
+
+    Bytes Encode(const PlayerEmote& m)
+    {
+        Writer w(MsgType::PlayerEmote);
+        w.U8(m.player);
+        w.String(m.path, kMaxAnimPath);
+        w.U32(m.song);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, PlayerEmote& m)
+    {
+        return r.U8(m.player) && r.String(m.path, kMaxAnimPath) && (m.path.empty() || IsEmotePath(m.path)) &&
+            r.U32(m.song) && (!m.path.empty() || m.song == 0) && r.AtEnd();
+    }
+
     Bytes Encode(const PlayerModAnims& m)
     {
         Writer w(MsgType::PlayerModAnims);

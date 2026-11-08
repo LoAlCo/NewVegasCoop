@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 78;
+    constexpr uint32_t kProtocolVersion = 79;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -100,6 +100,7 @@ namespace net
         QuestCommand = 79,
         MineChange = 63,
         ModsMatch = 48,
+        PlayerEmote = 89,
     };
 
     using Bytes = std::vector<uint8_t>;
@@ -635,6 +636,19 @@ namespace net
     Bytes Encode(const PlayerModAnims& m);
     bool Decode(Reader& r, PlayerModAnims& m);
     bool IsAnimPath(const std::string& path);
+    // A Too Many Emotes emote: the .kf it plays now (intro or loop part, empty when it stopped) and its song's sound form
+    // (0 = none, or that player has the mod's music off).
+    struct PlayerEmote
+    {
+        uint8_t player = 0;
+        std::string path;
+        uint32_t song = 0;
+        bool operator==(const PlayerEmote& o) const { return path == o.path && song == o.song; }
+        bool operator!=(const PlayerEmote& o) const { return !(*this == o); }
+    };
+    Bytes Encode(const PlayerEmote& m);
+    bool Decode(Reader& r, PlayerEmote& m);
+    bool IsEmotePath(const std::string& path);
     struct Teleport
     {
         uint8_t mover = 0, target = 0;

@@ -45,6 +45,8 @@ struct Config
     std::vector<std::string> patches;
     bool showAddress = false;
     bool syncRadio = true;
+    bool emotes = true;
+    bool emoteDanceAlong = false;
     bool chat = true;
     int chatKey = 21;
     bool chatSpeech = true;

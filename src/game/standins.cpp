@@ -24,6 +24,9 @@ namespace game
         constexpr uint32_t kMaxLoadingMs = 5000;
         constexpr float kShowInside = 192;
         constexpr uint32_t kBringEveryMs = 1000;
+        constexpr uint32_t kSongCheckMs = 500;
+        constexpr uint32_t kSongStartMs = 1000;
+        constexpr uint32_t kDanceCheckMs = 250;
     }
 
     void StandIns::Update(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, bool cutscene)
@@ -38,6 +41,7 @@ namespace game
                 continue;
             }
             ShowOnMap(it->second, false);
+            StopSong(it->second);
             Remove(Live(it->second));
             it = m_entries.erase(it);
         }
@@ -68,7 +72,10 @@ namespace game
             if (!known || pose.space != myPose.space || tooFar)
             {
                 if (auto it = m_entries.find(id); it != m_entries.end())
+                {
                     ShowOnMap(it->second, false);
+                    StopSong(it->second);
+                }
                 continue;
             }
 
@@ -189,6 +196,7 @@ namespace game
                     e.modAnims.size());
                 e.modAnims = wantAnims;
             }
+            Emote(coop, id, e, now);
             if (Furniture(coop, id, e, pose, now))
                 continue;
             coop::Pose target = pose;
@@ -243,6 +251,7 @@ namespace game
         for (auto& [_, e] : m_entries)
         {
             ShowOnMap(e, false);
+            StopSong(e);
             Remove(Live(e));
         }
         m_entries.clear();
@@ -267,7 +276,9 @@ namespace game
     bool StandIns::Furniture(const coop::Coop& coop, uint8_t id, Entry& e, const coop::Pose& pose, uint32_t now)
     {
         auto it = coop.Anims().find(id);
-        const std::string want = e.downed ? kDownedAnim : it != coop.Anims().end() ? it->second : std::string();
+        std::string want = e.downed ? kDownedAnim : it != coop.Anims().end() ? it->second : std::string();
+        if (auto emote = coop.Emotes().find(id); want.empty() && m_showEmotes && emote != coop.Emotes().end())
+            want = emote->second.path;
         if (want != e.anim)
         {
             if (!e.anim.empty())
@@ -299,6 +310,53 @@ namespace game
             Move(e.ref, pose);
         }
         return !e.anim.empty();
+    }
+
+    void StandIns::Emote(const coop::Coop& coop, uint8_t id, Entry& e, uint32_t now)
+    {
+        auto emote = coop.Emotes().find(id);
+        uint32_t song = m_showEmotes && !e.downed && emote != coop.Emotes().end() ? emote->second.song : 0;
+        if (song != e.song)
+        {
+            StopSong(e);
+            if (song)
+            {
+                PlayEmoteSong(e.ref, song);
+                LOG_DEBUG("Emotes: %s's character plays song %08X", coop.NameOf(id).c_str(), song);
+            }
+            e.song = song;
+            e.nextSongCheckAt = now + kSongStartMs;
+        }
+        else if (e.song && coop::IsDue(now, e.nextSongCheckAt))
+        {
+            // the song ended: again, as the emote goes on (the player's own game does the same)
+            e.nextSongCheckAt = now + kSongCheckMs;
+            if (!EmoteSongPlaying(e.ref, e.song))
+            {
+                PlayEmoteSong(e.ref, e.song);
+                e.nextSongCheckAt = now + kSongStartMs;
+            }
+        }
+
+        if (!m_danceAlong && !coop.MyEmote().path.empty() && coop::IsDue(now, e.nextDanceCheckAt))
+        {
+            e.nextDanceCheckAt = now + kDanceCheckMs;
+            if (LeaveEmoteDance(e.ref))
+            {
+                if (e.anim.empty())
+                    StopIdle(e.ref);
+                else
+                    PlayAnimFile(e.ref, e.anim);
+                LOG_DEBUG("Emotes: %s's character won't dance along with you", coop.NameOf(id).c_str());
+            }
+        }
+    }
+
+    void StandIns::StopSong(Entry& e)
+    {
+        if (e.song && Live(e))
+            StopEmoteSong(e.ref, e.song);
+        e.song = 0;
     }
 
     void StandIns::ShowOnMap(Entry& e, bool on)

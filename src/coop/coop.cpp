@@ -214,6 +214,16 @@ namespace coop
             else
                 m_net->Send(1, Encode(PlayerModAnims{m_myId, m_myModAnims}));
         }
+        if (InGame() && !m_myEmoteSent)
+        {
+            m_myEmoteSent = true;
+            net::PlayerEmote mine = m_myEmote;
+            mine.player = m_role == Role::Host ? kHostPlayerId : m_myId;
+            if (m_role == Role::Host)
+                SendToJoined(Encode(mine), true);
+            else
+                m_net->Send(1, Encode(mine));
+        }
         if (InGame() && !m_myPartyPerksSent)
         {
             m_myPartyPerksSent = true;
@@ -336,6 +346,39 @@ namespace coop
             return;
         m_myModAnims = std::move(checked);
         m_myModAnimsSent = false;
+    }
+
+    void Coop::SetMyEmote(const std::string& path, uint32_t song)
+    {
+        net::PlayerEmote now;
+        if (net::IsEmotePath(path))
+        {
+            now.path = path;
+            now.song = song;
+        }
+        if (now == m_myEmote)
+            return;
+        m_myEmote = now;
+        m_myEmoteSent = false;
+    }
+
+    void Coop::HeardEmote(uint8_t player, const std::string& path, uint32_t song)
+    {
+        auto it = m_emotes.find(player);
+        if (path.empty())
+        {
+            if (it != m_emotes.end())
+            {
+                m_emotes.erase(it);
+                LOG_DEBUG("Emotes: %s stopped", NameOf(player).c_str());
+            }
+            return;
+        }
+        net::PlayerEmote now{player, path, song};
+        if (it != m_emotes.end() ? it->second == now : m_emotes.size() >= 8)
+            return;
+        m_emotes[player] = now;
+        LOG_DEBUG("Emotes: %s plays %s (song %08X)", NameOf(player).c_str(), path.c_str(), song);
     }
 
     void Coop::HeardModAnims(uint8_t player, const std::vector<std::string>& paths)
@@ -662,6 +705,17 @@ namespace coop
                 return;
             m.player = player.id;
             HeardModAnims(m.player, m.paths);
+            SendToJoined(Encode(m), true, peer);
+            return;
+        }
+
+        if (type == MsgType::PlayerEmote)
+        {
+            net::PlayerEmote m;
+            if (!player.joined || !Decode(r, m))
+                return;
+            m.player = player.id;
+            HeardEmote(m.player, m.path, m.song);
             SendToJoined(Encode(m), true, peer);
             return;
         }
@@ -1025,6 +1079,7 @@ namespace coop
             m_myAnimSent = m_myAnim.empty();
             m_myPartyPerksSent = m_myPartyPerks == 0;
             m_myModAnimsSent = m_myModAnims.empty();
+            m_myEmoteSent = m_myEmote.path.empty();
             m_questMods = welcome.questMods;
             m_mode = welcome.mode;
             LOG_INFO("The host's settings: %s", Describe(m_mode).c_str());
@@ -1115,6 +1170,7 @@ namespace coop
             HeardAnim(it->first, "");
             HeardPartyPerks(it->first, 0);
             HeardModAnims(it->first, {});
+            HeardEmote(it->first, "", 0);
             m_remotes.erase(it);
         }
         else if (type == MsgType::PlayerState)
@@ -1381,6 +1437,12 @@ namespace coop
             net::PlayerModAnims m;
             if (Decode(r, m) && m.player != m_myId)
                 HeardModAnims(m.player, m.paths);
+        }
+        else if (type == MsgType::PlayerEmote)
+        {
+            net::PlayerEmote m;
+            if (Decode(r, m) && m.player != m_myId)
+                HeardEmote(m.player, m.path, m.song);
         }
         else if (type == MsgType::PlayerLooks)
         {
@@ -2196,6 +2258,10 @@ namespace coop
             m_net->Send(peer, Encode(PlayerModAnims{kHostPlayerId, m_myModAnims}));
         for (const auto& [id, paths] : m_modAnims)
             m_net->Send(peer, Encode(PlayerModAnims{id, paths}));
+        if (!m_myEmote.path.empty())
+            m_net->Send(peer, Encode(net::PlayerEmote{kHostPlayerId, m_myEmote.path, m_myEmote.song}));
+        for (const auto& [id, emote] : m_emotes)
+            m_net->Send(peer, Encode(emote));
         for (const auto& [id, path] : m_anims)
             m_net->Send(peer, Encode(PlayerAnim{id, path}));
         m_lastPoseSent = 0;
@@ -2387,6 +2453,7 @@ namespace coop
             HeardAnim(id, "");
             HeardPartyPerks(id, 0);
             HeardModAnims(id, {});
+            HeardEmote(id, "", 0);
             m_views.erase(id);
             if (m_talk.Busy() && m_talk.Talker() == id)
             {

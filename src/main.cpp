@@ -697,6 +697,19 @@ namespace
         g_nextAnimLook = now + 100;
         TESObjectREFR* me = game::Player();
         g_coop.SetMyAnim(g_coop.InGame() && me ? game::FurnitureAnim(me) : std::string());
+        game::MyEmote emote;
+        if (g_coop.InGame() && g_config.emotes)
+            emote = game::ReadMyEmote();
+        static std::string s_odd;
+        if (!emote.path.empty() && !net::IsEmotePath(emote.path) && emote.path != s_odd)
+        {
+            s_odd = emote.path;
+            LOG_WARN("Emotes: your emote's animation (%s) isn't one of Too Many Emotes' files, so friends won't see it",
+                emote.path.c_str());
+        }
+        else if (!emote.path.empty() && emote.path != g_coop.MyEmote().path)
+            LOG_INFO("Emotes: you play %s (song %08X)", emote.path.c_str(), emote.song);
+        g_coop.SetMyEmote(emote.path, emote.song);
     }
 
     bool g_progressShown = false;
@@ -2254,6 +2267,7 @@ namespace
         if (g_coop.InGame())
         {
             g_cutscene = (game::PlayerDisabledControls() & 1) && !g_downed && !g_waitForHostLoad;
+            g_standIns.SetEmotes(g_config.emotes, g_config.emoteDanceAlong);
             g_standIns.Update(g_coop, now, me, g_cutscene);
         }
         else

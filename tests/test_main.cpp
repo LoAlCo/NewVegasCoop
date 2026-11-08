@@ -5629,6 +5629,7 @@ namespace
         CHECK(c.GetRole() == coop::Role::None);
         CHECK(c.Players().empty() && c.Remotes().empty() && c.Npcs().empty());
         CHECK(c.Looks().empty() && c.Anims().empty() && c.PartyPerks().empty() && c.ModAnims().empty());
+        CHECK(c.Emotes().empty());
         CHECK(c.TakeJoinAsks().empty());
         CHECK(c.TakeHits().empty());
         CHECK(c.TakePiles().empty());
@@ -6118,6 +6119,77 @@ TEST(a_players_speed_and_mod_animations_reach_the_others)
     CHECK(RunUntil({&host, &a, &b2}, [&] { return host.ModAnims().count(ann) && b2.ModAnims().count(ann); }));
     a.SetMyModAnims({});
     CHECK(RunUntil({&host, &a, &b2}, [&] { return !host.ModAnims().count(ann) && !b2.ModAnims().count(ann); }));
+}
+
+TEST(emotes_and_their_songs_reach_the_others)
+{
+    const std::string intro = "toomanyemotes\\a_bar_song.kf";
+    const std::string loop = "toomanyemotes\\a_bar_songL.kf";
+    CHECK(net::IsEmotePath(intro) && net::IsEmotePath(loop));
+    CHECK(net::IsEmotePath("Meshes\\TooManyEmotes\\Backflip.KF"));
+    CHECK(!net::IsEmotePath("characters\\_male\\idleanims\\stool.kf"));
+    CHECK(!net::IsEmotePath("toomanyemotes\\..\\..\\x.kf"));
+    CHECK(!net::IsEmotePath("toomanyemotes\\x\" ; tcl \".kf"));
+    CHECK(!net::IsEmotePath("toomanyemotes\\x.nif"));
+
+    MsgType t;
+    net::PlayerEmote m;
+    Bytes b = Encode(net::PlayerEmote{3, loop, 0x0A001234});
+    Reader r(b);
+    CHECK(r.Type(t) && t == MsgType::PlayerEmote && Decode(r, m) && m.player == 3 && m.path == loop &&
+        m.song == 0x0A001234);
+    Bytes stopped = Encode(net::PlayerEmote{3, "", 0});
+    Reader rs(stopped);
+    CHECK(rs.Type(t) && Decode(rs, m) && m.path.empty() && m.song == 0);
+    Bytes songAlone = Encode(net::PlayerEmote{3, "", 5});
+    Reader ra(songAlone);
+    CHECK(ra.Type(t) && !Decode(ra, m));
+    Bytes elsewhere = Encode(net::PlayerEmote{3, "characters\\_male\\x.kf", 0});
+    Reader re(elsewhere);
+    CHECK(re.Type(t) && !Decode(re, m));
+
+    coop::Coop host, a, b2;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    uint8_t ann = a.MyPlayerId();
+
+    // the host's own emote reaches a friend, and so does a change from intro to loop, song and all
+    host.SetMyEmote(intro, 0x0A000001);
+    CHECK(RunUntil({&host, &a}, [&] {
+        auto it = a.Emotes().find(coop::kHostPlayerId);
+        return it != a.Emotes().end() && it->second.path == intro && it->second.song == 0x0A000001;
+    }));
+    host.SetMyEmote(loop, 0x0A000002);
+    CHECK(RunUntil({&host, &a}, [&] {
+        auto it = a.Emotes().find(coop::kHostPlayerId);
+        return it != a.Emotes().end() && it->second.path == loop && it->second.song == 0x0A000002;
+    }));
+
+    // a friend's emote goes through the host to the others; one joining late gets both
+    a.SetMyEmote(intro, 0);
+    CHECK(RunUntil({&host, &a}, [&] { return host.Emotes().count(ann) == 1; }));
+    CHECK(b2.Join("127.0.0.1", kTestPort, "Bob"));
+    CHECK(RunUntil({&host, &a, &b2}, [&] {
+        return b2.GetFriendState() == coop::FriendState::Joined && b2.Emotes().count(ann) &&
+            b2.Emotes().count(coop::kHostPlayerId);
+    }));
+    CHECK(b2.Emotes().at(ann).path == intro && b2.Emotes().at(ann).song == 0);
+
+    // anything that isn't one of the mod's animations isn't sent
+    a.SetMyEmote("characters\\_male\\idleanims\\stool.kf", 7);
+    CHECK(a.MyEmote().path.empty() && a.MyEmote().song == 0);
+
+    // stopping clears it everywhere, and so does leaving
+    CHECK(RunUntil({&host, &a, &b2}, [&] { return !host.Emotes().count(ann) && !b2.Emotes().count(ann); }));
+    a.SetMyEmote(loop, 0);
+    CHECK(RunUntil({&host, &a, &b2}, [&] { return host.Emotes().count(ann) && b2.Emotes().count(ann); }));
+    a.Stop();
+    CHECK(RunUntil({&host, &b2}, [&] { return !host.Emotes().count(ann) && !b2.Emotes().count(ann); }));
+    host.SetMyEmote("", 0);
+    CHECK(RunUntil({&host, &b2}, [&] { return b2.Emotes().empty(); }));
+    b2.Stop();
+    host.Stop();
 }
 
 TEST(join_addresses_are_checked)
