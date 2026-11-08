@@ -118,6 +118,10 @@ bool UpdateHealAlly(uint32_t now, TESObjectREFR* player);
 void UpdateDowned(uint32_t now, const coop::Pose& me, float health, float maxHealth, bool healthFresh);
 extern bool g_downed, g_gameOver;
 extern std::string g_reviveHint;
+// Too Many Emotes: the emote we joined (a friend's; empty if none), and ending it.
+const std::string& JoinedEmote();
+bool JoinedAnEmote();
+void StopJoinedEmote(const char* why);
 extern uint32_t g_labHoldUntil;
 
 void GoToPlayer(uint8_t target, uint32_t now);

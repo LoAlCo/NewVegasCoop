@@ -714,6 +714,11 @@ namespace
         }
         else if (!emote.path.empty() && emote.path != g_coop.MyEmote().path)
             LOG_INFO("Emotes: you play %s (song %08X)", emote.path.c_str(), emote.song);
+        // a friend's emote we joined: shown as ours, without its song (that plays from them)
+        if (!emote.path.empty())
+            StopJoinedEmote("we started our own emote");
+        else if (JoinedAnEmote() && g_coop.InGame() && g_config.emotes)
+            emote = {JoinedEmote(), 0};
         g_coop.SetMyEmote(emote.path, emote.song);
     }
 
@@ -2297,7 +2302,7 @@ namespace
         {
             g_cutscene = (game::PlayerDisabledControls() & 1) && !g_downed && !g_waitForHostLoad;
             g_standIns.SetLights(g_config.friendLights);
-            g_standIns.SetEmotes(g_config.emotes, g_config.emoteDanceAlong);
+            g_standIns.SetEmotes(g_config.emotes, g_config.emoteDanceAlong, JoinedAnEmote());
             g_standIns.Update(g_coop, now, me, g_cutscene);
         }
         else
@@ -2698,7 +2703,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
         return false;
 
     Log::Open("");
-    LOG_INFO("NVCoop %s, Combined v32 test build, starting (xNVSE %08X, game %08X)",
+    LOG_INFO("NVCoop %s, Combined v33 test build, starting (xNVSE %08X, game %08X)",
         NVCOOP_VERSION_STRING, nvse->nvseVersion, nvse->runtimeVersion);
 
     if (nvse->runtimeVersion != RUNTIME_VERSION_1_4_0_525)

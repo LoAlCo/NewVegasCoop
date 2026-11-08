@@ -597,7 +597,7 @@
 					"title": "Join Friends' Emotes",
 					"type": 5,
 					"enable": 1,
-					"mouse": "Look at a friend who's emoting and press E to dance the same emote with them, song and all (straight into its loop if they're already there). You don't need to own it in The Disco Shop. Move or pick another emote to stop",
+					"mouse": "Look at a friend who's emoting and press E to dance the same emote with them, in step, at any point of it. Their song keeps playing from them. You don't need to own it in The Disco Shop. Move, press E on them again, or pick an emote of your own to stop",
 					"vars": [
 						{
 							"configINI": "Settings:bEmoteJoin",

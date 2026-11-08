@@ -11,6 +11,7 @@
 #include "nvse/GameObjects.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -144,6 +145,52 @@ namespace game
                 *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(sequence) + process::kSequenceCycle) = 0;
         });
         return playing;
+    }
+
+    bool MatchAnimFileTime(TESObjectREFR* ref, TESObjectREFR* other, const std::string& path, float slack, float* moved)
+    {
+        // A sequence's place is its last scaled time; it plays at (clock + offset) * frequency, so moving the offset
+        // moves it along. An offset still at -infinity means it hasn't run a frame yet.
+        constexpr float kNotStarted = -1e30f;
+        bool found = false;
+        float target = 0;
+        ForEachPlaying(other, path, [&](void* sequence)
+        {
+            if (found || Field<float>(sequence, process::kSequenceOffset) < kNotStarted)
+                return;
+            target = Field<float>(sequence, process::kSequenceScaledTime);
+            found = true;
+        });
+        bool done = false;
+        if (!found || !std::isfinite(target))
+            return false;
+        ForEachPlaying(ref, path, [&](void* sequence)
+        {
+            auto& offset = *reinterpret_cast<float*>(static_cast<uint8_t*>(sequence) + process::kSequenceOffset);
+            float frequency = Field<float>(sequence, process::kSequenceFrequency);
+            float now = Field<float>(sequence, process::kSequenceScaledTime);
+            if (done || offset < kNotStarted || !(frequency > 0) || !std::isfinite(now))
+                return;
+            done = true;
+            float by = target - now;
+            float length = Field<float>(sequence, process::kSequenceEnd) - Field<float>(sequence, process::kSequenceBegin);
+            if (length > 0)
+            {
+                // the short way round the loop
+                by = std::fmod(by, length);
+                if (by > length / 2)
+                    by -= length;
+                else if (by < -length / 2)
+                    by += length;
+            }
+            if (std::fabs(by) <= slack)
+                by = 0;
+            else
+                offset += by / frequency;
+            if (moved)
+                *moved = by;
+        });
+        return done;
     }
 
     bool IsJumping(TESObjectREFR* ref)
