@@ -3996,11 +3996,11 @@ TEST(the_main_menu_only_compares_mods)
     Hello h;
     CHECK(r.Type(t) && Decode(r, h) && h.checkOnly && h.hasMods);
 
-    Bytes mb = Encode(ModsMatch{"Alex", "Quicksave"});
+    Bytes mb = Encode(ModsMatch{"Alex", "Quicksave", {3, 4}});
     Reader mr(mb);
     ModsMatch match;
     CHECK(mr.Type(t) && t == MsgType::ModsMatch && Decode(mr, match) && match.hostName == "Alex" &&
-        match.save == "Quicksave");
+        match.save == "Quicksave" && match.tag.game == 3 && match.tag.save == 4);
     Bytes nameless = Encode(ModsMatch{"", "Quicksave"});
     Reader nr(nameless);
     CHECK(nr.Type(t) && !Decode(nr, match));
@@ -4008,12 +4008,14 @@ TEST(the_main_menu_only_compares_mods)
     coop::Coop host, buddy;
     host.SetMods(SomeMods());
     host.SetCurrentSave("Save 3");
+    host.SetCurrentSaveTag({5, 6});
     buddy.SetMods(SomeMods());
     CHECK(host.Host(kTestPort, "Host"));
     CHECK(buddy.Join("127.0.0.1", kTestPort, "Buddy", true));
     CHECK(RunUntil({&host, &buddy}, [&] { return buddy.ModsMatched(); }));
     CHECK(buddy.GetRole() == coop::Role::None);
     CHECK(buddy.MatchedHost().hostName == "Host" && buddy.MatchedHost().save == "Save 3");
+    CHECK(buddy.MatchedHost().tag.game == 5 && buddy.MatchedHost().tag.save == 6);
     CHECK(RunUntil({&host}, [&] { return host.Joins() == 0; }));
     buddy.Stop();
     host.SetCurrentSave("Save\" ; quit");
@@ -5204,9 +5206,103 @@ TEST(linked_save_names_are_plain_and_stay_in_the_save_folder)
     CHECK(coop::IsAutosave("Autosave") && coop::IsAutosave("autosave2") && !coop::IsAutosave("quicksave"));
 }
 
+TEST(a_save_with_the_hosts_name_from_another_game_isnt_loaded)
+{
+    // What went wrong: "Co-op - LoAlCo - Autosave - 4" was the starter character, made in another game, and the host's
+    // late-game character had rotated round to "Autosave - 4" too.
+    const coop::SaveTag starter{1, 10}, lateGame{2, 20};
+    std::vector<coop::SaveOnDisk> ours{{"Co-op - LoAlCo - Autosave - 4", starter, 500}};
+    CHECK(coop::PickLinkedSave(ours, lateGame).empty());
+    CHECK(coop::PickLinkedSave(ours, coop::SaveTag{1, 10}) == "Co-op - LoAlCo - Autosave - 4");
+}
+
+TEST(not_knowing_the_game_means_the_player_picks)
+{
+    std::vector<coop::SaveOnDisk> ours{{"From before tags", {}, 500}, {"Tagged", {5, 6}, 600}};
+    CHECK(coop::PickLinkedSave(ours, coop::SaveTag{}).empty());
+    CHECK(coop::PickLinkedSave(ours, coop::SaveTag{0, 6}).empty());
+    const std::vector<coop::SaveOnDisk> untagged{{"From before tags", {}, 500}}, none;
+    CHECK(coop::PickLinkedSave(untagged, coop::SaveTag{7, 8}).empty());
+    CHECK(coop::PickLinkedSave(none, coop::SaveTag{7, 8}).empty());
+}
+
+TEST(rejoining_loads_the_save_made_with_the_hosts)
+{
+    std::vector<coop::SaveOnDisk> ours{{"Older", {1, 10}, 100}, {"Newest", {1, 30}, 300}, {"Other game", {2, 40}, 900}};
+    // The host went back to an earlier save we were there for.
+    CHECK(coop::PickLinkedSave(ours, coop::SaveTag{1, 10}) == "Older");
+    // Two of ours go with the one host save (ours and the copy under the host's name): the newest.
+    ours.push_back({"Copy", {1, 10}, 150});
+    CHECK(coop::PickLinkedSave(ours, coop::SaveTag{1, 10}) == "Copy");
+}
+
+TEST(rejoining_after_the_host_saved_alone_loads_our_newest_from_that_game)
+{
+    std::vector<coop::SaveOnDisk> ours{{"Co-op - H - Autosave - 4", {1, 10}, 100}, {"Co-op - H - Autosave - 3", {1, 30}, 300},
+        {"Other game", {2, 40}, 900}};
+    // The host's autosaves went round without us, so their "Autosave - 4" is a newer save than our file of that name.
+    CHECK(coop::PickLinkedSave(ours, coop::SaveTag{1, 99}) == "Co-op - H - Autosave - 3");
+}
+
+TEST(a_saves_tag_is_read_back_from_the_file_beside_it)
+{
+    constexpr uint64_t kSecond = 10000000, kWritten = 1000000 * kSecond;
+    const coop::SaveTag tag{0x0123456789abcdefull, 0xfedcba9876543210ull};
+    std::string text = coop::FormatSaveTagFile(tag, kWritten);
+
+    // The game finishes writing the save just after the tag file (and may round its time down).
+    CHECK(coop::SaveTagFromFile(text, kWritten) == tag);
+    CHECK(coop::SaveTagFromFile(text, kWritten + 3 * kSecond) == tag);
+    CHECK(coop::SaveTagFromFile(text, kWritten - kSecond) == tag);
+    std::string windows = text.substr(0, text.size() - 1) + "\r\n";
+    CHECK(coop::SaveTagFromFile(windows, kWritten) == tag);
+
+    // Saved over later without us, or a save that was never written or was moved here from another name.
+    CHECK(coop::SaveTagFromFile(text, kWritten + 300 * kSecond).game == 0);
+    CHECK(coop::SaveTagFromFile(text, kWritten - 300 * kSecond).game == 0);
+
+    // Damaged or empty files aren't a game.
+    CHECK(coop::SaveTagFromFile("", kWritten).game == 0);
+    CHECK(coop::SaveTagFromFile("not a tag", kWritten).game == 0);
+    CHECK(coop::SaveTagFromFile(text.substr(0, 40), kWritten).game == 0);
+    CHECK(coop::SaveTagFromFile(coop::FormatSaveTagFile(coop::SaveTag{}, kWritten), kWritten).game == 0);
+    std::string badHex = text;
+    badHex[3] = 'x';
+    CHECK(coop::SaveTagFromFile(badHex, kWritten).game == 0);
+
+    CHECK(coop::SaveTagFileName("Autosave - 5.fos") == "Autosave - 5.nvcoopid");
+    CHECK(coop::SaveTagFileName("Save.1.FOS") == "Save.1.nvcoopid");
+    CHECK(coop::SaveTagFileName("..\\elsewhere/Save.fos") == "Save.nvcoopid");
+}
+
+TEST(save_links_are_kept_with_their_game)
+{
+    coop::SaveLink link{"Autosave - 4", {0x0123456789abcdefull, 0xfedcba9876543210ull}};
+    std::string line = coop::FormatSaveLink("LoAlCo", "Co-op - LoAlCo - Autosave - 4", link);
+    std::string host, own;
+    coop::SaveLink read;
+    CHECK(coop::ParseSaveLink(line, host, own, read));
+    CHECK(host == "LoAlCo" && own == "Co-op - LoAlCo - Autosave - 4" && read.theirs == "Autosave - 4" && read.tag == link.tag);
+
+    // A link from before tags still names the host's save, but no game.
+    CHECK(coop::ParseSaveLink("LoAlCo\t142\tAutosave - 4", host, own, read));
+    CHECK(own == "142" && read.theirs == "Autosave - 4" && read.tag == coop::SaveTag{});
+
+    // A damaged tag isn't a game.
+    CHECK(coop::ParseSaveLink("LoAlCo\t142\tSave\tnot hex\t0000000000000001", host, own, read));
+    CHECK(read.tag.game == 0 && read.tag.save == 1);
+
+    CHECK(!coop::ParseSaveLink("LoAlCo\t142", host, own, read));
+    CHECK(!coop::ParseSaveLink("LoAlCo\t142\tSave\t0000000000000001", host, own, read));
+    CHECK(!coop::ParseSaveLink("LoAlCo\tbad|name\tSave", host, own, read));
+    CHECK(!coop::ParseSaveLink("\t142\tSave", host, own, read));
+}
+
 TEST(friends_hear_the_hosts_saves_and_loads)
 {
     coop::Coop host, a;
+    const coop::SaveTag tag{0x1111, 0x2222};
+    host.SetCurrentSaveTag(tag);
     CHECK(host.Host(kTestPort, "Alex"));
     CHECK(a.Join("127.0.0.1", kTestPort, "A"));
     CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
@@ -5220,6 +5316,7 @@ TEST(friends_hear_the_hosts_saves_and_loads)
     }));
     CHECK(heard.size() == 2 && heard[0].name == "Quicksave" && !heard[0].load && heard[1].name == "Save 3" &&
         heard[1].load);
+    CHECK(heard.size() == 2 && heard[0].tag == tag && heard[1].tag == tag);
     CHECK(a.NameOf(0) == "Alex");
     a.Stop();
     host.Stop();

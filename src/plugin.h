@@ -95,13 +95,20 @@ extern bool g_hardcoreAsked;
 extern bool g_openLoadMenu;
 
 std::string SavesFolder();
-std::string OurMatchOf(const std::string& host, const std::string& hostSave);
+std::string OurMatchOf(const coop::SaveTag& hostTag);
 bool HaveSaves();
 void LoadOurMatch();
 void LoadOwnSaves();
 void SaveOwnSaves();
+void ForgetLinksOf(const std::string& own);
 bool MayLoad(const std::string& save);
+uint64_t NewSaveTagId();
+void StartNewGameTag();
+uint64_t FileTimeNow();
+void WriteSaveTag(const std::string& file, uint64_t written);
+void ReadSaveTag(const std::string& file);
 extern std::string g_expectedLoad, g_savedForHost, g_pendingLinkedSave, g_checkingSave;
+extern coop::SaveTag g_thisGame;
 
 void SetDowned(bool down, uint32_t now);
 void UpdateReviveBar(uint32_t now);

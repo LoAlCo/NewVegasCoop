@@ -60,6 +60,7 @@
 #include <cstdlib>
 #include <future>
 #include <map>
+#include <random>
 #include <set>
 #include <utility>
 #include <vector>
@@ -89,8 +90,13 @@
     }
     std::string g_expectedLoad;
     uint32_t g_expectLoadUntil = 0;
-    std::map<std::string, std::string> g_ownSaves;
+    std::map<std::string, coop::SaveLink> g_ownSaves;
     void SaveOwnSaves();
+
+    std::string OwnSaveKey(const std::string& host, const std::string& own)
+    {
+        return coop::PlainName(host, "Host") + "\t" + own;
+    }
 
     std::string SavesFolder()
     {
@@ -100,22 +106,25 @@
         return std::string(documents) + "\\My Games\\FalloutNV\\Saves\\";
     }
 
-    std::string OurMatchOf(const std::string& host, const std::string& hostSave)
+    // By game ID alone. The host's name can't narrow it down: at the menu it's their Steam name, and in the game it's
+    // their character's, which changes with the save they load.
+    std::string OurMatchOf(const coop::SaveTag& hostTag)
     {
-        if (hostSave.empty())
-            return "";
         std::string folder = SavesFolder();
-        auto exists = [&](const std::string& save)
+        std::vector<coop::SaveOnDisk> ours;
+        for (const auto& [key, link] : g_ownSaves)
         {
-            DWORD a = GetFileAttributesA((folder + save + ".fos").c_str());
-            return !save.empty() && a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
-        };
-        std::string prefix = coop::PlainName(host, "Host") + "\t";
-        for (const auto& [key, theirs] : g_ownSaves)
-            if (key.compare(0, prefix.size(), prefix) == 0 && theirs == hostSave && exists(key.substr(prefix.size())))
-                return key.substr(prefix.size());
-        std::string linked = coop::LinkedSaveName(host, hostSave);
-        return exists(linked) ? linked : "";
+            size_t tab = key.find('\t');
+            if (tab == std::string::npos)
+                continue;
+            std::string own = key.substr(tab + 1);
+            WIN32_FILE_ATTRIBUTE_DATA a;
+            if (!GetFileAttributesExA((folder + own + ".fos").c_str(), GetFileExInfoStandard, &a) ||
+                (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                continue;
+            ours.push_back({own, link.tag, (uint64_t(a.ftLastWriteTime.dwHighDateTime) << 32) | a.ftLastWriteTime.dwLowDateTime});
+        }
+        return coop::PickLinkedSave(ours, hostTag);
     }
 
     bool HaveSaves()
@@ -131,11 +140,11 @@
     void LoadOurMatch()
     {
         const net::ModsMatch& host = g_coop.MatchedHost();
-        std::string ours = OurMatchOf(host.hostName, host.save);
+        std::string ours = OurMatchOf(host.tag);
         if (ours.empty())
         {
-            LOG_INFO("Main menu: no save of ours goes with %s's \"%s\"; the player picks one", host.hostName.c_str(),
-                host.save.c_str());
+            LOG_INFO("Main menu: no save of ours belongs to the game %s is playing (\"%s\", game %016llx); the player "
+                "picks one", host.hostName.c_str(), host.save.c_str(), static_cast<unsigned long long>(host.tag.game));
             if (HaveSaves())
             {
                 g_openLoadMenu = true;
@@ -146,54 +155,78 @@
                     "you're out of Doc Mitchell's house.");
             return;
         }
-        LOG_INFO("Main menu: loading \"%s\", our match of %s's \"%s\"", ours.c_str(), host.hostName.c_str(),
-            host.save.c_str());
+        LOG_INFO("Main menu: loading \"%s\", our save from the game %s is playing (\"%s\", game %016llx)", ours.c_str(),
+            host.hostName.c_str(), host.save.c_str(), static_cast<unsigned long long>(host.tag.game));
         g_expectedLoad = ours;
         game::RunConsoleLine(("load \"" + ours + "\"").c_str());
     }
 
     std::string g_savedForHost;
+    std::string g_linkHost;
+    coop::SaveLink g_pendingLink;
+    coop::SaveLink g_checkingLink;
+
+    // The host is loading a save and we aren't following: they can carry on without us.
+    void KeepOurCharacter(const std::string& note)
+    {
+        game::Notify(note.c_str());
+        g_expectedLoad.clear();
+        if (g_reportLoad)
+        {
+            g_reportLoad = false;
+            g_coop.LoadedHostSave();
+        }
+        if (g_waitForHostLoad)
+        {
+            g_waitForHostLoad = false;
+            game::SetPlayerControls(true);
+        }
+    }
 
     void FollowHostSaves(uint32_t now)
     {
         for (const net::SaveOrder& order : g_coop.TakeSaveOrders())
         {
-            std::string name = coop::LinkedSaveName(g_coop.NameOf(0), order.name);
-            if (name.empty())
-                continue;
             if (!order.load)
             {
+                std::string name = coop::LinkedSaveName(g_coop.NameOf(0), order.name);
+                if (name.empty())
+                    continue;
                 g_pendingLinkedSave = name;
+                g_linkHost = g_coop.NameOf(0);
+                g_pendingLink = {order.name, order.tag};
                 if (!g_savedForHost.empty())
                 {
-                    g_ownSaves[coop::PlainName(g_coop.NameOf(0), "Host") + "\t" + g_savedForHost] = order.name;
+                    g_ownSaves[OwnSaveKey(g_linkHost, g_savedForHost)] = g_pendingLink;
                     SaveOwnSaves();
                 }
                 g_savedForHost.clear();
                 continue;
             }
+            // Saves we still meant to make or link belong to the game being left. Done after this load, they could
+            // tie this character's save to that game, or another character's to the host's next save.
             g_pendingLinkedSave.clear();
+            g_checkingSave.clear();
+            g_savedForHost.clear();
             g_reportLoad = true;
-            LOG_INFO("Saves: the host is loading \"%s\"; loading ours, \"%s\"", order.name.c_str(), name.c_str());
-            g_expectedLoad = name;
+            std::string ours = OurMatchOf(order.tag);
+            if (ours.empty())
+            {
+                LOG_INFO("Saves: no save of ours goes with the one the host is loading (\"%s\", game %016llx); keeping "
+                    "our character", order.name.c_str(), static_cast<unsigned long long>(order.tag.game));
+                KeepOurCharacter("No save of yours goes with the host's (" + order.name + "): keeping your character");
+                continue;
+            }
+            LOG_INFO("Saves: the host is loading \"%s\" (game %016llx); loading ours, \"%s\"", order.name.c_str(),
+                static_cast<unsigned long long>(order.tag.game), ours.c_str());
+            g_expectedLoad = ours;
             g_expectLoadUntil = now + 3000;
-            game::RunConsoleLine(("load \"" + name + "\"").c_str());
+            game::RunConsoleLine(("load \"" + ours + "\"").c_str());
         }
         if (!g_expectedLoad.empty() && coop::IsDue(now, g_expectLoadUntil))
         {
             LOG_INFO("Saves: no \"%s\" here; keeping our character", g_expectedLoad.c_str());
-            game::Notify(("No save matching the host's here (" + g_expectedLoad + "): keeping your character").c_str());
-            g_expectedLoad.clear();
-            if (g_reportLoad)
-            {
-                g_reportLoad = false;
-                g_coop.LoadedHostSave();
-            }
-            if (g_waitForHostLoad)
-            {
-                g_waitForHostLoad = false;
-                game::SetPlayerControls(true);
-            }
+            KeepOurCharacter("No save matching the host's here (" + g_expectedLoad + "): keeping your character");
         }
         if (g_coop.TakeLoadRefused())
         {
@@ -204,6 +237,7 @@
         {
             LOG_INFO("Saves: the host saved; saving ours as \"%s\"", g_pendingLinkedSave.c_str());
             g_checkingSave = g_pendingLinkedSave;
+            g_checkingLink = g_pendingLink;
             g_saveAskedAt = FileTimeNow();
             g_nextSaveCheck = now + 1500;
             g_saveGiveUpAt = now + 60000;
@@ -217,6 +251,8 @@
             {
                 LOG_INFO("Saves: ours is saved (\"%s\"%s)", g_checkingSave.c_str(),
                     g_saveTries > 1 ? (", try " + std::to_string(g_saveTries)).c_str() : "");
+                g_ownSaves[OwnSaveKey(g_linkHost, g_checkingSave)] = g_checkingLink;
+                SaveOwnSaves();
                 g_checkingSave.clear();
             }
             else if (coop::IsDue(now, g_saveGiveUpAt))
@@ -298,13 +334,10 @@
             std::string text(line);
             while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
                 text.pop_back();
-            size_t a = text.find('\t'), b = a == std::string::npos ? a : text.find('\t', a + 1);
-            if (b == std::string::npos)
-                continue;
-            std::string host = text.substr(0, a), own = text.substr(a + 1, b - a - 1), theirs = text.substr(b + 1);
-            if (coop::PlainName(host, "") == host && !host.empty() && coop::SaveNameOf(own) == own && !own.empty() &&
-                coop::SaveNameOf(theirs) == theirs && !theirs.empty())
-                g_ownSaves[host + "\t" + own] = theirs;
+            std::string host, own;
+            coop::SaveLink link;
+            if (coop::ParseSaveLink(text, host, own, link))
+                g_ownSaves[OwnSaveKey(host, own)] = std::move(link);
         }
         std::fclose(f);
         LOG_INFO("Saves: %zu of our saves are linked to hosts' saves", g_ownSaves.size());
@@ -318,9 +351,92 @@
             LOG_WARN("Saves: couldn't write %s", OwnSavesFile().c_str());
             return;
         }
-        for (const auto& [key, theirs] : g_ownSaves)
-            std::fprintf(f, "%s\t%s\n", key.c_str(), theirs.c_str());
+        for (const auto& [key, link] : g_ownSaves)
+        {
+            size_t tab = key.find('\t');
+            std::fprintf(f, "%s\n", coop::FormatSaveLink(key.substr(0, tab), key.substr(tab + 1), link).c_str());
+        }
         std::fclose(f);
+    }
+
+    // A link describes a save as it was when linked, so any later write to that file ends it. The save the host asked
+    // for is linked again once it's confirmed written.
+    void ForgetLinksOf(const std::string& own)
+    {
+        bool changed = false;
+        for (auto it = g_ownSaves.begin(); it != g_ownSaves.end();)
+        {
+            size_t tab = it->first.find('\t');
+            if (tab != std::string::npos && it->first.compare(tab + 1, std::string::npos, own) == 0)
+            {
+                it = g_ownSaves.erase(it);
+                changed = true;
+            }
+            else
+                ++it;
+        }
+        if (changed)
+            SaveOwnSaves();
+    }
+
+    coop::SaveTag g_thisGame;
+
+    uint64_t NewSaveTagId()
+    {
+        std::random_device random;
+        uint64_t id = 0;
+        while (id == 0)
+            id = (uint64_t(random()) << 32) | random();
+        return id;
+    }
+
+    void StartNewGameTag()
+    {
+        g_thisGame = {NewSaveTagId(), NewSaveTagId()};
+        g_coop.SetCurrentSaveTag(g_thisGame);
+    }
+
+    // Not in the co-save: xNVSE skips saving co-save data for a plugin on the default opcode base, which we are.
+    void WriteSaveTag(const std::string& file, uint64_t written)
+    {
+        std::string path = SavesFolder() + coop::SaveTagFileName(file);
+        FILE* f = nullptr;
+        if (fopen_s(&f, path.c_str(), "w") != 0 || !f)
+        {
+            LOG_WARN("Saves: couldn't write %s; this save won't be known as part of its game", path.c_str());
+            return;
+        }
+        std::fputs(coop::FormatSaveTagFile(g_thisGame, written).c_str(), f);
+        std::fclose(f);
+    }
+
+    void ReadSaveTag(const std::string& file)
+    {
+        std::string folder = SavesFolder();
+        coop::SaveTag found;
+        WIN32_FILE_ATTRIBUTE_DATA a;
+        bool exists = GetFileAttributesExA((folder + file).c_str(), GetFileExInfoStandard, &a) != 0;
+        uint64_t saveWritten = exists ? (uint64_t(a.ftLastWriteTime.dwHighDateTime) << 32) | a.ftLastWriteTime.dwLowDateTime : 0;
+        FILE* f = nullptr;
+        if (exists && fopen_s(&f, (folder + coop::SaveTagFileName(file)).c_str(), "r") == 0 && f)
+        {
+            char text[64];
+            size_t size = std::fread(text, 1, sizeof(text), f);
+            std::fclose(f);
+            found = coop::SaveTagFromFile(std::string_view(text, size), saveWritten);
+        }
+        if (found.game == 0)
+        {
+            StartNewGameTag();
+            LOG_INFO("Saves: this save has no game ID yet; it's now %016llx", static_cast<unsigned long long>(g_thisGame.game));
+            // Kept beside it, so loading this save again is the same game and friends' saves still go with it.
+            if (exists)
+                WriteSaveTag(file, saveWritten);
+            return;
+        }
+        g_thisGame = found;
+        g_coop.SetCurrentSaveTag(g_thisGame);
+        LOG_INFO("Saves: this save is from game %016llx", static_cast<unsigned long long>(g_thisGame.game));
     }
 
     bool MayLoad(const std::string& save)
@@ -330,7 +446,7 @@
         std::string hostSave = coop::HostSaveOf(g_coop.NameOf(0), save);
         auto own = g_ownSaves.find(coop::PlainName(g_coop.NameOf(0), "Host") + "\t" + save);
         if (hostSave.empty() && own != g_ownSaves.end())
-            hostSave = own->second;
+            hostSave = own->second.theirs;
         if (hostSave.empty())
         {
             LOG_INFO("Saves: not loading \"%s\": it isn't linked to the host's game", save.c_str());
