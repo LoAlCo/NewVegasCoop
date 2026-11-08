@@ -128,14 +128,30 @@ namespace game
                 LOG_INFO("%s's Pip-Boy light is off", remote.name.c_str());
                 break;
             case coop::FriendLight::Step::Check:
-                if (!PipBoyLightOn(e.ref))
+            {
+                bool shown = PipBoyLightOn(e.ref);
+                switch (e.light.Checked(shown, now))
                 {
-                    SetPipBoyLight(e.ref, true);
-                    LOG_INFO("%s's Pip-Boy light had gone out on their character (3D %s); on again: %s",
+                case coop::FriendLight::Fix::Add:
+                    AddPipBoyLight(e.ref);
+                    LOG_INFO("%s's Pip-Boy light looked gone twice on their character (3D %s); added again: %s",
                         remote.name.c_str(), Is3DLoaded(e.ref) ? "loaded" : "not loaded",
                         PipBoyLightOn(e.ref) ? "shown" : "still not shown");
+                    break;
+                case coop::FriendLight::Fix::Redo:
+                    SetPipBoyLight(e.ref, true);
+                    LOG_INFO("%s's Pip-Boy light still looked gone on their character (3D %s); took it off and put it "
+                        "back: %s", remote.name.c_str(), Is3DLoaded(e.ref) ? "loaded" : "not loaded",
+                        PipBoyLightOn(e.ref) ? "shown" : "still not shown");
+                    break;
+                default:
+                    if (!shown)
+                        LOG_DEBUG("%s's Pip-Boy light looked gone on their character once; looking again soon",
+                            remote.name.c_str());
+                    break;
                 }
                 break;
+            }
             default:
                 break;
             }
