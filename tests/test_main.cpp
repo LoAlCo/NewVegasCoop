@@ -8665,6 +8665,10 @@ TEST(chat_panel_preview_is_as_big_as_the_panel_gets)
     CHECK(preview.size() <= coop::kChatPanelMostRows);
     for (const coop::ChatPanelRow& row : preview)
         CHECK(row.text == coop::CleanFeedText(row.text) && row.alpha == 1.0f);
+}
+
+namespace
+{
     net::NpcState FakeCompanion(uint32_t ref, uint32_t base)
     {
         net::NpcState n;
