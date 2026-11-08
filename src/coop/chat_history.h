@@ -143,9 +143,10 @@ namespace coop
 
         void SetLineMs(uint32_t ms) { m_lineMs = std::max<uint32_t>(ms, kFadeMs); }
 
-        void Add(std::string_view line)
+        // A line can ask to stay longer than the setting, so a long chat message can be read
+        void Add(std::string_view line, uint32_t atLeastMs = 0)
         {
-            m_lines.push_back({CleanFeedText(line), m_lineMs});
+            m_lines.push_back({CleanFeedText(line), std::max<uint32_t>(m_lineMs, atLeastMs)});
             while (m_lines.size() > kMostLines)
                 m_lines.pop_front();
         }
@@ -178,6 +179,12 @@ namespace coop
         uint32_t m_last = 0;
         bool m_started = false;
     };
+
+    // How long a friend's chat message needs on screen to be read: the same time its bubble above their head gets
+    inline uint32_t ChatPopupMs(size_t chars)
+    {
+        return static_cast<uint32_t>(std::min<size_t>(4000 + 70 * chars, 12000));
+    }
 
     // Works out who joined, left, went down and got back up from what every player's game already knows, and says each
     // one once. Nothing here is sent, so nobody needs the same build to see these.

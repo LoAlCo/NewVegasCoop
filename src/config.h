@@ -46,6 +46,7 @@ struct Config
     int talkLogRed = 255, talkLogGreen = 255, talkLogBlue = 255;
     bool eventFeed = true;
     bool chatHistory = true;
+    bool chatPopup = true;
     int feedX = 98;
     int feedY = 45;
     int feedWidth = 500;
