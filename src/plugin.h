@@ -109,6 +109,7 @@ void WriteSaveTag(const std::string& file, uint64_t written);
 void ReadSaveTag(const std::string& file);
 extern std::string g_expectedLoad, g_savedForHost, g_pendingLinkedSave, g_checkingSave;
 extern coop::SaveTag g_thisGame;
+void BeginSave(const std::string& name, uint32_t now, const char* giveUpNote);
 
 void SetDowned(bool down, uint32_t now);
 void UpdateReviveBar(uint32_t now);
@@ -124,6 +125,9 @@ constexpr int kTeleportQuestion = 12;
 extern int g_teleportersHad;
 extern bool g_teleportAsked;
 extern std::vector<std::pair<uint8_t, bool>> g_teleportChoices;
+void UpdateGifts(uint32_t now);
+void StopGiftMenus();
+extern coop::GiftSaveTimer g_giftSaveTimer;
 
 void UpdateChat();
 void UpdateVoice();

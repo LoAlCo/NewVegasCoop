@@ -30,6 +30,7 @@ namespace coop
             }
             return !m_waiting.empty();
         }
+        bool Busy() const { return !m_waiting.empty(); }
         uint8_t WaitingFor() const { return m_waiting.empty() ? 0 : m_waiting.front(); }
 
     private:

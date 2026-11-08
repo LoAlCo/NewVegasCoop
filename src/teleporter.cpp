@@ -85,6 +85,300 @@
         game::Notify(("Co-op: teleported to " + name).c_str());
     }
 
+    enum class GiftStep { None, Menu, Friend, Amount };
+    constexpr int kCoopMenuQuestion = 16, kGiftFriendQuestion = 17, kGiftAmountQuestion = 18;
+    GiftStep g_giftStep = GiftStep::None;
+    uint8_t g_giftTo = 0;
+    int32_t g_giftHave = 0;
+    std::string g_giftShown;
+    std::vector<uint8_t> g_giftFriends;
+    coop::GiftSaveTimer g_giftSaveTimer;
+
+    void AskTeleportTargets()
+    {
+        std::vector<std::string> buttons;
+        g_teleportChoices.clear();
+        for (const auto& [id, remote] : g_coop.Remotes())
+            if (g_teleportChoices.size() < 8)
+            {
+                buttons.push_back("Go to " + g_coop.NameOf(id));
+                g_teleportChoices.push_back({id, false});
+                buttons.push_back("Bring " + g_coop.NameOf(id) + " here");
+                g_teleportChoices.push_back({id, true});
+            }
+        buttons.push_back("Cancel");
+        LOG_INFO("Teleporter: used (%zu others to pick from)", g_teleportChoices.size() / 2);
+        g_teleportAsked = game::AskChoice(g_teleportChoices.empty() ? "Co-op Teleporter: nobody else is here" :
+            "Co-op Teleporter", buttons, kTeleportQuestion);
+    }
+
+    void AskCoopMenu()
+    {
+        if (g_coop.Remotes().empty() || !g_config.gifts)
+        {
+            AskTeleportTargets();
+            return;
+        }
+        if (game::AskChoice("Co-op Teleporter", {"Teleport", "Send caps", "Cancel"}, kCoopMenuQuestion))
+            g_giftStep = GiftStep::Menu;
+    }
+
+    std::string GiftAmountText()
+    {
+        return "Send caps to " + g_coop.NameOf(g_giftTo) + " (you have " + std::to_string(g_giftHave) + ")\n\n" +
+            game::TextEntryText() + "_\n\nType how many. Enter sends, Esc cancels.";
+    }
+
+    void StartGiftAmount(uint8_t to, TESObjectREFR* me)
+    {
+        g_giftStep = GiftStep::None;
+        TESForm* caps = game::LookupForm(game::ids::kCaps);
+        g_giftTo = to;
+        g_giftHave = caps ? game::ItemCount(me, caps) : 0;
+        if (g_giftHave < 1)
+        {
+            game::ShowMessage("You have no caps to send.");
+            return;
+        }
+        if (!game::StartTextEntry())
+        {
+            game::ShowMessage("Couldn't take typing in the game (see NVCoop.log).");
+            return;
+        }
+        g_giftShown = GiftAmountText();
+        if (game::AskChoice(g_giftShown, {"Cancel"}, kGiftAmountQuestion))
+            g_giftStep = GiftStep::Amount;
+        else
+            game::StopTextEntry();
+    }
+
+    void GiftSendCaps(uint8_t to, int32_t amount, TESObjectREFR* me)
+    {
+        TESForm* caps = game::LookupForm(game::ids::kCaps);
+        std::string name = g_coop.NameOf(to);
+        if (!caps || !g_coop.Remotes().count(to) || game::TradeMenuOpen())
+        {
+            game::ShowMessage("Couldn't send the caps to " + name + " right now.");
+            return;
+        }
+        int before = game::ItemCount(me, caps);
+        if (amount > before)
+        {
+            game::ShowMessage("You only have " + std::to_string(before) + " caps.");
+            return;
+        }
+        game::ChangeItem(me, caps->refID, -amount);
+        int after = game::ItemCount(me, caps);
+        if (after != before - amount)
+        {
+            LOG_WARN("Gifts: only %d of %d caps came out; putting them back and not sending", before - after, amount);
+            if (before != after)
+                game::ChangeItem(me, caps->refID, before - after);
+            game::ShowMessage("Couldn't take the caps out of your inventory, so nothing was sent.");
+            return;
+        }
+        net::ItemCount kind;
+        kind.item = caps->refID;
+        kind.count = amount;
+        if (!g_coop.SendGift(to, kind, caps->typeID))
+        {
+            LOG_WARN("Gifts: couldn't send to %s; putting %d caps back", name.c_str(), amount);
+            game::ChangeItem(me, caps->refID, amount);
+            game::ShowMessage("Couldn't send the caps to " + name + ".");
+        }
+        game::RefreshItemList();
+    }
+
+    void UpdateGiftAmount(TESObjectREFR* me)
+    {
+        game::EntryState state = game::TextEntryState();
+        int box = game::TakeChoice(kGiftAmountQuestion);
+        if (state == game::EntryState::Typing)
+        {
+            if (box != -1)
+            {
+                LOG_INFO("Gifts: cancelled the amount box with its button");
+                game::StopTextEntry();
+                g_giftStep = GiftStep::None;
+                return;
+            }
+            std::string text = GiftAmountText();
+            if (text != g_giftShown)
+            {
+                game::SetQuestionText(kGiftAmountQuestion, text);
+                g_giftShown = text;
+            }
+            return;
+        }
+        g_giftStep = GiftStep::None;
+        game::DropQuestion(kGiftAmountQuestion);
+        if (state != game::EntryState::Done)
+        {
+            LOG_INFO("Gifts: cancelled the amount box with Esc");
+            game::StopTextEntry();
+            return;
+        }
+        int32_t amount = 0;
+        switch (coop::ParseAmount(game::TakeTextEntry(), g_giftHave, amount))
+        {
+        case coop::Amount::Ok:
+            GiftSendCaps(g_giftTo, amount, me);
+            break;
+        case coop::Amount::NotANumber:
+            game::ShowMessage("That isn't a number, so nothing was sent.");
+            break;
+        case coop::Amount::Zero:
+            game::ShowMessage("Nothing to send: that's zero caps.");
+            break;
+        case coop::Amount::TooMany:
+            game::ShowMessage("You only have " + std::to_string(g_giftHave) + " caps.");
+            break;
+        }
+    }
+
+    void StopGiftMenus()
+    {
+        if (g_giftStep == GiftStep::Amount)
+            game::StopTextEntry();
+        if (g_giftStep != GiftStep::None)
+        {
+            game::DropQuestion(kCoopMenuQuestion);
+            game::DropQuestion(kGiftFriendQuestion);
+            game::DropQuestion(kGiftAmountQuestion);
+            g_giftStep = GiftStep::None;
+        }
+    }
+
+    void UpdateGiftMenus(TESObjectREFR* me)
+    {
+        if (g_giftStep == GiftStep::Menu)
+        {
+            int choice = game::TakeChoice(kCoopMenuQuestion);
+            if (choice == -1)
+                return;
+            g_giftStep = GiftStep::None;
+            if (choice == 0)
+                AskTeleportTargets();
+            else if (choice == 1)
+            {
+                g_giftFriends.clear();
+                std::vector<std::string> buttons;
+                for (const auto& [id, remote] : g_coop.Remotes())
+                    if (g_giftFriends.size() < 9)
+                    {
+                        g_giftFriends.push_back(id);
+                        buttons.push_back(g_coop.NameOf(id));
+                    }
+                if (g_giftFriends.size() == 1)
+                    StartGiftAmount(g_giftFriends[0], me);
+                else if (!g_giftFriends.empty())
+                {
+                    buttons.push_back("Cancel");
+                    if (game::AskChoice("Send caps to who?", buttons, kGiftFriendQuestion))
+                        g_giftStep = GiftStep::Friend;
+                }
+            }
+        }
+        else if (g_giftStep == GiftStep::Friend)
+        {
+            int choice = game::TakeChoice(kGiftFriendQuestion);
+            if (choice == -1)
+                return;
+            g_giftStep = GiftStep::None;
+            if (choice >= 0 && static_cast<size_t>(choice) < g_giftFriends.size())
+                StartGiftAmount(g_giftFriends[choice], me);
+        }
+        else if (g_giftStep == GiftStep::Amount)
+            UpdateGiftAmount(me);
+    }
+
+    void ApplyGiftOutcomes(TESObjectREFR* me)
+    {
+        bool changed = false;
+        for (const coop::Coop::GiftOutcome& o : g_coop.TakeGiftOutcomes())
+        {
+            std::string name = g_coop.NameOf(o.to);
+            std::string what = std::to_string(o.item.count) + " caps";
+            if (o.reason == net::GiveReason::Ok)
+            {
+                LOG_INFO("Gifts: %s got %d of %08X (condition %d, mods %d)", name.c_str(), o.item.count, o.item.item,
+                    o.item.health, o.item.mods);
+                game::Notify(("Co-op: " + name + " got your " + what).c_str());
+                continue;
+            }
+            LOG_INFO("Gifts: giving %d of %08X (condition %d, mods %d) back to us; %s didn't get it (reason %d)",
+                o.item.count, o.item.item, o.item.health, o.item.mods, name.c_str(), static_cast<int>(o.reason));
+            if (me)
+                game::ChangeItem(me, o.item);
+            changed = true;
+            game::Notify(("Co-op: " + name + (o.reason == net::GiveReason::TurnedOff ? " has gifts turned off" :
+                " didn't get the " + what) + ", so you have them back").c_str());
+        }
+        if (changed)
+            game::RefreshItemList();
+    }
+
+    void ApplyGiftDeliveries(uint32_t now, TESObjectREFR* me)
+    {
+        if (!g_config.gifts && g_coop.InGame())
+        {
+            for (const coop::Coop::GiftDelivery& d : g_coop.TakeGiftDeliveries())
+            {
+                LOG_INFO("Gifts: refused gift %u from %s (gifts are turned off here)", d.id, g_coop.NameOf(d.from).c_str());
+                g_coop.FinishGiftDelivery(d.id, net::GiveReason::TurnedOff);
+            }
+            return;
+        }
+        if (!me || !g_coop.InGame() || game::TradeMenuOpen() || game::QuantityPromptOpen())
+            return;
+        bool changed = false;
+        for (const coop::Coop::GiftDelivery& d : g_coop.TakeGiftDeliveries())
+        {
+            std::string name = g_coop.NameOf(d.from);
+            if (!game::IsItem(d.item.item) || game::FormTypeOf(d.item.item) != d.itemType)
+            {
+                LOG_WARN("Gifts: %s sent %08X, which we don't have as an item of type %u: refused", name.c_str(),
+                    d.item.item, d.itemType);
+                g_coop.FinishGiftDelivery(d.id, net::GiveReason::BadItem);
+                continue;
+            }
+            game::ChangeItem(me, d.item);
+            changed = true;
+            LOG_INFO("Gifts: got %d of %08X (condition %d, mods %d) from %s (gift %u)", d.item.count, d.item.item,
+                d.item.health, d.item.mods, name.c_str(), d.id);
+            game::Notify(("Co-op: " + name + " sent you " + std::to_string(d.item.count) + " caps").c_str());
+            g_coop.FinishGiftDelivery(d.id, net::GiveReason::Ok);
+            if (g_config.giftSave)
+                g_giftSaveTimer.Delivered(now);
+        }
+        if (changed)
+            game::RefreshItemList();
+    }
+
+    void UpdateGifts(uint32_t now)
+    {
+        TESObjectREFR* me = game::Player();
+        ApplyGiftOutcomes(me);
+        if (!g_coop.InGame() || !me)
+        {
+            StopGiftMenus();
+            g_giftSaveTimer.Forget();
+            return;
+        }
+        UpdateGiftMenus(me);
+        ApplyGiftDeliveries(now, me);
+        if (g_giftSaveTimer.TakeDue(now))
+        {
+            std::string name = g_coop.GetRole() == coop::Role::Host ? coop::GiftSaveForHost(g_coop.NameOf(0)) :
+                coop::GiftSaveForFriend(g_coop.NameOf(0));
+            if (!name.empty())
+            {
+                LOG_INFO("Gifts: saving as \"%s\" so the gift can't be lost", name.c_str());
+                BeginSave(name, now, "Co-op: couldn't save your game after the gift");
+            }
+        }
+    }
+
     void Teleporter(uint32_t now)
     {
         TESObjectREFR* me = game::Player();
@@ -119,23 +413,9 @@
             return;
         g_nextTeleporterLook = now + 250;
         int have = game::ItemCount(me, item);
-        if (g_teleportersHad > 0 && have < g_teleportersHad && !game::OpenContainer() && !g_teleportAsked)
-        {
-            std::vector<std::string> buttons;
-            g_teleportChoices.clear();
-            for (const auto& [id, remote] : g_coop.Remotes())
-                if (g_teleportChoices.size() < 8)
-                {
-                    buttons.push_back("Go to " + g_coop.NameOf(id));
-                    g_teleportChoices.push_back({id, false});
-                    buttons.push_back("Bring " + g_coop.NameOf(id) + " here");
-                    g_teleportChoices.push_back({id, true});
-                }
-            buttons.push_back("Cancel");
-            LOG_INFO("Teleporter: used (%zu others to pick from)", g_teleportChoices.size() / 2);
-            g_teleportAsked = game::AskChoice(g_teleportChoices.empty() ? "Co-op Teleporter: nobody else is here" :
-                "Co-op Teleporter", buttons, kTeleportQuestion);
-        }
+        if (g_teleportersHad > 0 && have < g_teleportersHad && !game::OpenContainer() && !g_teleportAsked &&
+            g_giftStep == GiftStep::None)
+            AskCoopMenu();
         if (have != 1)
         {
             game::ChangeItem(me, item->refID, 1 - have);

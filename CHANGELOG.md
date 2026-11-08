@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+- New: send caps to a friend. Use the Co-op Teleporter, choose Send caps, pick who and type how many. They arrive straight
+  in the friend's inventory, with a notice for both of you. If the friend can't take them, you get them back. Everyone's
+  game saves a few seconds after a gift so it can't be lost. The Mod Configuration Menu has a switch for each: Gifts
+  (off: you can't send, and gifts sent to you go back to the sender) and Save After A Gift.
+- When the host's game refuses a save a friend asked for, it now tries again, as friends' games already did.
+
 ## 0.1.11
 - Everyone needs 0.1.11 to play together.
 - New: heal an ally. Hold E for two seconds on a hurt, standing friend to give them one of your Stimpaks (or a Super

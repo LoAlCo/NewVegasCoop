@@ -1533,6 +1533,12 @@ namespace game
         }
     }
 
+    bool TradeMenuOpen()
+    {
+        return *reinterpret_cast<const void* const*>(addr::kContainerMenu) ||
+            *reinterpret_cast<const void* const*>(addr::kBarterMenu);
+    }
+
     bool QuantityPromptOpen()
     {
         uint32_t ids[addr::kMenuStackSlots] = {};
@@ -2396,6 +2402,12 @@ namespace game
         return form && reinterpret_cast<IsInventoryTypeFn>(addr::kIsInventoryObjectType)(form->typeID);
     }
 
+    int FormTypeOf(uint32_t formId)
+    {
+        TESForm* form = LookupForm(formId);
+        return form ? form->typeID : -1;
+    }
+
     bool IsLootable(TESObjectREFR* ref)
     {
         if (!ref || !ref->baseForm)
@@ -3196,14 +3208,15 @@ namespace game
                     static_cast<uint32_t>(show ? 1 : 0));
         }
 
-        void KeepKeysFromGame(bool keep)
+        // Key codes from 256 up are the mouse buttons. A typed box needs them left alone, or its button can't be clicked.
+        void KeepKeysFromGame(bool keep, bool mouseToo = true)
         {
             NVSEArrayVarInterface::Element result;
             if (!g_keyDisabled || !g_disableKey || !Player())
                 return;
             if (keep)
             {
-                for (int key = 1; key < 264; ++key)
+                for (int key = 1; key < (mouseToo ? 264 : 256); ++key)
                     if (g_scripts->CallFunction(g_keyDisabled, Player(), nullptr, &result, 1, static_cast<uint32_t>(key)) &&
                         result.GetNumber() == 0)
                     {
@@ -3233,7 +3246,7 @@ namespace game
             g_entryState = EntryState::Typing;
         }
         if (g_chatKeysOff.empty())
-            KeepKeysFromGame(true);
+            KeepKeysFromGame(true, false);
         return true;
     }
 
@@ -3261,6 +3274,12 @@ namespace game
     {
         std::lock_guard<std::mutex> lock(g_chatMutex);
         return g_entryDraft.Text().size();
+    }
+
+    std::string TextEntryText()
+    {
+        std::lock_guard<std::mutex> lock(g_chatMutex);
+        return g_entryDraft.Text();
     }
 
     std::string TakeTextEntry()
@@ -3873,7 +3892,7 @@ namespace game
         }
         bool keep = typing || entry;
         if (keep != !g_chatKeysOff.empty() && (keep || !g_chatKeysOff.empty()))
-            KeepKeysFromGame(keep);
+            KeepKeysFromGame(keep, typing);
         bool show = typing || talking;
         if (changed || show != g_chatShown)
         {

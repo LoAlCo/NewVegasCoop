@@ -150,6 +150,7 @@ namespace game
     void StopTextEntry();
     EntryState TextEntryState();
     size_t TextEntryLength();
+    std::string TextEntryText();
     std::string TakeTextEntry();
     void TypeIntoEntry(const std::string& text);
     bool MainMenuMade();
@@ -157,6 +158,8 @@ namespace game
     int TakeAnswer(int id);
     constexpr int kNeverShown = -2;
     bool AskChoice(const std::string& text, const std::vector<std::string>& buttons, int id);
+    // Changes an open question's text, on screen too, and remembers it so DropQuestion can still close the box.
+    void SetQuestionText(int id, const std::string& text);
     int TakeChoice(int id);
     void DropQuestion(int id);
     bool QuestionOpen();
@@ -329,6 +332,7 @@ namespace game
     bool InMenuMode();
     void OpenMenus(char* out, size_t size);
     bool QuantityPromptOpen();
+    bool TradeMenuOpen();
     bool SetFieldOfView(int degrees);
     bool ReadMyLooks(net::PlayerLooks& out);
     bool ApplyLooks(TESObjectREFR* standIn, const net::PlayerLooks& looks, bool* headRemade = nullptr);
@@ -368,6 +372,7 @@ namespace game
     void Activate(TESObjectREFR* ref);
     void RefreshItemList();
     bool IsItem(uint32_t formId);
+    int FormTypeOf(uint32_t formId);
     bool IsLootable(TESObjectREFR* ref);
 
     struct QuestInfo
