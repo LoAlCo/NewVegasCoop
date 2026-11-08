@@ -21,6 +21,7 @@ namespace coop
         static constexpr uint8_t kWeaponOut = 0x01;
         static constexpr uint8_t kSneaking = 0x02;
         static constexpr uint8_t kKnownFlags = kWeaponOut | kSneaking;
+        static constexpr uint8_t kLightOn = 0x04;
     };
 
     class Smoother

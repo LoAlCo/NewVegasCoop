@@ -94,6 +94,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bCompanionsBoth", companionsBoth);
         Write(path, "iFieldOfView", fieldOfView);
         Write(path, "bFriendMarkers", friendMarkers);
+        Write(path, "bFriendLights", friendLights);
         Write(path, "bTalkLog", talkLog);
         Write(path, "iTalkLogSize", talkLogSize);
         Write(path, "iTalkLogPlace", talkLogPlace);
@@ -174,6 +175,7 @@ void Config::LoadPlayer(const std::string& path)
     companionsBoth = flag("bCompanionsBoth", companionsBoth);
     fieldOfView = number("iFieldOfView", fieldOfView, 0, 120);
     friendMarkers = flag("bFriendMarkers", friendMarkers);
+    friendLights = flag("bFriendLights", friendLights);
     talkLog = flag("bTalkLog", talkLog);
     talkLogSize = number("iTalkLogSize", talkLogSize, 40, 150);
     talkLogPlace = number("iTalkLogPlace", talkLogPlace, 0, 1);

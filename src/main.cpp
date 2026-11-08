@@ -2197,6 +2197,15 @@ namespace
         if (!game::GetPose(game::Player(), me))
             return;
         me.flags = game::StanceFlags(game::Player());
+        static uint32_t s_nextLightLook = 0;
+        static bool s_lightOn = false;
+        if (coop::IsDue(now, s_nextLightLook))
+        {
+            s_nextLightLook = now + 250;
+            s_lightOn = game::PipBoyLightOn(game::Player());
+        }
+        if (s_lightOn)
+            me.flags |= coop::Pose::kLightOn;
         me.moves = game::MovementFlags(game::Player());
         if (game::IsJumping(game::Player()))
             me.moves |= coop::moves::kJump;
@@ -2274,6 +2283,7 @@ namespace
         if (g_coop.InGame())
         {
             g_cutscene = (game::PlayerDisabledControls() & 1) && !g_downed && !g_waitForHostLoad;
+            g_standIns.SetLights(g_config.friendLights);
             g_standIns.Update(g_coop, now, me, g_cutscene);
         }
         else
@@ -2674,7 +2684,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
         return false;
 
     Log::Open("");
-    LOG_INFO("NVCoop %s, Combined v29 test build, starting (xNVSE %08X, game %08X)",
+    LOG_INFO("NVCoop %s, Combined v30 test build, starting (xNVSE %08X, game %08X)",
         NVCOOP_VERSION_STRING, nvse->nvseVersion, nvse->runtimeVersion);
 
     if (nvse->runtimeVersion != RUNTIME_VERSION_1_4_0_525)

@@ -28,6 +28,7 @@ struct Config
     bool companionsBoth = true;
     int fieldOfView = 0;
     bool friendMarkers = true;
+    bool friendLights = true;
     bool talkLog = true;
     int talkLogSize = 65;
     int talkLogPlace = 0;

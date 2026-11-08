@@ -342,11 +342,23 @@
 					}
 				},
 				"27": {
+					"title": "Friends' Pip-Boy Lights",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Show the light of a friend's Pip-Boy on them when they turn it on",
+					"vars": [
+						{
+							"configINI": "Settings:bFriendLights",
+							"default": 1
+						}
+					]
+				},
+				"28": {
 					"title": "Joining by IP",
 					"enable": 1,
 					"type": 0
 				},
-				"28": {
+				"29": {
 					"title": "Show My Address",
 					"type": 5,
 					"enable": 1,
@@ -358,12 +370,12 @@
 						}
 					]
 				},
-				"29": {
+				"30": {
 					"title": "Co-op Settings (the host's count for everyone)",
 					"enable": 1,
 					"type": 0
 				},
-				"30": {
+				"31": {
 					"title": "Co-op Balanced",
 					"type": 5,
 					"enable": 1,
@@ -375,7 +387,7 @@
 						}
 					]
 				},
-				"31": {
+				"32": {
 					"title": "Friendly Fire",
 					"type": 5,
 					"enable": 1,
@@ -387,7 +399,7 @@
 						}
 					]
 				},
-				"32": {
+				"33": {
 					"title": "Areas Around Far Friends",
 					"type": 5,
 					"enable": 1,
@@ -399,7 +411,7 @@
 						}
 					]
 				},
-				"33": {
+				"34": {
 					"title": "Visitors' Companions",
 					"type": 5,
 					"enable": 1,
@@ -411,7 +423,7 @@
 						}
 					]
 				},
-				"34": {
+				"35": {
 					"title": "Same Companion, One Each",
 					"type": 5,
 					"enable": 1,
@@ -423,12 +435,12 @@
 						}
 					]
 				},
-				"35": {
+				"36": {
 					"title": "Gifts",
 					"enable": 1,
 					"type": 0
 				},
-				"36": {
+				"37": {
 					"title": "Send And Receive Gifts",
 					"type": 5,
 					"enable": 1,
@@ -440,7 +452,7 @@
 						}
 					]
 				},
-				"37": {
+				"38": {
 					"title": "Save After A Gift",
 					"type": 5,
 					"enable": 1,
@@ -452,12 +464,12 @@
 						}
 					]
 				},
-				"38": {
+				"39": {
 					"title": "Pings",
 					"enable": 1,
 					"type": 0
 				},
-				"39": {
+				"40": {
 					"title": "Pings",
 					"type": 5,
 					"enable": 1,
@@ -469,7 +481,7 @@
 						}
 					]
 				},
-				"40": {
+				"41": {
 					"title": "Ping Key",
 					"type": 3,
 					"enable": 1,
@@ -484,7 +496,7 @@
 						"type": 0
 					}
 				},
-				"41": {
+				"42": {
 					"title": "Ping Sound",
 					"type": 1,
 					"enable": 1,
@@ -504,7 +516,7 @@
 						"Menu OK"
 					]
 				},
-				"42": {
+				"43": {
 					"title": "Ping Range",
 					"type": 2,
 					"enable": 1,
@@ -523,7 +535,7 @@
 						"suffix": ""
 					}
 				},
-				"43": {
+				"44": {
 					"title": "Ping Icons",
 					"type": 1,
 					"enable": 1,
@@ -540,7 +552,7 @@
 						"Own colours"
 					]
 				},
-				"44": {
+				"45": {
 					"title": "Recognise Objects",
 					"type": 5,
 					"enable": 1,
@@ -552,12 +564,12 @@
 						}
 					]
 				},
-				"45": {
+				"46": {
 					"title": "Testing",
 					"enable": 1,
 					"type": 0
 				},
-				"46": {
+				"47": {
 					"title": "Your Shots Fly the Same Path for Friends",
 					"type": 5,
 					"enable": 1,
