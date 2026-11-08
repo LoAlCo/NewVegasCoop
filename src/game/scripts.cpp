@@ -164,6 +164,7 @@ namespace game
         Script* g_addItem = nullptr;
         Script* g_activate = nullptr;
         Script* g_refreshItems = nullptr;
+        Script* g_refreshLootWindows = nullptr;
         Script* g_loadOrder = nullptr;
         Script* g_objectiveShown = nullptr;
         Script* g_objectiveDone = nullptr;
@@ -1442,6 +1443,10 @@ namespace game
         g_activate = Compile("activate",
             "Begin Function {}\n"
             "  Activate player\n"
+            "End\n");
+        g_refreshLootWindows = Compile("refresh loot windows",
+            "Begin Function {}\n"
+            "  DispatchEventAlt \"JLMUpdate\"\n"
             "End\n");
         g_refreshItems = Compile("refresh items",
             "Begin Function {}\n"

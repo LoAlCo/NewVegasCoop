@@ -7,6 +7,9 @@
 #include "game/npcs.h"
 #include "log.h"
 
+#include <algorithm>
+#include <utility>
+#include <vector>
 #include <windows.h>
 
 namespace game
@@ -14,6 +17,7 @@ namespace game
     namespace
     {
         constexpr uint32_t kLookMs = 250;
+        constexpr uint32_t kHoldViewMs = 30000;
 
         bool Read(TESObjectREFR* ref, std::vector<net::ItemCount>& out, double& ms)
         {
@@ -30,19 +34,29 @@ namespace game
             return ok;
         }
 
-        int32_t CountOf(const std::vector<net::ItemCount>& items, const net::ItemCount& kind)
+        coop::FormCounts CountOnPlayer(const std::vector<uint32_t>& forms, double& ms)
         {
-            for (const net::ItemCount& i : items)
-                if (i.SameKind(kind))
-                    return i.count;
-            return 0;
+            LARGE_INTEGER start, end, freq;
+            QueryPerformanceCounter(&start);
+            coop::FormCounts counts;
+            for (uint32_t form : forms)
+                if (TESForm* item = LookupForm(form))
+                    counts[form] = ItemCount(Player(), item);
+            QueryPerformanceCounter(&end);
+            QueryPerformanceFrequency(&freq);
+            ms += 1000.0 * (end.QuadPart - start.QuadPart) / freq.QuadPart;
+            return counts;
         }
     }
 
     void Containers::Update(coop::Coop& coop, uint32_t now, const Npcs& npcs)
     {
         if (!coop.InGame())
+        {
+            m_heldRef = 0;
+            m_playerKnown = false;
             return;
+        }
         if (QuantityPromptOpen())
         {
             if (!m_waitedForPrompt)
@@ -87,6 +101,11 @@ namespace game
                 m_closedHeld = 0;
             if (openRef != m_openRef)
             {
+                if (m_openRef)
+                    LOG_DEBUG("Containers: menu on %08X shut", m_openRef);
+                if (openRef)
+                    LOG_DEBUG("Containers: menu open on %08X (%s, the host's %08X)", openRef,
+                        IsLootable(open) ? "lootable" : "not lootable", npcs.HostRefOf(openRef));
                 if (TESObjectREFR* was = m_openRef ? LookupRef(m_openRef) : nullptr; was && IsLootable(was))
                 {
                     std::vector<net::ItemCount> items;
@@ -116,9 +135,13 @@ namespace game
                     coop.SetContainerContents(refId, items);
                 }
             }
+            HostWatchBodies(coop, npcs, now);
         }
         else
-            FriendLook(coop, npcs);
+        {
+            FriendLook(coop, npcs, now);
+            FriendMatchBodies(coop, npcs);
+        }
 
         if (coop::IsDue(now, m_nextLog))
         {
@@ -154,18 +177,26 @@ namespace game
                 refund.count = want.count;
             else if (want.count < 0)
             {
-                int32_t have = 0;
+                coop::ContainerTake plan;
                 std::vector<net::ItemCount> items;
                 if (ok && Read(ref, items, m_readMs))
-                    have = CountOf(items, want);
-                int32_t take = -want.count < have ? -want.count : have;
-                if (take > 0)
+                    plan = coop::PlanContainerTake(items, want);
+                else
+                    plan.missing = -want.count;
+                for (const net::ItemCount& remove : plan.removes)
+                    ChangeItem(ref, remove);
+                std::vector<net::ItemCount> after;
+                if (plan.taken > 0 && Read(ref, after, m_readMs))
                 {
-                    net::ItemCount taken = want;
-                    taken.count = -take;
-                    ChangeItem(ref, taken);
+                    int32_t stuck = coop::TotalOf(after, want.item) - (coop::TotalOf(items, want.item) - plan.taken);
+                    if (stuck > 0)
+                    {
+                        LOG_WARN("Containers: %d of %08X stayed in %08X when taken by kind; taking them by item",
+                            stuck, want.item, c.change.ref);
+                        ChangeItem(ref, want.item, -stuck);
+                    }
                 }
-                refund.count = -(-want.count - take);
+                refund.count = -plan.missing;
             }
             else if (ok)
                 ChangeItem(ref, want);
@@ -182,34 +213,134 @@ namespace game
         }
         if (changedMine)
             RefreshItemList();
+        RefreshLootWindows();
     }
 
-    void Containers::FriendLook(coop::Coop& coop, const Npcs& npcs)
+    void Containers::HostWatchBodies(coop::Coop& coop, const Npcs& npcs, uint32_t now)
+    {
+        std::vector<std::pair<uint32_t, bool>> bodies = npcs.DeadBodies(now);
+        std::vector<uint32_t> refs;
+        refs.reserve(bodies.size());
+        for (const auto& [ref, settling] : bodies)
+            refs.push_back(ref);
+        m_bodyLoot.KeepOnly(refs);
+        if (bodies.empty())
+            return;
+        auto look = [&](uint32_t ref, bool settling) {
+            TESObjectREFR* body = LookupRef(ref);
+            std::vector<net::ItemCount> items;
+            if (!IsLootable(body) || !Read(body, items, m_readMs))
+                return;
+            ++m_reads;
+            if (m_bodyLoot.Look(ref, items, settling))
+            {
+                LOG_DEBUG("Containers: body %08X changed; telling friends (%zu kinds of items in it)", ref, items.size());
+                coop.ShareBodyLoot(ref, items);
+            }
+        };
+        // The one our player has open or is looking at right away, and the others (a friend or a script may have
+        // changed them) one at a time, so this costs the same however many bodies lie around.
+        TESObjectREFR* mine = OpenContainer();
+        if (!mine)
+            mine = CrosshairRef();
+        uint32_t mineRef = mine ? RefId(mine) : 0;
+        for (const auto& [ref, settling] : bodies)
+            if (ref == mineRef)
+                look(ref, settling);
+        auto next = std::find_if(bodies.begin(), bodies.end(),
+            [&](const auto& b) { return b.first > m_lastBodyLook; });
+        if (next == bodies.end())
+            next = bodies.begin();
+        m_lastBodyLook = next->first;
+        if (next->first != mineRef)
+            look(next->first, next->second);
+    }
+
+    void Containers::FriendMatchBodies(coop::Coop& coop, const Npcs& npcs)
+    {
+        for (const auto& [hostRef, items] : coop.TakeBodyLoots())
+        {
+            // The one being watched is matched by FriendRead, which knows what our player just took from it.
+            if (hostRef == coop.ViewingContainer())
+                continue;
+            TESObjectREFR* body = npcs.OurRefOf(hostRef);
+            std::vector<net::ItemCount> local;
+            if (!body || !IsLootable(body) || !Read(body, local, m_readMs))
+                continue;
+            size_t changed = 0;
+            for (const net::ItemCount& f : coop::ItemDiff(local, items))
+                if (IsItem(f.item))
+                {
+                    ChangeItem(body, f);
+                    ++changed;
+                }
+            if (!changed)
+                continue;
+            RefreshLootWindows();
+            ++m_fixes;
+            LOG_DEBUG("Containers: body %08X matched to the host's without looking at it (%zu kinds of items changed)",
+                RefId(body), changed);
+        }
+    }
+
+    void Containers::FriendLook(coop::Coop& coop, const Npcs& npcs, uint32_t now)
     {
         TESObjectREFR* open = OpenContainer();
-        bool isOpen = open != nullptr;
-        if (!open)
-            open = CrosshairRef();
-        uint32_t hostRef = open && IsLootable(open) ? npcs.HostRefOf(RefId(open)) : 0;
+        TESObjectREFR* target = open ? open : CrosshairRef();
+        uint32_t hostRef = target && IsLootable(target) ? npcs.HostRefOf(RefId(target)) : 0;
         if (hostRef && IsGearLocker(hostRef))
             hostRef = 0;
-        coop.ViewContainer(hostRef, isOpen);
-        if (!hostRef)
-            return;
+        // The crosshair drops off a body now and then (and while a menu is up), and what we know of the body would go
+        // with it. So the last one stays watched for a moment, and gets a last look before we move on to another.
+        TESObjectREFR* held = m_heldRef ? LookupRef(m_heldRef) : nullptr;
+        uint32_t heldHostRef = !open && held && IsLootable(held) ? npcs.HostRefOf(m_heldRef) : 0;
+        if (hostRef)
+        {
+            if (heldHostRef && m_heldRef != RefId(target))
+                FriendRead(coop, held);
+            m_heldRef = RefId(target);
+            m_heldUntil = now + kHoldViewMs;
+        }
+        else if (heldHostRef && !coop::IsDue(now, m_heldUntil))
+        {
+            target = held;
+            hostRef = heldHostRef;
+        }
+        else
+            m_heldRef = 0;
+        coop.ViewContainer(hostRef, open && target == open);
+        if (hostRef)
+            FriendRead(coop, target);
+        else
+            m_playerKnown = false;
+    }
+
+    void Containers::FriendRead(coop::Coop& coop, TESObjectREFR* open)
+    {
         std::vector<net::ItemCount> local;
         if (!Read(open, local, m_readMs))
             return;
         ++m_reads;
-        std::vector<net::ItemCount> fixes = coop.LookAtContainer(local);
+        coop::FormCounts mine = CountOnPlayer(coop::FormsToCount(m_playerBefore, local), m_readMs);
+        std::vector<net::ItemCount> playerChange;
+        if (m_playerKnown)
+            playerChange = coop::CountChanges(m_playerBefore, mine);
+        m_playerKnown = true;
+        m_playerBefore = coop::CountsToKeep(mine, local);
+        std::vector<net::ItemCount> fixes = coop.LookAtContainer(local, playerChange);
         if (fixes.empty())
             return;
         for (const net::ItemCount& f : fixes)
             if (IsItem(f.item))
                 ChangeItem(open, f);
         RefreshItemList();
+        RefreshLootWindows();
         ++m_fixes;
         if (Read(open, local, m_readMs))
+        {
             coop.ContainerSettled(local);
+            m_playerBefore = coop::CountsToKeep(CountOnPlayer(coop::FormsToCount({}, local), m_readMs), local);
+        }
         LOG_DEBUG("Containers: %08X matched to the host's (%zu kinds of items changed)", RefId(open), fixes.size());
     }
 }

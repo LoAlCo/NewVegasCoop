@@ -1339,6 +1339,12 @@ namespace coop
             if (Decode(r, m))
                 m_friendContainer.Heard(m);
         }
+        else if (type == MsgType::BodyLoot)
+        {
+            ContainerContents m;
+            if (Decode(r, m) && (m_bodyLoots.size() < kMaxQueuedItemChanges || m_bodyLoots.count(m.ref)))
+                m_bodyLoots[m.ref] = std::move(m.items);
+        }
         else if (type == MsgType::ItemRefund)
         {
             ItemCount m;
@@ -2915,6 +2921,12 @@ namespace coop
         }
     }
 
+    void Coop::ShareBodyLoot(uint32_t ref, const std::vector<ItemCount>& items)
+    {
+        if (m_role == Role::Host)
+            SendToJoined(EncodeBodyLoot(ref, items), true);
+    }
+
     void Coop::ContainerChangeDone(uint8_t playerId, uint32_t seq, const ItemCount& refund)
     {
         auto view = m_views.find(playerId);
@@ -2934,12 +2946,13 @@ namespace coop
             m_net->Send(1, EncodeContainerView(hostRef), true);
     }
 
-    std::vector<ItemCount> Coop::LookAtContainer(const std::vector<ItemCount>& local)
+    std::vector<ItemCount> Coop::LookAtContainer(const std::vector<ItemCount>& local,
+        const std::vector<ItemCount>& playerChange)
     {
         if (m_role != Role::Friend || !InGame())
             return {};
         std::vector<ContainerChange> changes;
-        std::vector<ItemCount> fixes = m_friendContainer.Look(local, changes);
+        std::vector<ItemCount> fixes = m_friendContainer.Look(local, changes, playerChange);
         SendContainerChanges(changes);
         return fixes;
     }

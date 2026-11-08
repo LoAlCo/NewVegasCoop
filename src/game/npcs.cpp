@@ -26,6 +26,7 @@ namespace game
         constexpr float kShowMargin = 800;
         constexpr uint32_t kBringEveryMs = 1000;
         constexpr uint32_t kGearEveryMs = 2000;
+        constexpr uint32_t kDropsSettleMs = 15000;
         constexpr uint32_t kMaxDressings = 3;
         constexpr uint32_t kGunCheckEveryMs = 1000;
         constexpr uint32_t kMakeEveryMs = 250;
@@ -189,6 +190,12 @@ namespace game
                 if (!w.pile && now - w.diedAt < 4000)
                     w.pile = PileKind(actor);
                 n.pile = w.pile;
+                if (now - w.diedAt < kDropsSettleMs && MoveDroppedIntoBody(actor))
+                {
+                    if (OpenContainer() == actor)
+                        RefreshItemList();
+                    RefreshLootWindows();
+                }
             }
             else
                 w.diedAt = 0, w.pile = 0;
@@ -1007,6 +1014,15 @@ namespace game
         m_piled.erase(ref);
         ++m_unmadeCount;
         LOG_DEBUG("NPCs: deleted our copy of %08X", ref);
+    }
+
+    std::vector<std::pair<uint32_t, bool>> Npcs::DeadBodies(uint32_t now) const
+    {
+        std::vector<std::pair<uint32_t, bool>> bodies;
+        for (const auto& [ref, w] : m_watched)
+            if (w.diedAt)
+                bodies.emplace_back(ref, now - w.diedAt < kDropsSettleMs);
+        return bodies;
     }
 
     uint32_t Npcs::HostRefOf(uint32_t ourRef) const
