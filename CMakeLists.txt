@@ -84,6 +84,7 @@ add_library(NVCoop SHARED
     src/game/perk_menu.cpp
     src/game/remove_all_items.cpp
     src/game/standins.cpp
+    src/game/emotes.cpp
     src/game/npcs.cpp
     src/game/far_cells.cpp
     src/game/doors.cpp

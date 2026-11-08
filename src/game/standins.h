@@ -29,6 +29,9 @@ namespace game
         bool IsStandIn(const TESObjectREFR* ref) const { return PlayerIdOf(ref) >= 0; }
         int PlayerIdOf(const TESObjectREFR* ref) const;
         void SetLights(bool on) { m_lights = on; }
+        // Too Many Emotes: show friends' emotes and play their songs; let the mod make friends' characters dance along
+        // with yours (they aren't dancing in their own games).
+        void SetEmotes(bool show, bool danceAlong) { m_showEmotes = show; m_danceAlong = danceAlong; }
 
     private:
         struct Entry
@@ -55,14 +58,21 @@ namespace game
             uint32_t nextLooksAt = 0;
             coop::FaceTone face;
             coop::FriendLight light;
+            uint32_t song = 0;
+            uint32_t nextSongCheckAt = 0;
+            uint32_t nextDanceCheckAt = 0;
         };
         bool Spawn(const coop::RemotePlayer& remote, Entry& e, uint32_t now, const net::PlayerLooks* looks);
         static TESObjectREFR* Live(const Entry& e);
         static void ShowOnMap(Entry& e, bool on);
-        static bool Furniture(const coop::Coop& coop, uint8_t id, Entry& e, const coop::Pose& pose, uint32_t now);
+        bool Furniture(const coop::Coop& coop, uint8_t id, Entry& e, const coop::Pose& pose, uint32_t now);
+        void Emote(const coop::Coop& coop, uint8_t id, Entry& e, uint32_t now);
+        static void StopSong(Entry& e);
 
         std::map<uint8_t, Entry> m_entries;
         std::map<uint8_t, bool> m_tooFar;
         bool m_lights = true;
+        bool m_showEmotes = true;
+        bool m_danceAlong = false;
     };
 }
