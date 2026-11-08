@@ -2766,6 +2766,7 @@ namespace coop
                 npc.pile = n.pile;
                 npc.down = (n.flags & kNpcDown) != 0;
                 npc.sitting = (n.flags & kNpcSitting) != 0;
+                npc.held = (n.flags & kNpcHeld) != 0;
                 npc.health = n.health;
                 npc.maxHealth = n.maxHealth;
                 npc.idle = n.idle;

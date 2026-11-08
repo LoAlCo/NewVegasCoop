@@ -288,7 +288,9 @@ namespace net
     constexpr uint8_t kNpcDead = 0x80;
     constexpr uint8_t kNpcDown = 0x40;
     constexpr uint8_t kNpcSitting = 0x20;
-    constexpr uint8_t kKnownNpcFlags = kKnownPlayerStateFlags | kNpcDead | kNpcDown | kNpcSitting;
+    // On a dead NPC: the host's player is carrying the body.
+    constexpr uint8_t kNpcHeld = 0x10;
+    constexpr uint8_t kKnownNpcFlags = kKnownPlayerStateFlags | kNpcDead | kNpcDown | kNpcSitting | kNpcHeld;
     struct NpcStates
     {
         uint32_t timeMs = 0;
