@@ -13,6 +13,247 @@
 			"enable": 1,
 			"options": {
 				"1": {
+					"title": "New Game",
+					"enable": 1,
+					"type": 0
+				},
+				"2": {
+					"title": "Skip DLC Intro Popups",
+					"type": 5,
+					"enable": 1,
+					"mouse": "The DLCs' and Courier's Stash packs' boxes when you leave Doc Mitchell's house aren't shown (you still get everything)",
+					"vars": [
+						{
+							"configINI": "Settings:bSkipDlcPopups",
+							"default": 1
+						}
+					]
+				},
+				"3": {
+					"title": "World",
+					"enable": 1,
+					"type": 0
+				},
+				"4": {
+					"title": "Synced Radio",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Your radios and Pip-Boy play the host's stations, in step with the host",
+					"vars": [
+						{
+							"configINI": "Settings:bSyncRadio",
+							"default": 1
+						}
+					]
+				},
+				"5": {
+					"title": "Synced Weather",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Outdoors with the host, friends see the host's weather. Off for a friend: that friend keeps their own. Off for the host: everyone does",
+					"vars": [
+						{
+							"configINI": "Settings:bSyncWeather",
+							"default": 1
+						}
+					]
+				},
+				"6": {
+					"title": "Desync Notices",
+					"type": 5,
+					"enable": 1,
+					"mouse": "A corner message when your game and another player's disagree for a while",
+					"vars": [
+						{
+							"configINI": "Settings:bDesyncNotices",
+							"default": 1
+						}
+					]
+				},
+				"7": {
+					"title": "Display",
+					"enable": 1,
+					"type": 0
+				},
+				"8": {
+					"title": "Friend Markers",
+					"type": 5,
+					"enable": 1,
+					"mouse": "A chevron and the name over each friend, so you can find them",
+					"vars": [
+						{
+							"configINI": "Settings:bFriendMarkers",
+							"default": 1
+						}
+					]
+				},
+				"9": {
+					"title": "Field of View",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How wide you see the world (0: the game's own, 75). Your hands and weapon stay as they are",
+					"vars": [
+						{
+							"configINI": "Settings:iFieldOfView",
+							"default": 0
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 5,
+						"valueMin": 0,
+						"valueMax": 120
+					}
+				},
+				"10": {
+					"title": "Friends' Pip-Boy Lights",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Show the light of a friend's Pip-Boy on them when they turn it on",
+					"vars": [
+						{
+							"configINI": "Settings:bFriendLights",
+							"default": 1
+						}
+					]
+				},
+				"11": {
+					"title": "Joining by IP",
+					"enable": 1,
+					"type": 0
+				},
+				"12": {
+					"title": "Show My Address",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Switch on to see this PC's addresses for friends joining by IP (only you see them; off and on again to see them again)",
+					"vars": [
+						{
+							"configINI": "Settings:bShowAddress",
+							"default": 0
+						}
+					]
+				},
+				"13": {
+					"title": "Co-op Settings (the host's count for everyone)",
+					"enable": 1,
+					"type": 0
+				},
+				"14": {
+					"title": "Co-op Balanced",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Harder and made for a group: smarter enemies, scarcer supplies, slower leveling. Leave it off if you use mods that change the game's balance",
+					"vars": [
+						{
+							"configINI": "Settings:bCoopBalanced",
+							"default": 0
+						}
+					]
+				},
+				"15": {
+					"title": "Friendly Fire",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Players' shots and explosions can hurt each other",
+					"vars": [
+						{
+							"configINI": "Settings:bFriendlyFire",
+							"default": 0
+						}
+					]
+				},
+				"16": {
+					"title": "Areas Around Far Friends",
+					"type": 5,
+					"enable": 1,
+					"mouse": "When you host, the area around a friend far from you runs in your game too, so its creatures are the same for both of you. About 10 MB of memory a cell; off: they wait, held still, until you come near",
+					"vars": [
+						{
+							"configINI": "Settings:bFarAreas",
+							"default": 1
+						}
+					]
+				},
+				"17": {
+					"title": "Visitors' Companions",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Friends' companions from their own saves show in the host's game and fight beside you, their hits and hurts kept in step. Off: they stay in their owners' games only, where they still follow and fight as normal",
+					"vars": [
+						{
+							"configINI": "Settings:bVisitorCompanions",
+							"default": 1
+						}
+					]
+				},
+				"18": {
+					"title": "Same Companion, One Each",
+					"type": 5,
+					"enable": 1,
+					"mouse": "If you host and a visitor's save has the same companion as yours, you each keep your own. Off: only one shows (yours), so there are no duplicates",
+					"vars": [
+						{
+							"configINI": "Settings:bCompanionsBoth",
+							"default": 1
+						}
+					]
+				},
+				"19": {
+					"title": "Gifts",
+					"enable": 1,
+					"type": 0
+				},
+				"20": {
+					"title": "Send And Receive Gifts",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Lets you send caps through the Co-op Teleporter and receive them from friends. Off: no Send caps button, and anything sent to you goes back to the sender",
+					"vars": [
+						{
+							"configINI": "Settings:bGifts",
+							"default": 1
+						}
+					]
+				},
+				"21": {
+					"title": "Save After A Gift",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Saves everyone's game a few seconds after you receive a gift, so it can't be lost. Causes a short hitch. If you turn it off, loading an older save could lose a gift",
+					"vars": [
+						{
+							"configINI": "Settings:bGiftSave",
+							"default": 1
+						}
+					]
+				},
+				"22": {
+					"title": "Testing",
+					"enable": 1,
+					"type": 0
+				},
+				"23": {
+					"title": "Your Shots Fly the Same Path for Friends",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Friends' copies of your shots follow your real shots. Off: they fly from your character's aim, as they used to",
+					"vars": [
+						{
+							"configINI": "Settings:bShotPaths",
+							"default": 1
+						}
+					]
+				}
+			}
+		},
+		"1": {
+			"listTitle": "Chat and Voice",
+			"pageTitle": "Chat and Voice",
+			"columns": 1,
+			"enable": 1,
+			"options": {
+				"1": {
 					"title": "Chat",
 					"enable": 1,
 					"type": 0
@@ -247,229 +488,21 @@
 							"default": 1
 						}
 					]
-				},
-				"18": {
-					"title": "New Game",
+				}
+			}
+		},
+		"2": {
+			"listTitle": "Pings",
+			"pageTitle": "Pings",
+			"columns": 1,
+			"enable": 1,
+			"options": {
+				"1": {
+					"title": "General",
 					"enable": 1,
 					"type": 0
 				},
-				"19": {
-					"title": "Skip DLC Intro Popups",
-					"type": 5,
-					"enable": 1,
-					"mouse": "The DLCs' and Courier's Stash packs' boxes when you leave Doc Mitchell's house aren't shown (you still get everything)",
-					"vars": [
-						{
-							"configINI": "Settings:bSkipDlcPopups",
-							"default": 1
-						}
-					]
-				},
-				"20": {
-					"title": "World",
-					"enable": 1,
-					"type": 0
-				},
-				"21": {
-					"title": "Synced Radio",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Your radios and Pip-Boy play the host's stations, in step with the host",
-					"vars": [
-						{
-							"configINI": "Settings:bSyncRadio",
-							"default": 1
-						}
-					]
-				},
-				"22": {
-					"title": "Synced Weather",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Outdoors with the host, friends see the host's weather. Off for a friend: that friend keeps their own. Off for the host: everyone does",
-					"vars": [
-						{
-							"configINI": "Settings:bSyncWeather",
-							"default": 1
-						}
-					]
-				},
-				"23": {
-					"title": "Desync Notices",
-					"type": 5,
-					"enable": 1,
-					"mouse": "A corner message when your game and another player's disagree for a while",
-					"vars": [
-						{
-							"configINI": "Settings:bDesyncNotices",
-							"default": 1
-						}
-					]
-				},
-				"24": {
-					"title": "Display",
-					"enable": 1,
-					"type": 0
-				},
-				"25": {
-					"title": "Friend Markers",
-					"type": 5,
-					"enable": 1,
-					"mouse": "A chevron and the name over each friend, so you can find them",
-					"vars": [
-						{
-							"configINI": "Settings:bFriendMarkers",
-							"default": 1
-						}
-					]
-				},
-				"26": {
-					"title": "Field of View",
-					"type": 2,
-					"enable": 1,
-					"mouse": "How wide you see the world (0: the game's own, 75). Your hands and weapon stay as they are",
-					"vars": [
-						{
-							"configINI": "Settings:iFieldOfView",
-							"default": 0
-						}
-					],
-					"scale": {
-						"valueDecimal": 0,
-						"valueIncrement": 5,
-						"valueMin": 0,
-						"valueMax": 120
-					}
-				},
-				"27": {
-					"title": "Friends' Pip-Boy Lights",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Show the light of a friend's Pip-Boy on them when they turn it on",
-					"vars": [
-						{
-							"configINI": "Settings:bFriendLights",
-							"default": 1
-						}
-					]
-				},
-				"28": {
-					"title": "Joining by IP",
-					"enable": 1,
-					"type": 0
-				},
-				"29": {
-					"title": "Show My Address",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Switch on to see this PC's addresses for friends joining by IP (only you see them; off and on again to see them again)",
-					"vars": [
-						{
-							"configINI": "Settings:bShowAddress",
-							"default": 0
-						}
-					]
-				},
-				"30": {
-					"title": "Co-op Settings (the host's count for everyone)",
-					"enable": 1,
-					"type": 0
-				},
-				"31": {
-					"title": "Co-op Balanced",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Harder and made for a group: smarter enemies, scarcer supplies, slower leveling. Leave it off if you use mods that change the game's balance",
-					"vars": [
-						{
-							"configINI": "Settings:bCoopBalanced",
-							"default": 0
-						}
-					]
-				},
-				"32": {
-					"title": "Friendly Fire",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Players' shots and explosions can hurt each other",
-					"vars": [
-						{
-							"configINI": "Settings:bFriendlyFire",
-							"default": 0
-						}
-					]
-				},
-				"33": {
-					"title": "Areas Around Far Friends",
-					"type": 5,
-					"enable": 1,
-					"mouse": "When you host, the area around a friend far from you runs in your game too, so its creatures are the same for both of you. About 10 MB of memory a cell; off: they wait, held still, until you come near",
-					"vars": [
-						{
-							"configINI": "Settings:bFarAreas",
-							"default": 1
-						}
-					]
-				},
-				"34": {
-					"title": "Visitors' Companions",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Friends' companions from their own saves show in the host's game and fight beside you, their hits and hurts kept in step. Off: they stay in their owners' games only, where they still follow and fight as normal",
-					"vars": [
-						{
-							"configINI": "Settings:bVisitorCompanions",
-							"default": 1
-						}
-					]
-				},
-				"35": {
-					"title": "Same Companion, One Each",
-					"type": 5,
-					"enable": 1,
-					"mouse": "If you host and a visitor's save has the same companion as yours, you each keep your own. Off: only one shows (yours), so there are no duplicates",
-					"vars": [
-						{
-							"configINI": "Settings:bCompanionsBoth",
-							"default": 1
-						}
-					]
-				},
-				"36": {
-					"title": "Gifts",
-					"enable": 1,
-					"type": 0
-				},
-				"37": {
-					"title": "Send And Receive Gifts",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Lets you send caps through the Co-op Teleporter and receive them from friends. Off: no Send caps button, and anything sent to you goes back to the sender",
-					"vars": [
-						{
-							"configINI": "Settings:bGifts",
-							"default": 1
-						}
-					]
-				},
-				"38": {
-					"title": "Save After A Gift",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Saves everyone's game a few seconds after you receive a gift, so it can't be lost. Causes a short hitch. If you turn it off, loading an older save could lose a gift",
-					"vars": [
-						{
-							"configINI": "Settings:bGiftSave",
-							"default": 1
-						}
-					]
-				},
-				"39": {
-					"title": "Pings",
-					"enable": 1,
-					"type": 0
-				},
-				"40": {
+				"2": {
 					"title": "Pings",
 					"type": 5,
 					"enable": 1,
@@ -481,7 +514,7 @@
 						}
 					]
 				},
-				"41": {
+				"3": {
 					"title": "Ping Key",
 					"type": 3,
 					"enable": 1,
@@ -496,7 +529,7 @@
 						"type": 0
 					}
 				},
-				"42": {
+				"4": {
 					"title": "Ping Sound",
 					"type": 1,
 					"enable": 1,
@@ -516,7 +549,7 @@
 						"Menu OK"
 					]
 				},
-				"43": {
+				"5": {
 					"title": "Ping Range",
 					"type": 2,
 					"enable": 1,
@@ -535,7 +568,7 @@
 						"suffix": ""
 					}
 				},
-				"44": {
+				"6": {
 					"title": "Ping Icons",
 					"type": 1,
 					"enable": 1,
@@ -552,7 +585,7 @@
 						"Own colours"
 					]
 				},
-				"45": {
+				"7": {
 					"title": "Recognise Objects",
 					"type": 5,
 					"enable": 1,
@@ -564,7 +597,7 @@
 						}
 					]
 				},
-				"46": {
+				"8": {
 					"title": "Ping Characters",
 					"type": 5,
 					"enable": 1,
@@ -576,7 +609,7 @@
 						}
 					]
 				},
-				"47": {
+				"9": {
 					"title": "Ping Follows Items",
 					"type": 5,
 					"enable": 1,
@@ -587,13 +620,21 @@
 							"default": 1
 						}
 					]
-				},
-				"48": {
-					"title": "Emotes (Too Many Emotes)",
+				}
+			}
+		},
+		"3": {
+			"listTitle": "Emotes",
+			"pageTitle": "Emotes (Too Many Emotes)",
+			"columns": 1,
+			"enable": 1,
+			"options": {
+				"1": {
+					"title": "General",
 					"enable": 1,
 					"type": 0
 				},
-				"49": {
+				"2": {
 					"title": "Show Emotes and Songs",
 					"type": 5,
 					"enable": 1,
@@ -605,7 +646,7 @@
 						}
 					]
 				},
-				"50": {
+				"3": {
 					"title": "Friends Dance Along With You",
 					"type": 5,
 					"enable": 1,
@@ -617,7 +658,7 @@
 						}
 					]
 				},
-				"51": {
+				"4": {
 					"title": "Join Friends' Emotes",
 					"type": 5,
 					"enable": 1,
@@ -628,27 +669,10 @@
 							"default": 1
 						}
 					]
-				},
-				"52": {
-					"title": "Testing",
-					"enable": 1,
-					"type": 0
-				},
-				"53": {
-					"title": "Your Shots Fly the Same Path for Friends",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Friends' copies of your shots follow your real shots. Off: they fly from your character's aim, as they used to",
-					"vars": [
-						{
-							"configINI": "Settings:bShotPaths",
-							"default": 1
-						}
-					]
 				}
 			}
 		},
-		"1": {
+		"4": {
 			"listTitle": "Conversations",
 			"pageTitle": "Nearby Conversations",
 			"columns": 1,
@@ -972,7 +996,7 @@
 				}
 			}
 		},
-		"2": {
+		"5": {
 			"listTitle": "Chat History",
 			"pageTitle": "Chat History and Party Events",
 			"columns": 1,
