@@ -34,6 +34,7 @@
 #include "log.h"
 
 #include "nvse/PluginAPI.h"
+#include "coop/shot_paths.h"
 #include "nvse/GameForms.h"
 #include "nvse/GameObjects.h"
 #include "nvse/GameProcess.h"
@@ -590,6 +591,31 @@ namespace game
                 w->eWeaponType == TESObjectWEAP::kWeapType_OneHandLunchboxMine;
         }
 
+        // A gun's shots follow the shooter's path if its projectile is a bullet or rocket (missile type), a grenade or a
+        // beam. Not flames: a flamer keeps one projectile going, and the game reuses it instead of starting a new one for
+        // each shot, so there's nothing to see leave the gun.
+        constexpr uint16_t kProjectileIsMissile = 1, kProjectileIsLobber = 2, kProjectileIsBeam = 4;
+        std::atomic<bool> g_shotPathsOn{true};
+
+        bool IsPathedGun(const TESObjectWEAP* w)
+        {
+            return w && IsGun(w) && w->projectile && g_shotPathsOn.load(std::memory_order_relaxed) &&
+                (w->projectile->type == kProjectileIsMissile || w->projectile->type == kProjectileIsLobber ||
+                w->projectile->type == kProjectileIsBeam);
+        }
+
+        // Slow enough to watch fly, and fired slowly: launchers. Their paths are worth sending reliably.
+        bool IsSlowShot(const BGSProjectile* projectile)
+        {
+            constexpr float kSlowProjectileSpeed = 6000;
+            return projectile && projectile->speed < kSlowProjectileSpeed;
+        }
+
+        template <typename T> T& ProjectileField(const TESObjectREFR* shot, uint32_t offset)
+        {
+            return *reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(shot) + offset);
+        }
+
         bool CanFire(const TESObjectWEAP* weapon)
         {
             return weapon && g_fire && weapon->projectile && IsHarmlessProjectile(weapon->projectile);
@@ -634,7 +660,66 @@ namespace game
                     ref->refID, left);
         }
 
-        void PlayAttackWith(TESObjectREFR* ref, TESObjectWEAP* weapon, uint8_t shots)
+        // A shooter's ammo can name its own projectile, and the game fires that one over the weapon's: Red Glare's
+        // rockets, or an NPC's high explosive missiles. It's the real projectile, whose real blast would go off wherever
+        // this game's copy of the shot ends up, so the ammo names our harmless copy for the length of the shot.
+        void FireHarmlessly(TESObjectREFR* ref, TESObjectWEAP* weapon)
+        {
+            using EquippedAmmo = TESForm*(__thiscall*)(TESObjectWEAP*, TESObjectREFR*);
+            TESForm* form = IsActor(ref) ? reinterpret_cast<EquippedAmmo>(addr::kWeaponEquippedAmmo)(weapon, ref) : nullptr;
+            auto* ammo = form && form->typeID == kFormType_TESAmmo ? static_cast<TESAmmo*>(form) : nullptr;
+            BGSProjectile* named = ammo ? ammo->projectile : nullptr;
+            if (!named || IsHarmlessProjectile(named))
+            {
+                g_scripts->CallFunctionAlt(g_fire, ref, 1, weapon);
+                return;
+            }
+            BGSProjectile* harmless = HarmlessProjectile(named);
+            if (!harmless)
+            {
+                LOG_WARN("No harmless copy of ammo %08X's projectile %08X: %08X's shot won't be shown", ammo->refID,
+                    named->refID, ref->refID);
+                return;
+            }
+            ammo->projectile = harmless;
+            g_scripts->CallFunctionAlt(g_fire, ref, 1, weapon);
+            ammo->projectile = named;
+            LOG_DEBUG("%08X fired harmless %08X in place of ammo %08X's projectile %08X", ref->refID, harmless->refID,
+                ammo->refID, named->refID);
+        }
+
+        TESAmmo* EquippedAmmo(TESObjectREFR* ref, TESObjectWEAP* weapon)
+        {
+            using Fn = TESForm*(__thiscall*)(TESObjectWEAP*, TESObjectREFR*);
+            TESForm* form = IsActor(ref) ? reinterpret_cast<Fn>(addr::kWeaponEquippedAmmo)(weapon, ref) : nullptr;
+            return form && form->typeID == kFormType_TESAmmo ? static_cast<TESAmmo*>(form) : nullptr;
+        }
+
+        // The gun's sound and flash, with no projectile: asking for none leaves the game's firing code nothing to spawn.
+        void PlayShotEffects(TESObjectREFR* ref, TESObjectWEAP* weapon)
+        {
+            TESAmmo* ammo = EquippedAmmo(ref, weapon);
+            UInt8 count = weapon->numProjectiles;
+            UInt32 perShot = ammo ? ammo->projPerShot : 0;
+            weapon->numProjectiles = 0;
+            if (ammo)
+                ammo->projPerShot = 0;
+            g_scripts->CallFunctionAlt(g_fire, ref, 1, weapon);
+            weapon->numProjectiles = count;
+            if (ammo)
+                ammo->projPerShot = perShot;
+        }
+
+        TESObjectWEAP* WornWeapon(const std::vector<uint32_t>& worn)
+        {
+            TESObjectWEAP* weapon = nullptr;
+            for (uint32_t id : worn)
+                if (auto it = g_harmless.find(id); it != g_harmless.end())
+                    weapon = static_cast<TESObjectWEAP*>(it->second);
+            return weapon;
+        }
+
+        void PlayAttackWith(TESObjectREFR* ref, TESObjectWEAP* weapon, uint8_t shots, bool fire = true)
         {
             if (weapon && IsThrown(weapon))
             {
@@ -643,16 +728,16 @@ namespace game
                 return;
             }
             PlayVersions(ref, g_attackAnim);
-            if (!weapon || !IsGun(weapon) || !CanFire(weapon))
+            if (!fire || !weapon || !IsGun(weapon) || !CanFire(weapon))
                 return;
             for (uint8_t i = 0; i < shots; ++i)
-                g_scripts->CallFunctionAlt(g_fire, ref, 1, weapon);
+                FireHarmlessly(ref, weapon);
         }
 
         void ReleaseWith(TESObjectREFR* ref, TESObjectWEAP* weapon)
         {
             if (weapon && IsThrown(weapon) && CanFire(weapon))
-                g_scripts->CallFunctionAlt(g_fire, ref, 1, weapon);
+                FireHarmlessly(ref, weapon);
         }
     }
 
@@ -735,18 +820,83 @@ namespace game
             LOG_DEBUG("Our throw left our hand (%08X)", weaponId);
         if (reloadStarted)
             LOG_DEBUG("We started reloading %08X (%d rounds in it now)", weaponId, g_myRounds);
-        return {static_cast<uint8_t>(shots < 255 ? shots : 255), release, reloadStarted};
+        return {static_cast<uint8_t>(shots < 255 ? shots : 255), release, reloadStarted, IsPathedGun(weapon)};
     }
 
-    void PlayAttack(TESObjectREFR* ref, const std::vector<uint32_t>& worn, uint8_t shots)
+    void PlayAttack(TESObjectREFR* ref, const std::vector<uint32_t>& worn, uint8_t shots, bool fire)
     {
         if (!g_compiled || !g_attackAnim[0] || !ref)
             return;
-        TESObjectWEAP* weapon = nullptr;
-        for (uint32_t id : worn)
-            if (auto it = g_harmless.find(id); it != g_harmless.end())
-                weapon = static_cast<TESObjectWEAP*>(it->second);
-        PlayAttackWith(ref, weapon, shots);
+        PlayAttackWith(ref, WornWeapon(worn), shots, fire);
+    }
+
+    uint32_t ShotPathWaitMs(const std::vector<uint32_t>& worn)
+    {
+        TESObjectWEAP* weapon = WornWeapon(worn);
+        return weapon && IsSlowShot(weapon->projectile) ? coop::kShotPathWaitMs : coop::kFastShotPathWaitMs;
+    }
+
+    void FireShots(TESObjectREFR* ref, const std::vector<uint32_t>& worn, uint32_t shots)
+    {
+        TESObjectWEAP* weapon = WornWeapon(worn);
+        if (!g_compiled || !ref || !weapon || !IsGun(weapon) || !CanFire(weapon))
+            return;
+        for (uint32_t i = 0; i < shots; ++i)
+            FireHarmlessly(ref, weapon);
+    }
+
+    bool FireAlong(TESObjectREFR* ref, const std::vector<uint32_t>& worn, const net::ShotPath& path, bool withEffects)
+    {
+        constexpr float kMaxOriginGap = 4096;
+        TESObjectWEAP* weapon = WornWeapon(worn);
+        if (!g_compiled || !IsActor(ref) || !weapon || !IsGun(weapon) || !CanFire(weapon))
+            return false;
+        float dx = ref->posX - path.x, dy = ref->posY - path.y;
+        if (dx * dx + dy * dy > kMaxOriginGap * kMaxOriginGap)
+            return false;
+        BGSProjectile* harmless = weapon->projectile;
+        if (path.projectile)
+        {
+            TESForm* form = LookupForm(path.projectile);
+            harmless = form && form->typeID == kFormType_BGSProjectile ?
+                HarmlessProjectile(static_cast<BGSProjectile*>(form)) : nullptr;
+        }
+        if (!harmless || !IsHarmlessProjectile(harmless))
+            return false;
+        if (withEffects)
+            PlayShotEffects(ref, weapon);
+        struct Point { float x, y, z; };
+        using Spawn = TESObjectREFR*(__cdecl*)(BGSProjectile*, TESObjectREFR*, void*, TESObjectWEAP*, Point, float, float,
+            void*, void*, bool, bool, float, float, void*);
+        for (uint8_t i = 0; i < path.pellets; ++i)
+        {
+            float rotX = path.rotX, rotZ = path.rotZ;
+            if (path.pellets > 1)
+            {
+                float off = path.spread * std::sqrt(static_cast<float>(rand()) / RAND_MAX);
+                float around = 6.2831853f * static_cast<float>(rand()) / RAND_MAX;
+                rotX += off * std::sin(around);
+                rotZ += off * std::cos(around);
+            }
+            TESObjectREFR* shot = reinterpret_cast<Spawn>(addr::kSpawnProjectile)(harmless, ref, nullptr, weapon,
+                Point{path.x, path.y, path.z}, rotZ, rotX, nullptr, nullptr, false, false, 0, 0, nullptr);
+            if (!shot)
+                return false;
+            static std::atomic<bool> s_saidSwapped{false};
+            if ((std::fabs(shot->rotX - rotX) > 0.001f || std::fabs(shot->rotZ - rotZ) > 0.001f) &&
+                !s_saidSwapped.exchange(true))
+                LOG_WARN("Shot paths: the game stored other angles (%.3f, %.3f) than we asked (%.3f, %.3f); setting ours",
+                    shot->rotX, shot->rotZ, rotX, rotZ);
+            shot->rotX = rotX;
+            shot->rotZ = rotZ;
+            ProjectileField<float>(shot, addr::kProjectileSpeedMult) = path.speedMult;
+        }
+        static coop::ShotLogPace s_logPace;
+        if (uint32_t said = s_logPace.Look(IsSlowShot(harmless), GetTickCount()))
+            LOG_DEBUG("%08X's shot follows its path: %08X from %.0f, %.0f, %.0f, angles %.3f, %.3f, %u pellets (%u shots "
+                "since the last line)", ref->refID, path.projectile, path.x, path.y, path.z, path.rotX, path.rotZ,
+                path.pellets, said);
+        return true;
     }
 
     void PlayNpcAttack(TESObjectREFR* ref, uint8_t shots)
@@ -989,6 +1139,14 @@ namespace game
             return false;
         }
 
+        bool IsQuietExplosion(const TESForm* form)
+        {
+            for (auto& [original, copy] : g_quietExplosions)
+                if (copy == form)
+                    return true;
+            return false;
+        }
+
         void __fastcall ExplosionInitHook(TESObjectREFR* explosion)
         {
             bool fresh = explosion && !*reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(explosion) +
@@ -996,14 +1154,22 @@ namespace game
             reinterpret_cast<void(__fastcall*)(TESObjectREFR*)>(g_explosionInit)(explosion);
             static std::atomic<int> s_saidThread{0};
             NoteThread("The explosion hook", s_saidThread);
-            if (!fresh || !explosion->baseForm || explosion->baseForm->typeID != kFormType_BGSExplosion ||
-                IsOurHarmless(explosion->baseForm))
+            if (!fresh || !explosion->baseForm || explosion->baseForm->typeID != kFormType_BGSExplosion)
+                return;
+            bool harmless = IsOurHarmless(explosion->baseForm);
+            if (harmless && !IsQuietExplosion(explosion->baseForm))
                 return;
             coop::Pose at;
             if (!GetPose(explosion, at))
                 return;
             auto* source = *reinterpret_cast<TESObjectREFR* const*>(reinterpret_cast<const uint8_t*>(explosion) +
                 addr::kExplosionSource);
+            if (harmless)
+            {
+                LOG_DEBUG("Harmless shot ended (unseen) at %.0f, %.0f, %.0f by %08X", at.x, at.y, at.z,
+                    source ? source->refID : 0);
+                return;
+            }
             std::lock_guard<std::mutex> lock(g_explosionsLock);
             if (g_explosions.size() >= 32)
                 return;
@@ -1034,6 +1200,118 @@ namespace game
             LOG_INFO("Explosions: another plugin hooks their start too (%08X); ours passes on to it",
                 static_cast<unsigned>(g_explosionInit));
         return g_explosionInit != 0;
+    }
+
+    namespace
+    {
+        uintptr_t g_missileSpawned = 0, g_grenadeSpawned = 0, g_beamSpawned = 0;
+        std::vector<net::ShotPath> g_myShotPaths;
+        std::mutex g_myShotPathsLock;
+
+        // This part of a projectile's start can run again later (when its 3D comes back, say), and that isn't a new shot.
+        // It makes the projectile's process, as an explosion's start does.
+        bool IsFreshShot(const TESObjectREFR* shot)
+        {
+            return shot && !ProjectileField<const void*>(shot, addr::kExplosionProcess);
+        }
+
+        void SeeShot(const TESObjectREFR* shot)
+        {
+            if (!shot || ProjectileField<const TESObjectREFR*>(shot, addr::kProjectileSource) != Player() || !shot->baseForm ||
+                shot->baseForm->typeID != kFormType_BGSProjectile ||
+                !IsPathedGun(ProjectileField<const TESObjectWEAP*>(shot, addr::kProjectileWeapon)))
+                return;
+            std::lock_guard<std::mutex> lock(g_myShotPathsLock);
+            if (g_myShotPaths.size() >= 2 * net::kMaxShotPellets)
+                return;
+            auto* weapon = ProjectileField<const TESObjectWEAP*>(shot, addr::kProjectileWeapon);
+            auto* fired = static_cast<const BGSProjectile*>(shot->baseForm);
+            net::ShotPath path;
+            path.projectile = fired == weapon->projectile ? 0 : fired->refID;
+            path.x = shot->posX;
+            path.y = shot->posY;
+            path.z = shot->posZ;
+            path.rotX = shot->rotX;
+            path.rotZ = shot->rotZ;
+            path.speedMult = ProjectileField<float>(shot, addr::kProjectileSpeedMult);
+            path.mustArrive = IsSlowShot(fired);
+            g_myShotPaths.push_back(path);
+        }
+
+        void __fastcall MissileSpawnedHook(TESObjectREFR* shot)
+        {
+            bool fresh = IsFreshShot(shot);
+            reinterpret_cast<void(__fastcall*)(TESObjectREFR*)>(g_missileSpawned)(shot);
+            if (fresh)
+                SeeShot(shot);
+        }
+
+        void __fastcall BeamSpawnedHook(TESObjectREFR* shot)
+        {
+            bool fresh = IsFreshShot(shot);
+            reinterpret_cast<void(__fastcall*)(TESObjectREFR*)>(g_beamSpawned)(shot);
+            if (fresh)
+                SeeShot(shot);
+        }
+
+        void __fastcall GrenadeSpawnedHook(TESObjectREFR* shot)
+        {
+            bool fresh = IsFreshShot(shot);
+            reinterpret_cast<void(__fastcall*)(TESObjectREFR*)>(g_grenadeSpawned)(shot);
+            if (fresh)
+                SeeShot(shot);
+        }
+
+        bool HookSlot(uintptr_t slotAddress, uintptr_t expected, uintptr_t hook, uintptr_t& original)
+        {
+            if (original)
+                return true;
+            auto* slot = reinterpret_cast<uintptr_t*>(slotAddress);
+            DWORD old;
+            if (!VirtualProtect(slot, 4, PAGE_READWRITE, &old))
+                return false;
+            original = *slot;
+            *slot = hook;
+            VirtualProtect(slot, 4, old, &old);
+            if (original != expected)
+                LOG_INFO("Shot paths: another plugin hooks projectiles too (%08X); ours passes on to it",
+                    static_cast<unsigned>(original));
+            return true;
+        }
+    }
+
+    bool WatchMyShots()
+    {
+        if (g_missileSpawned && g_grenadeSpawned && g_beamSpawned)
+            return true;
+        return HookSlot(addr::kMissileSpawnedSlot, addr::kMissileSpawned, reinterpret_cast<uintptr_t>(&MissileSpawnedHook),
+                g_missileSpawned) &&
+            HookSlot(addr::kGrenadeSpawnedSlot, addr::kGrenadeSpawned, reinterpret_cast<uintptr_t>(&GrenadeSpawnedHook),
+                g_grenadeSpawned) &&
+            HookSlot(addr::kBeamSpawnedSlot, addr::kBeamSpawned, reinterpret_cast<uintptr_t>(&BeamSpawnedHook), g_beamSpawned);
+    }
+
+    void SetShotPaths(bool on)
+    {
+        if (g_shotPathsOn.exchange(on) != on)
+            LOG_INFO("Shot paths: %s", on ? "on, friends' copies of our shots fly our shots' paths" :
+                "off, friends' copies of our shots fly from our character's aim");
+    }
+
+    std::vector<net::ShotPath> TakeMyShots()
+    {
+        std::vector<net::ShotPath> shots;
+        {
+            std::lock_guard<std::mutex> lock(g_myShotPathsLock);
+            shots.swap(g_myShotPaths);
+        }
+        std::vector<net::ShotPath> paths = coop::GroupPellets(shots);
+        static coop::ShotLogPace s_logPace;
+        for (const net::ShotPath& p : paths)
+            if (uint32_t said = s_logPace.Look(p.mustArrive, GetTickCount()))
+                LOG_DEBUG("Our shot %08X left from %.0f, %.0f, %.0f, angles %.3f, %.3f, %u pellets spread %.3f (%u shots since "
+                    "the last line)", p.projectile, p.x, p.y, p.z, p.rotX, p.rotZ, p.pellets, p.spread, said);
+        return paths;
     }
 
     std::vector<SeenExplosion> TakeExplosions()

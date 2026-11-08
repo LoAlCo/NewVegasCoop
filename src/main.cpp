@@ -2216,10 +2216,13 @@ namespace
                 LOG_DEBUG("Explosions: %s %08X at %.0f, %.0f, %.0f", shown ? "showing" : "couldn't show", e.form, e.x,
                     e.y, e.z);
             }
+        game::SetShotPaths(g_config.shotPaths);
+        for (const net::ShotPath& shot : game::TakeMyShots())
+            g_coop.ShareShotPath(shot);
         game::MyAttack mine = game::TakeMyAttacks();
         if (mine.shots || mine.reload)
         {
-            g_coop.Attack(mine.shots, false, mine.reload);
+            g_coop.Attack(mine.shots, false, mine.reload, mine.paths);
             g_mirror.Attack(mine.shots, false, mine.reload);
         }
         if (mine.release)
@@ -2250,7 +2253,9 @@ namespace
         UpdateReinforcements(now);
         UpdateLootThinning(now);
         for (const coop::AttackReport& attack : g_coop.TakeAttacks())
-            g_standIns.Attack(attack.playerId, attack.shots, attack.release, attack.reload);
+            g_standIns.Attack(attack.playerId, attack.shots, attack.release, attack.reload, attack.paths);
+        for (const net::ShotPath& path : g_coop.TakeShotPaths())
+            g_standIns.FireAlong(path);
         if (g_coop.InGame())
         {
             g_cutscene = (game::PlayerDisabledControls() & 1) && !g_downed && !g_waitForHostLoad;
@@ -2482,6 +2487,8 @@ namespace
             game::ListenForHits();
             if (!game::WatchExplosions())
                 LOG_WARN("Explosions: couldn't watch them; they won't line up on others' screens");
+            if (!game::WatchMyShots())
+                LOG_WARN("Shot paths: couldn't watch our shots; friends will see them fly from our character's aim");
             if (!game::WatchPlayerCommands())
                 LOG_WARN("Scripted: couldn't watch script commands; friends won't follow scripted sequences");
             game::ListenForEnables();

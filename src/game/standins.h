@@ -23,7 +23,8 @@ namespace game
         void Forget();
         std::vector<uint32_t> RefIds() const;
         TESObjectREFR* Character(uint8_t playerId) const;
-        void Attack(uint8_t playerId, uint8_t shots, bool release = false, bool reload = false);
+        void Attack(uint8_t playerId, uint8_t shots, bool release = false, bool reload = false, bool paths = false);
+        void FireAlong(const net::ShotPath& path);
         bool IsStandIn(const TESObjectREFR* ref) const { return PlayerIdOf(ref) >= 0; }
         int PlayerIdOf(const TESObjectREFR* ref) const;
 

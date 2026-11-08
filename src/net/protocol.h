@@ -99,6 +99,7 @@ namespace net
         HealAlly = 77,
         HealRefused = 78,
         QuestCommand = 79,
+        ShotPath = 81,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -237,6 +238,7 @@ namespace net
         uint8_t shots = 1;
         bool release = false;
         bool reload = false;
+        bool paths = false; // these shots' paths are on their way, so wait for them
     };
     struct Travel
     {
@@ -879,6 +881,24 @@ namespace net
     };
     Bytes Encode(const ExplosionAt& m);
     bool Decode(Reader& r, ExplosionAt& m);
+
+    // Where a shot left the shooter's gun, so others' copies of it fly the same way. One for each pull of the trigger,
+    // not each pellet: a shotgun's pellets are their middle and how far they spread.
+    constexpr uint8_t kMaxShotPellets = 64;
+    constexpr float kMaxShotPelletSpread = 0.5f;
+    struct ShotPath
+    {
+        uint8_t playerId = 0;
+        uint32_t projectile = 0; // 0: the weapon's own
+        float x = 0, y = 0, z = 0;
+        float rotX = 0, rotZ = 0;
+        float speedMult = 1;
+        uint8_t pellets = 1;
+        float spread = 0;
+        bool mustArrive = false; // a slow shot goes reliably, a fast gun's stream doesn't
+    };
+    Bytes Encode(const ShotPath& m);
+    bool Decode(Reader& r, ShotPath& m);
     Bytes Encode(const ModsMatch& m);
     bool Decode(Reader& r, ModsMatch& m);
     Bytes Encode(const SaveOrder& m);

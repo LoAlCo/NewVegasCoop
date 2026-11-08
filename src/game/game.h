@@ -131,9 +131,13 @@ namespace game
         uint8_t shots = 0;
         bool release = false;
         bool reload = false;
+        bool paths = false;
     };
     MyAttack TakeMyAttacks();
-    void PlayAttack(TESObjectREFR* ref, const std::vector<uint32_t>& worn, uint8_t shots);
+    void PlayAttack(TESObjectREFR* ref, const std::vector<uint32_t>& worn, uint8_t shots, bool fire = true);
+    uint32_t ShotPathWaitMs(const std::vector<uint32_t>& worn);
+    void FireShots(TESObjectREFR* ref, const std::vector<uint32_t>& worn, uint32_t shots);
+    bool FireAlong(TESObjectREFR* ref, const std::vector<uint32_t>& worn, const net::ShotPath& path, bool withEffects);
     void ReleaseThrow(TESObjectREFR* ref, const std::vector<uint32_t>& worn);
     void Remove(TESObjectREFR* ref);
     void Notify(const char* text);
@@ -249,6 +253,9 @@ namespace game
     };
     bool WatchExplosions();
     std::vector<SeenExplosion> TakeExplosions();
+    bool WatchMyShots();
+    void SetShotPaths(bool on);
+    std::vector<net::ShotPath> TakeMyShots();
     bool ShowExplosion(uint32_t form, uint32_t space, float x, float y, float z);
     bool IsAttackPhase(int action);
     void SetGhost(TESObjectREFR* ref, bool on);
