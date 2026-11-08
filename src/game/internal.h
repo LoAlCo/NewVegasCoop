@@ -121,6 +121,7 @@ namespace game
     extern Script* g_combatTarget;
     extern Script* g_forceTarget;
     extern Script* g_update3D;
+    extern Script* g_moveBody;
     extern Script* g_isLocked;
     extern Script* g_pileKind;
     extern Script* g_makePile;

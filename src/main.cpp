@@ -2047,6 +2047,7 @@ namespace
             return;
         g_frozen = frozen;
         LOG_INFO("Loading: %s", frozen ? "the world waits" : "the world goes on");
+        g_npcs.RestartBodies();
         if (!frozen)
         {
             game::SetWorldSpeed(1.0f);
@@ -2301,10 +2302,17 @@ namespace
             game::UpdateFarArea(hosting, farFriends, s_usedMb, now);
         }
         if (g_coop.GetRole() == coop::Role::Host)
+        {
             g_npcs.Share(g_coop, now, me, g_standIns);
+            g_npcs.FollowFriendsBodies(g_coop, now);
+        }
         else if (g_coop.InGame())
         {
             g_npcs.Update(g_coop, now, me, g_standIns);
+            for (const net::BodyMove& move : g_npcs.TakeBodyReports())
+                g_coop.ReportBodyMove(move);
+            for (const net::BodyLimbs& limbs : g_npcs.TakeBodyLimbs())
+                g_coop.ReportBodyLimbs(limbs);
             g_npcs.CheckDesyncs(g_coop, now, me);
             for (const net::NpcAttack& attack : g_coop.TakeNpcAttacks())
                 g_npcs.Attack(attack.ref, attack.shots, attack.reload, attack.release);
@@ -2695,6 +2703,7 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
             g_config.askMode ? 1 : 0, g_config.askHardcore ? 1 : 0);
     if (g_config.allowSecondCopy)
         AllowSecondCopy(g_config.secondCopyWaits);
+    game::Npcs::SetSmoothBodies(g_config.smoothBodies);
     if (g_config.borderless)
         display::Install();
     if (g_config.blockDiscordOverlay)

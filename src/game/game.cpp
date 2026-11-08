@@ -1634,6 +1634,159 @@ namespace game
         return true;
     }
 
+    namespace
+    {
+        const char* FindNode(const char* node, const char* name, int depth)
+        {
+            using AsNode = void*(__thiscall*)(const void*);
+            auto vtable = *reinterpret_cast<AsNode* const*>(node);
+            if (!vtable[3](node))
+                return nullptr;
+            char* const* children = At<char* const*>(node, layout::kNiNodeChildren);
+            uint16_t slots = At<uint16_t>(node, layout::kNiNodeChildSlots);
+            for (uint16_t i = 0; children && i < slots && i < 128; ++i)
+            {
+                const char* child = children[i];
+                if (!child)
+                    continue;
+                const char* childName = At<const char*>(child, layout::kNiName);
+                if (childName && _stricmp(childName, name) == 0)
+                    return child;
+                if (depth > 0)
+                    if (const char* found = FindNode(child, name, depth - 1))
+                        return found;
+            }
+            return nullptr;
+        }
+    }
+
+    namespace
+    {
+        bool IsRigidBody(const char* worldObject)
+        {
+            using GetRtti = const char*(__thiscall*)(const void*);
+            auto vtable = *reinterpret_cast<GetRtti* const*>(worldObject);
+            int guard = 0;
+            for (const char* rtti = vtable[2](worldObject); rtti && guard < 16;
+                 rtti = At<const char*>(rtti, layout::kRttiParent), ++guard)
+                if (const char* name = At<const char*>(rtti, 0); name && std::strcmp(name, "bhkRigidBody") == 0)
+                    return true;
+            return false;
+        }
+    }
+
+    namespace
+    {
+        const char* NodeName(const char* node)
+        {
+            const char* name = At<const char*>(node, layout::kNiName);
+            return name ? name : "(no name)";
+        }
+
+        const char* TypeName(const char* object)
+        {
+            using GetRtti = const char*(__thiscall*)(const void*);
+            const char* rtti = (*reinterpret_cast<GetRtti* const*>(object))[2](object);
+            const char* name = rtti ? At<const char*>(rtti, 0) : nullptr;
+            return name ? name : "(no type)";
+        }
+
+        const char* FirstWithCollision(const char* node, int depth)
+        {
+            using AsNode = void*(__thiscall*)(const void*);
+            if (At<const char*>(node, layout::kNiCollisionObject))
+                return node;
+            if (depth <= 0 || !(*reinterpret_cast<AsNode* const*>(node))[3](node))
+                return nullptr;
+            char* const* children = At<char* const*>(node, layout::kNiNodeChildren);
+            uint16_t slots = At<uint16_t>(node, layout::kNiNodeChildSlots);
+            for (uint16_t i = 0; children && i < slots && i < 128; ++i)
+                if (children[i])
+                    if (const char* found = FirstWithCollision(children[i], depth - 1))
+                        return found;
+            return nullptr;
+        }
+
+        // A body is shared, compared and steered at one bone, so both games talk about the same point: the chest, so
+        // the upper body leads and the hips and legs trail. Not every skeleton has it (radscorpions, robots), so go on
+        // down the torso, and at last to the first bone with a physics body. Skeleton mods put control nodes between
+        // the bones (one puts Bip01 Spine2 13 levels below the root, not the usual 6), so look deep.
+        const char* BoneWithBody(const char* root)
+        {
+            constexpr int kBoneDepth = 24;
+            for (const char* name : {"Bip01 Spine2", "Bip01 Spine1", "Bip01 Spine", "Bip01 NonAccum", "Bip01 Pelvis",
+                     "Bip01"})
+                if (const char* bone = FindNode(root, name, kBoneDepth);
+                    bone && At<const char*>(bone, layout::kNiCollisionObject))
+                    return bone;
+            return FirstWithCollision(root, kBoneDepth);
+        }
+    }
+
+    bool PullBody(TESObjectREFR* actor, float vx, float vy, float vz, std::string& detail)
+    {
+        constexpr float kGameUnitsPerHavok = 7;
+        const char* root = actor ? reinterpret_cast<const char*>(actor->GetNiNode()) : nullptr;
+        if (!root)
+        {
+            detail = "it has no 3D";
+            return false;
+        }
+        const char* bone = BoneWithBody(root);
+        if (!bone)
+        {
+            detail = std::string("no bone under ") + NodeName(root) + " (a " + TypeName(root) + ") has a collision object";
+            return false;
+        }
+        detail = NodeName(bone);
+        const char* collision = At<const char*>(bone, layout::kNiCollisionObject);
+        const char* worldObject = At<const char*>(collision, layout::kCollisionWorldObject);
+        if (!worldObject)
+        {
+            detail += std::string(": its ") + TypeName(collision) + " has no world object";
+            return false;
+        }
+        if (!IsRigidBody(worldObject))
+        {
+            detail += std::string(": its ") + TypeName(collision) + " holds a " + TypeName(worldObject) + ", not a rigid body";
+            return false;
+        }
+        void* body = At<void*>(worldObject, layout::kWorldObjectHavok);
+        if (!body)
+        {
+            detail += std::string(": its ") + TypeName(worldObject) + " has no Havok body";
+            return false;
+        }
+        alignas(16) float speed[4] = {vx / kGameUnitsPerHavok, vy / kGameUnitsPerHavok, vz / kGameUnitsPerHavok, 0};
+        using SetVelocity = void(__thiscall*)(void*, const float*);
+        reinterpret_cast<SetVelocity>(addr::kRigidBodySetLinearVelocity)(body, speed);
+        return true;
+    }
+
+    bool BodyPosition(TESObjectREFR* actor, float& x, float& y, float& z)
+    {
+        const char* root = actor ? reinterpret_cast<const char*>(actor->GetNiNode()) : nullptr;
+        if (!root)
+            return false;
+        const char* bone = BoneWithBody(root);
+        if (!bone)
+            bone = root;
+        const auto* p = reinterpret_cast<const float*>(bone + layout::kNodeWorldTranslate);
+        x = p[0];
+        y = p[1];
+        z = p[2];
+        return true;
+    }
+
+    void MoveBody(TESObjectREFR* actor, float dx, float dy, float dz, bool reload3D)
+    {
+        if (!g_moveBody || !actor)
+            return;
+        g_scripts->CallFunctionAlt(g_moveBody, actor, 4, actor, FloatArg(dx), FloatArg(dy), FloatArg(dz));
+        if (reload3D && g_update3D)
+            g_scripts->CallFunctionAlt(g_update3D, actor, 0);
+    }
+
     void DoorsNear(std::vector<TESObjectREFR*>& out, float range)
     {
         RefsNear(SameType, kFormType_TESObjectDOOR, out, range);

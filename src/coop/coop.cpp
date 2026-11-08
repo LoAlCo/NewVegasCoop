@@ -841,6 +841,45 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::BodyLimbs)
+        {
+            BodyLimbs m;
+            if (!Decode(r, m) || !WithinLimit(player.itemMovesSince, player.itemMoves, kMaxItemMovesPerSecond))
+                return;
+            auto body = std::find_if(m_myNpcs.begin(), m_myNpcs.end(),
+                [&](const NpcState& n) { return n.ref == m.ref; });
+            if (body == m_myNpcs.end() || !(body->flags & kNpcDead))
+                return;
+            auto same = std::find_if(m_bodyLimbs.begin(), m_bodyLimbs.end(),
+                [&](const BodyLimbs& b) { return b.ref == m.ref; });
+            if (same != m_bodyLimbs.end())
+                same->limbs |= m.limbs;
+            else if (m_bodyLimbs.size() < kMaxQueuedItemMoves)
+                m_bodyLimbs.push_back(m);
+            return;
+        }
+
+        if (type == MsgType::BodyMove)
+        {
+            BodyMove m;
+            if (!Decode(r, m) || !WithinLimit(player.itemMovesSince, player.itemMoves, kMaxItemMovesPerSecond))
+                return;
+            auto body = std::find_if(m_myNpcs.begin(), m_myNpcs.end(),
+                [&](const NpcState& n) { return n.ref == m.ref; });
+            if (body == m_myNpcs.end() || !(body->flags & kNpcDead))
+                return;
+            float dx = m.x - body->x, dy = m.y - body->y, dz = m.z - body->z;
+            if (dx * dx + dy * dy + dz * dz > kMaxItemMoveReach * kMaxItemMoveReach)
+                return;
+            auto same = std::find_if(m_bodyMoves.begin(), m_bodyMoves.end(),
+                [&](const BodyMove& b) { return b.ref == m.ref; });
+            if (same != m_bodyMoves.end())
+                *same = m;
+            else if (m_bodyMoves.size() < kMaxQueuedItemMoves)
+                m_bodyMoves.push_back(m);
+            return;
+        }
+
         if (type == MsgType::ItemMoves)
         {
             ItemMoves m;
@@ -2767,6 +2806,18 @@ namespace coop
             m_net->Send(1, Encode(state), false);
         m_sentPose = m_myPose;
         m_lastPoseSent = now;
+    }
+
+    void Coop::ReportBodyMove(const BodyMove& m)
+    {
+        if (m_role == Role::Friend && InGame())
+            m_net->Send(1, Encode(m), false);
+    }
+
+    void Coop::ReportBodyLimbs(const BodyLimbs& m)
+    {
+        if (m_role == Role::Friend && InGame())
+            m_net->Send(1, Encode(m), true);
     }
 
     void Coop::SetNpcs(uint32_t space, std::vector<NpcState> npcs)

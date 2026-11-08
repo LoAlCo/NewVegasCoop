@@ -6,6 +6,7 @@
 #include "coop/copy_kill.h"
 #include "coop/levelled_roll.h"
 #include "coop/attack_versions.h"
+#include "coop/body_place.h"
 #include "coop/balance.h"
 #include "coop/game_mode.h"
 #include "coop/frame_parts.h"
@@ -8819,4 +8820,376 @@ TEST(visitor_companions_reach_the_host)
     a.Stop();
     host.Stop();
 
+}
+
+TEST(a_body_near_the_hosts_stays_put)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot host{100, 100, 0}, ours{200, 100, 0};
+    for (uint32_t t = 1000; t < 60000; t += 500)
+        CHECK(!p.Look(t, host, ours));
+}
+
+TEST(a_body_far_off_moves_once_both_have_settled)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot host{0, 0, 0}, ours{1000, 0, 0};
+    uint32_t t = 1000;
+    CHECK(!p.Look(t, host, ours));
+    CHECK(!p.Look(t + coop::kBodySettleMs - 1, host, ours));
+    CHECK(p.Look(t + coop::kBodySettleMs, host, ours));
+
+    coop::BodyPlacer falling;
+    for (t = 1000; t < 10000; t += 500)
+    {
+        ours.z -= 100;
+        CHECK(!falling.Look(t, host, ours));
+    }
+    CHECK(!falling.Look(t, host, ours));
+    CHECK(falling.Look(t + coop::kBodySettleMs, host, ours));
+
+    coop::BodyPlacer hostFalling;
+    coop::BodySpot fallingHost{0, 0, 0}, still{1000, 0, 0};
+    for (t = 1000; t < 10000; t += 500)
+    {
+        fallingHost.z -= 100;
+        CHECK(!hostFalling.Look(t, fallingHost, still));
+    }
+}
+
+TEST(a_small_twitch_does_not_restart_the_wait)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot ours{1000, 0, 0};
+    CHECK(!p.Look(1000, {0, 0, 0}, ours));
+    CHECK(!p.Look(2000, {coop::kBodyStillRange / 2, 0, 0}, ours));
+    CHECK(p.Look(1000 + coop::kBodySettleMs, {0, 0, 0}, ours));
+}
+
+TEST(a_moved_body_that_stays_off_is_tried_a_few_times_then_left)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot host{0, 0, 0}, ours{1000, 0, 0};
+    uint32_t t = 1000;
+    p.Look(t, host, ours);
+    t += coop::kBodySettleMs;
+    for (uint32_t i = 0; i < coop::kMaxBodyMoves; ++i)
+    {
+        CHECK(p.Look(t, host, ours));
+        p.Moved(t);
+        CHECK(!p.Look(t + coop::kBodyRetryMs - 1, host, ours));
+        t += coop::kBodyRetryMs;
+    }
+    CHECK(p.Moves() == coop::kMaxBodyMoves);
+    CHECK(!p.Look(t, host, ours));
+    CHECK(p.GaveUp());
+    CHECK(!p.Look(t + 600000, host, ours));
+
+    // The host's body goes somewhere new: worth trying again, once that has settled.
+    coop::BodySpot shoved{0, 500, 0};
+    t += 1000;
+    CHECK(!p.Look(t, shoved, ours));
+    CHECK(!p.GaveUp());
+    CHECK(p.Moves() == 0);
+    CHECK(p.Look(t + coop::kBodySettleMs, shoved, ours));
+}
+
+TEST(a_moved_body_that_landed_near_the_hosts_is_left_alone)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot host{0, 0, 0}, ours{1000, 0, 0};
+    p.Look(1000, host, ours);
+    uint32_t t = 1000 + coop::kBodySettleMs;
+    CHECK(p.Look(t, host, ours));
+    p.Moved(t);
+    for (t += 500; t < 60000; t += 500)
+        CHECK(!p.Look(t, host, {10, 0, 0}));
+    CHECK(p.Moves() == 1 && !p.GaveUp());
+}
+
+TEST(body_timers_work_past_the_tick_count_wrap)
+{
+    coop::BodyPlacer p;
+    coop::BodySpot host{0, 0, 0}, ours{1000, 0, 0};
+    uint32_t t = 0xFFFFFFFFu - 1000;
+    CHECK(!p.Look(t, host, ours));
+    CHECK(!p.Look(t + 1500, host, ours));
+    CHECK(p.Look(t + coop::kBodySettleMs, host, ours));
+}
+
+TEST(a_body_falling_from_its_death_is_not_followed)
+{
+    coop::BodyFollower f;
+    coop::BodySpot host{0, 0, 1000};
+    for (uint32_t t = 1000; t < 3000; t += 100)
+    {
+        host.z -= 40;
+        CHECK(!f.Look(t, host));
+    }
+    for (uint32_t t = 3000; t < 60000; t += 100)
+        CHECK(!f.Look(t, host));
+}
+
+TEST(a_still_body_is_never_followed_and_small_twitches_are_ignored)
+{
+    coop::BodyFollower f;
+    for (uint32_t t = 1000; t < 60000; t += 100)
+        CHECK(!f.Look(t, {t % 200 ? coop::kBodyStillRange / 2 : 0.f, 0, 0}));
+}
+
+TEST(a_landed_body_is_eased_to_the_hosts_spot_once)
+{
+    coop::BodyEaser e;
+    coop::BodySpot host{0, 0, 0}, ours{100, 0, 0};
+    uint32_t t = 1000;
+    for (; t < 1000 + coop::kBodyEaseAfterMs; t += 100)
+        CHECK(!e.Look(t, host, ours));
+    CHECK(e.Look(t, host, ours));
+    ours = {60, 0, 0};
+    CHECK(e.Look(t + 100, host, ours));
+    ours = {coop::kBodyEaseStop, 0, 0};
+    CHECK(!e.Look(t + 200, host, ours));
+    CHECK(e.Done());
+    // Done for good: nothing more unless the host moves it, which is BodyFollower's.
+    ours = {100, 0, 0};
+    for (uint32_t later = t + 300; later < t + 30000; later += 100)
+        CHECK(!e.Look(later, host, ours));
+}
+
+TEST(a_body_is_not_eased_until_it_has_stopped_falling_in_both_games)
+{
+    coop::BodySpot host{0, 0, 0};
+    coop::BodyEaser oursFalling;
+    uint32_t t = 1000;
+    for (float z = 2000; z > 100; z -= 50, t += 100)
+        CHECK(!oursFalling.Look(t, host, {50, 0, z}));
+    coop::BodyEaser hostFalling;
+    t = 1000;
+    for (float z = 2000; z > 100; z -= 50, t += 100)
+        CHECK(!hostFalling.Look(t, {0, 0, z}, {50, 0, 0}));
+}
+
+TEST(close_and_far_off_bodies_are_not_eased)
+{
+    uint32_t after = 1000 + coop::kBodyEaseAfterMs;
+    coop::BodyEaser nearEnough, farOff;
+    coop::BodySpot host{0, 0, 0};
+    CHECK(!nearEnough.Look(1000, host, {coop::kBodyEaseStart, 0, 0}));
+    CHECK(!nearEnough.Look(after, host, {coop::kBodyEaseStart, 0, 0}));
+    CHECK(nearEnough.Done());
+    CHECK(!farOff.Look(1000, host, {coop::kBodyEaseFarOff + 1, 0, 0}));
+    CHECK(!farOff.Look(after, host, {coop::kBodyEaseFarOff + 1, 0, 0}));
+    CHECK(farOff.Done());
+}
+
+TEST(easing_a_stuck_body_gives_up)
+{
+    coop::BodyEaser e;
+    coop::BodySpot host{0, 0, 0}, stuck{100, 0, 0};
+    uint32_t start = 1000 + coop::kBodyEaseAfterMs;
+    CHECK(!e.Look(1000, host, stuck));
+    CHECK(e.Look(start, host, stuck));
+    CHECK(e.Look(start + coop::kBodyEaseMaxMs - 1, host, stuck));
+    CHECK(!e.Look(start + coop::kBodyEaseMaxMs, host, stuck));
+    CHECK(e.Done());
+}
+
+TEST(a_body_that_never_stops_moving_is_left_alone)
+{
+    coop::BodyEaser e;
+    coop::BodySpot host{0, 0, 0};
+    uint32_t t = 1000;
+    for (float x = 0; t < 1000 + coop::kBodyEaseWaitMaxMs; t += 500, x = x ? 0 : 100.f)
+        CHECK(!e.Look(t, host, {50 + x, 0, 0}));
+    CHECK(!e.Look(t, host, {50, 0, 0}));
+    CHECK(e.Done());
+}
+
+TEST(the_host_hears_about_a_body_while_a_visitor_carries_it_and_as_it_lands)
+{
+    coop::BodyReporter r;
+    coop::BodySpot spot{0, 0, 0};
+    CHECK(!r.Look(1000, spot, false, false));
+    // Carried right after the kill, before it ever came to rest.
+    CHECK(r.Look(1200, {100, 0, 0}, true, false));
+    CHECK(r.Look(1400, {200, 0, 0}, true, false));
+    // Let go: it falls the last bit, and then it's quiet.
+    CHECK(r.Look(1600, {200, 0, 0}, false, false));
+    CHECK(r.Look(1800, {200, 0, -50}, false, false));
+    CHECK(!r.Look(1800 + coop::kBodyFollowEndMs, {200, 0, -50}, false, false));
+}
+
+TEST(a_rested_body_of_ours_that_moves_is_told_to_the_host)
+{
+    coop::BodyReporter r;
+    coop::BodySpot spot{0, 0, 0};
+    uint32_t t = 1000;
+    for (; t <= 1000 + coop::kBodySettleMs; t += 200)
+        CHECK(!r.Look(t, spot, false, false));
+    CHECK(r.Look(t, {100, 0, 0}, false, false));
+}
+
+TEST(a_body_hit_again_and_again_keeps_being_told_to_the_host)
+{
+    coop::BodyReporter r;
+    uint32_t t = 1000;
+    for (; t <= 1000 + coop::kBodySettleMs; t += 200)
+        CHECK(!r.Look(t, {0, 0, 0}, false, false));
+    float x = 100;
+    for (int blast = 0; blast < 4; ++blast)
+    {
+        for (int step = 0; step < 5; ++step, t += 200, x += 100)
+            CHECK(r.Look(t, {x, 0, 0}, false, false));
+        // It lies still for a moment, not long enough to have settled, and the next blast still counts.
+        t += coop::kBodyFollowEndMs;
+        CHECK(!r.Look(t, {x - 100, 0, 0}, false, false));
+        t += 200;
+    }
+}
+
+TEST(a_body_far_off_but_in_reach_is_eased_rather_than_jumped)
+{
+    coop::BodyEaser e;
+    coop::BodySpot host{0, 0, 0}, ours{coop::kBodyFarOff * 3, 0, 0};
+    CHECK(!e.Look(1000, host, ours));
+    CHECK(e.Look(1000 + coop::kBodyEaseAfterMs, host, ours));
+}
+
+TEST(body_limb_messages_read_back)
+{
+    Bytes b = Encode(net::BodyLimbs{0x00146338, 0x04AB});
+    Reader r(b);
+    MsgType t;
+    net::BodyLimbs m;
+    CHECK(r.Type(t) && t == MsgType::BodyLimbs && Decode(r, m));
+    CHECK(m.ref == 0x00146338 && m.limbs == 0x04AB);
+    // Nothing lost would mean a plain kill on the host.
+    Bytes none = Encode(net::BodyLimbs{0x00146338, 0});
+    Reader rn(none);
+    CHECK(rn.Type(t) && !Decode(rn, m));
+    Bytes wild = Encode(net::BodyLimbs{0x00146338, 0x8000});
+    Reader rw(wild);
+    CHECK(rw.Type(t) && !Decode(rw, m));
+}
+
+TEST(a_body_falling_from_its_death_is_not_told_to_the_host)
+{
+    coop::BodyReporter r;
+    uint32_t t = 1000;
+    for (float z = 2000; z > 0; z -= 50, t += 200)
+        CHECK(!r.Look(t, {0, 0, z}, false, false));
+}
+
+TEST(a_body_we_steer_to_match_the_host_is_not_told_back)
+{
+    coop::BodyReporter r;
+    coop::BodySpot spot{0, 0, 0};
+    uint32_t t = 1000;
+    for (; t <= 1000 + coop::kBodySettleMs; t += 200)
+        CHECK(!r.Look(t, spot, false, false));
+    for (float x = 0; x < 500; x += 100, t += 200)
+        CHECK(!r.Look(t, {x, 0, 0}, false, true));
+    // It has to rest again before moving counts.
+    CHECK(!r.Look(t, {700, 0, 0}, false, false));
+}
+
+TEST(the_host_glides_between_a_visitors_updates)
+{
+    coop::BodyChase c;
+    CHECK(c.Done(1000));
+    c.Heard(1000, {0, 0, 0});
+    CHECK(!c.Done(1000));
+    CHECK(c.Target(1000).x == 0);
+    c.Heard(1200, {100, 0, 0});
+    CHECK(c.Target(1200).x == 0);
+    CHECK(c.Target(1300).x == 50);
+    CHECK(c.Target(1400).x == 100);
+    CHECK(c.Target(1700).x == 100);
+    CHECK(!c.Done(1200 + coop::kBodyChaseHoldMs - 1));
+    CHECK(c.Done(1200 + coop::kBodyChaseHoldMs));
+    // Heard again after it ended: it starts from there, with no sweep across the old gap.
+    c.Heard(5000, {900, 0, 0});
+    CHECK(c.Target(5000).x == 900);
+}
+
+TEST(body_move_messages_read_back)
+{
+    Bytes b = Encode(net::BodyMove{0x00146338, 1.5f, -2, 3});
+    Reader r(b);
+    MsgType t;
+    net::BodyMove m;
+    CHECK(r.Type(t) && t == MsgType::BodyMove && Decode(r, m));
+    CHECK(m.ref == 0x00146338 && m.x == 1.5f && m.y == -2 && m.z == 3);
+    Bytes bad = Encode(net::BodyMove{0x00146338, std::nanf(""), 0, 0});
+    Reader rb(bad);
+    CHECK(rb.Type(t) && !Decode(rb, m));
+}
+
+TEST(a_rested_body_that_moves_is_followed_until_it_stops)
+{
+    coop::BodyFollower f;
+    coop::BodySpot host{0, 0, 0};
+    uint32_t t = 1000;
+    for (; t < 1000 + coop::kBodySettleMs + 100; t += 100)
+        CHECK(!f.Look(t, host));
+    host.x += 2 * coop::kBodyStillRange;
+    CHECK(f.Look(t, host));
+    for (int i = 0; i < 50; ++i)
+    {
+        t += 100;
+        host.x += 20;
+        CHECK(f.Look(t, host));
+    }
+    uint32_t stopped = t;
+    for (t += 100; t - stopped < coop::kBodyFollowEndMs; t += 100)
+        CHECK(f.Look(t, host));
+    CHECK(!f.Look(stopped + coop::kBodyFollowEndMs + 500, host));
+    // Dragged again later, with no new wait to rest.
+    t = stopped + coop::kBodyFollowEndMs + 600;
+    host.x += 2 * coop::kBodyStillRange;
+    CHECK(f.Look(t, host));
+}
+
+TEST(body_pull_heads_for_the_target_and_is_limited)
+{
+    coop::BodySpot speed;
+    CHECK(!coop::BodyPull({0, 0, 0}, {coop::kBodyCloseEnough / 2, 0, 0}, speed));
+    CHECK(coop::BodyPull({100, 0, 0}, {0, 0, 0}, speed));
+    CHECK(speed.x > 0 && std::fabs(speed.x - 100 / coop::kBodyChaseSeconds) < 0.01f && speed.y == 0 && speed.z == 0);
+    CHECK(coop::BodyPull({-3000, 0, 4000}, {0, 0, 0}, speed));
+    CHECK(std::fabs(speed.DistanceTo({}) - coop::kBodyMaxSpeed) < 0.01f);
+    CHECK(speed.x < 0 && speed.z > 0);
+}
+
+TEST(a_pulled_body_closes_in_without_overshooting)
+{
+    coop::BodySpot target{500, 0, 0}, ours{0, 0, 0}, speed;
+    for (int frame = 0; frame < 600 && coop::BodyPull(target, ours, speed); ++frame)
+    {
+        ours.x += speed.x / 30;
+        CHECK(ours.x <= target.x);
+    }
+    CHECK(target.DistanceTo(ours) <= coop::kBodyCloseEnough);
+}
+
+TEST(a_body_that_moved_while_we_werent_looking_is_not_followed)
+{
+    coop::BodyFollower f;
+    coop::BodySpot host{0, 0, 0};
+    uint32_t t = 1000;
+    for (; t < 1000 + coop::kBodySettleMs + 100; t += 100)
+        CHECK(!f.Look(t, host));
+    // A save loaded, or a menu was up: it's somewhere else when we look again.
+    t += coop::kBodyLookGapMs;
+    host.x = 5000;
+    CHECK(!f.Look(t, host));
+    for (int i = 0; i < 5; ++i)
+        CHECK(!f.Look(t += 100, host));
+    // It has to rest again before a move counts as a drag.
+    host.x += 100;
+    CHECK(!f.Look(t += 100, host));
+    for (uint32_t end = t + coop::kBodySettleMs + 100; t < end; t += 100)
+        CHECK(!f.Look(t, host));
+    host.x += 100;
+    CHECK(f.Look(t, host));
 }

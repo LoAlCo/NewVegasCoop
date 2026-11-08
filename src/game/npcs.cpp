@@ -177,6 +177,18 @@ namespace game
             else if (!dead && !down)
                 shots = w.isGun ? 0 : -1;
             w.weaponWasOut = weaponOut;
+            if (dead)
+            {
+                if (coop::IsDue(now, w.nextBodyLook))
+                {
+                    w.nextBodyLook = now + coop::kBodyShareEveryMs;
+                    w.bodyX = at.x, w.bodyY = at.y, w.bodyZ = at.z, w.bodyHeading = at.heading;
+                    BodyPosition(actor, w.bodyX, w.bodyY, w.bodyZ);
+                }
+                at.x = w.bodyX, at.y = w.bodyY, at.z = w.bodyZ, at.heading = w.bodyHeading;
+            }
+            else
+                w.nextBodyLook = 0;
             float maxHealth = MaxHealth(actor);
             net::NpcState n{ref, at.x, at.y, at.z, at.heading, flags, dead ? uint16_t(0) : MovementFlags(actor),
                 dead ? 0.0f : Clamp(std::round(Health(actor)), -net::kMaxHealth, net::kMaxHealth),
@@ -437,6 +449,7 @@ namespace game
         const auto& shared = m_copyFrom ? *m_copyFrom : coop.Npcs();
         TakeBackWhenClosed();
         StepRevives(coop, now);
+        m_bodiesPulled = 0;
 
         for (auto it = m_made.begin(); it != m_made.end();)
         {
@@ -475,6 +488,8 @@ namespace game
             it = shared.count(it->first) ? std::next(it) : m_killed.erase(it);
         for (auto it = m_nextRevive.begin(); it != m_nextRevive.end();)
             it = shared.count(it->first) ? std::next(it) : m_nextRevive.erase(it);
+        for (auto it = m_bodies.begin(); it != m_bodies.end();)
+            it = shared.count(it->first) ? std::next(it) : m_bodies.erase(it);
         for (auto it = m_switchedOff.begin(); it != m_switchedOff.end();)
             it = shared.count(it->first) ? std::next(it) : m_switchedOff.erase(it);
 
@@ -607,9 +622,11 @@ namespace game
                     LOG_DEBUG("NPCs: %s (%08X) turned to %s on the host: ours too", Name(actor), ref,
                         npc.pile == net::kPileGoo ? "goo" : "ash");
                 }
+                PlaceBody(ref, actor, npc, pose, now);
                 continue;
             }
             m_killed.erase(ref);
+            m_bodies.erase(ref);
             if (!IsDead(actor) && !IsKnockedOut(actor))
                 m_nextRevive.erase(ref);
             // Never while we hold it still as one the host doesn't share, or while its body is open on our screen.
@@ -874,6 +891,215 @@ namespace game
         }
     }
 
+    void Npcs::FollowBody(uint32_t ref, TESObjectREFR* actor, const coop::RemoteNpc& npc, Body& b, uint32_t now)
+    {
+        if (!s_smoothBodies)
+            return;
+        LARGE_INTEGER start;
+        QueryPerformanceCounter(&start);
+        coop::Pose blended, at;
+        if (!npc.motion.Sample(now - coop::kBodyBlendMs, blended))
+            return;
+        coop::BodySpot target{blended.x, blended.y, blended.z}, ours;
+        bool following = b.follower.Look(now, target);
+        // The host's copy moving right after we told it where the body is, is only it doing as we said. Taken for the
+        // host moving it, it would stop our telling mid-flight and pull ours back to where theirs had got to.
+        if (b.reporting || !coop::IsDue(now, b.echoUntil))
+            following = false;
+        if (following != b.following)
+        {
+            b.following = following;
+            if (following)
+            {
+                b.followFrames = 0;
+                b.followOffSum = b.followOffMost = 0;
+                b.followMs = 0;
+                LOG_INFO("NPCs: the host moves the body of %s (%08X); following it", Name(actor), ref);
+            }
+            else
+                LOG_INFO("NPCs: stopped following the body of %s (%08X): %u frames, off by %.0f on average (most %.0f) "
+                    "units, %.3f ms a frame", Name(actor), ref, b.followFrames,
+                    b.followFrames ? b.followOffSum / b.followFrames : 0, b.followOffMost,
+                    b.followFrames ? b.followMs / b.followFrames : 0.0);
+        }
+        if (following)
+            b.easer.Finish();
+        if (coop::IsDue(now, b.nextReport))
+        {
+            b.nextReport = now + coop::kBodyShareEveryMs;
+            coop::BodySpot mine;
+            coop::Pose where;
+            if (!InMenu() && GetPose(actor, where) && where.space == blended.space &&
+                BodyPosition(actor, mine.x, mine.y, mine.z))
+            {
+                bool held = GrabbedItem() == RefId(actor);
+                bool reporting = b.reporter.Look(now, mine, held, following || b.easing || b.judgeAt != 0);
+                if (reporting != b.reporting)
+                {
+                    b.reporting = reporting;
+                    LOG_INFO("NPCs: %s the host about the body of %s (%08X), which %s", reporting ? "telling" : "done telling",
+                        Name(actor), ref, reporting ? (held ? "our player carries" : "moved here") : "stopped");
+                }
+                if (reporting)
+                {
+                    b.echoUntil = now + coop::kBodyEchoMs;
+                    m_bodyReports.push_back({ref, mine.x, mine.y, mine.z});
+                }
+                if (coop::IsDue(now, b.nextLimbLook))
+                {
+                    // A blast of ours can tear it apart in our game alone.
+                    b.nextLimbLook = now + 1000;
+                    uint16_t ours = LimbsGone(actor) & ~npc.limbs & ~b.toldLimbs;
+                    if (ours)
+                    {
+                        b.toldLimbs |= ours;
+                        m_bodyLimbs.push_back({ref, ours});
+                        LOG_INFO("NPCs: the body of %s (%08X) lost limbs %04X here; telling the host", Name(actor), ref, ours);
+                    }
+                }
+            }
+        }
+        if ((!following && b.easer.Done() && !b.easing) || !coop::IsDue(now, b.nextPullTry) ||
+            m_bodiesPulled >= coop::kMaxBodiesFollowed || InMenu() || !GetPose(actor, at) ||
+            at.space != blended.space || !BodyPosition(actor, ours.x, ours.y, ours.z) ||
+            GrabbedItem() == RefId(actor))
+            return;
+        float off = ours.DistanceTo(target);
+        bool easing = b.easer.Look(now, target, ours);
+        if (easing != b.easing)
+        {
+            b.easing = easing;
+            if (easing)
+                LOG_INFO("NPCs: easing the body of %s (%08X) %.0f units to the host's spot", Name(actor), ref, off);
+            else
+                LOG_INFO("NPCs: finished easing the body of %s (%08X): %.0f units from the host's", Name(actor), ref, off);
+        }
+        if (!following && !easing)
+            return;
+        ++m_bodiesPulled;
+        ++b.followFrames;
+        b.followOffSum += off;
+        b.followOffMost = (std::max)(b.followOffMost, off);
+        coop::BodySpot speed;
+        if (coop::BodyPull(target, ours, speed))
+        {
+            std::string detail;
+            if (PullBody(actor, speed.x, speed.y, speed.z, detail))
+            {
+                if (!b.saidPull)
+                    LOG_INFO("NPCs: steering the body of %s (%08X) by its %s", Name(actor), ref, detail.c_str());
+                b.saidPull = true;
+                b.nextPullTry = 0;
+            }
+            else
+            {
+                if (!b.saidNoPull)
+                    LOG_INFO("NPCs: can't steer the body of %s (%08X): %s; it moves when it stops instead", Name(actor),
+                        ref, detail.c_str());
+                b.saidNoPull = true;
+                b.nextPullTry = now + 5000;
+            }
+        }
+        b.followMs += MsSince(start);
+    }
+
+    void Npcs::FollowFriendsBodies(coop::Coop& coop, uint32_t now)
+    {
+        for (const net::BodyLimbs& m : coop.TakeBodyLimbs())
+        {
+            TESObjectREFR* actor = LookupRef(m.ref);
+            if (!actor || !IsActor(actor) || !IsDead(actor) || !Is3DLoaded(actor))
+                continue;
+            uint16_t left = m.limbs & ~LimbsGone(actor);
+            if (!left)
+                continue;
+            Kill(actor, left);
+            LOG_INFO("NPCs: the body of %s (%08X) lost limbs %04X in a friend's game; taking them off here", Name(actor),
+                m.ref, left);
+        }
+        std::vector<net::BodyMove> moves = coop.TakeBodyMoves();
+        if (!s_smoothBodies)
+            return;
+        for (const net::BodyMove& m : moves)
+        {
+            if (!m_friendsBodies.count(m.ref))
+                if (TESObjectREFR* actor = LookupRef(m.ref))
+                    LOG_INFO("NPCs: a friend moves the body of %s (%08X); following it", Name(actor), m.ref);
+            m_friendsBodies[m.ref].Heard(now, {m.x, m.y, m.z});
+        }
+        uint32_t pulled = 0;
+        for (auto it = m_friendsBodies.begin(); it != m_friendsBodies.end();)
+        {
+            uint32_t ref = it->first;
+            TESObjectREFR* actor = LookupRef(ref);
+            if (it->second.Done(now) || !actor || !IsActor(actor) || !IsDead(actor))
+            {
+                if (actor)
+                    LOG_INFO("NPCs: a friend stopped moving the body of %s (%08X)", Name(actor), ref);
+                it = m_friendsBodies.erase(it);
+                continue;
+            }
+            coop::BodySpot target = it->second.Target(now), ours, speed;
+            ++it;
+            // If our own player has hold of it, ours wins, and the friend's copy comes back to it.
+            if (pulled >= coop::kMaxBodiesFollowed || InMenu() || !Is3DLoaded(actor) || GrabbedItem() == ref ||
+                !BodyPosition(actor, ours.x, ours.y, ours.z) || !coop::BodyPull(target, ours, speed))
+                continue;
+            ++pulled;
+            std::string detail;
+            if (!PullBody(actor, speed.x, speed.y, speed.z, detail))
+                LOG_DEBUG("NPCs: can't steer the body of %s (%08X) for a friend: %s", Name(actor), ref, detail.c_str());
+        }
+    }
+
+    void Npcs::PlaceBody(uint32_t ref, TESObjectREFR* actor, const coop::RemoteNpc& npc, const coop::Pose& host,
+        uint32_t now)
+    {
+        // Ash and goo piles are their own objects where the body was: moving the actor wouldn't move them.
+        if (!IsDead(actor) || npc.pile || m_piled.count(ref) || now - npc.heardAt > 2000)
+            return;
+        Body& b = m_bodies[ref];
+        FollowBody(ref, actor, npc, b, now);
+        if (!coop::IsDue(now, b.nextLook))
+            return;
+        b.nextLook = now + coop::kBodyLookEveryMs;
+        coop::BodySpot ours, theirs{host.x, host.y, host.z};
+        coop::Pose at;
+        if (!BodyPosition(actor, ours.x, ours.y, ours.z) || !GetPose(actor, at) || at.space != host.space)
+            return;
+        float off = ours.DistanceTo(theirs);
+        if (b.judgeAt && coop::IsDue(now, b.judgeAt))
+        {
+            b.judgeAt = 0;
+            LOG_INFO("NPCs: the body of %s (%08X) is now %.0f units from the host's (was %.0f; ours at %.0f %.0f %.0f, "
+                "its reference at %.0f %.0f %.0f)", Name(actor), ref, off, b.offBefore, ours.x, ours.y, ours.z, at.x,
+                at.y, at.z);
+        }
+        if (!b.placer.Look(now, theirs, ours))
+        {
+            if (b.placer.GaveUp() && !b.saidGaveUp)
+            {
+                b.saidGaveUp = true;
+                LOG_INFO("NPCs: left the body of %s (%08X) %.0f units from the host's after %u moves", Name(actor), ref,
+                    off, b.placer.Moves());
+            }
+            else if (!b.placer.GaveUp())
+                b.saidGaveUp = false;
+            return;
+        }
+        if (InMenu() || GrabbedItem() == RefId(actor))
+            return;
+        // The first try just moves it. If the bones stayed behind (a live ragdoll can pull them back), load its 3D again.
+        bool reload = b.placer.Moves() > 0;
+        LOG_INFO("NPCs: moving the body of %s (%08X) %.0f units to the host's spot%s", Name(actor), ref, off,
+            reload ? ", loading its 3D again" : "");
+        MoveBody(actor, theirs.x - ours.x, theirs.y - ours.y, theirs.z - ours.z, reload);
+        b.placer.Moved(now);
+        b.offBefore = off;
+        b.judgeAt = now + 2000;
+        ++m_bodiesMoved;
+    }
+
     void Npcs::Attack(uint32_t ref, uint8_t shots, bool reload, bool release)
     {
         TESObjectREFR* actor = m_entries.count(ref) ? Find(ref) : nullptr;
@@ -1043,6 +1269,7 @@ namespace game
         m_made.erase(ref);
         m_killed.erase(ref);
         m_nextRevive.erase(ref);
+        m_bodies.erase(ref);
         m_localDeaths.erase(ref);
         m_piled.erase(ref);
         ++m_unmadeCount;
@@ -1139,6 +1366,7 @@ namespace game
         m_rerolled.clear();
         m_killed.clear();
         m_nextRevive.clear();
+        m_bodies.clear();
         m_switchedOff.clear();
     }
 
@@ -1153,6 +1381,7 @@ namespace game
         m_killed.clear();
         m_nextRevive.clear();
         m_revive.Clear();
+        m_bodies.clear();
         m_switchedOff.clear();
         for (auto it = m_localDeaths.begin(); it != m_localDeaths.end();)
             it = net::IsMadeWhilePlaying(it->first) ? m_localDeaths.erase(it) : std::next(it);
@@ -1174,9 +1403,10 @@ namespace game
         else if (!first)
             LOG_INFO("NPCs: copying %zu of the %zu the host shares; brought %u over from elsewhere; showed %u attacks "
                 "(%u not shown) and %u reloads; killed %u; matched health %u times; played %u idles; gave %u "
-                "weapons; stood up %u; brought back %u that died or fell here but not on the host (in 30 s); took "
-                "%.2f ms a frame on average", m_entries.size(), shared, m_brought, m_attacksShown, m_attacksNotShown,
-                m_reloadsShown, m_kills, m_healthSets, m_idles, m_weapons, m_stoodUp, m_deadHere,
+                "weapons; stood up %u; moved %u bodies; brought back %u that died or fell here but not on the host (in "
+                "30 s); took %.2f ms a frame on average", m_entries.size(), shared, m_brought, m_attacksShown,
+                m_attacksNotShown, m_reloadsShown, m_kills, m_healthSets, m_idles, m_weapons, m_stoodUp, m_bodiesMoved,
+                m_deadHere,
                 m_updates ? m_updateMs / m_updates : 0.0);
         if (!first && (m_madeCount || m_unmadeCount || !m_made.empty()))
             LOG_INFO("NPCs: %zu copies we made of ones the host's game made while playing or rolled differently "
@@ -1190,6 +1420,6 @@ namespace game
         m_shareMs = m_updateMs = 0;
         m_shares = m_updates = m_brought = m_reloads = 0;
         m_attacks = m_attacksShown = m_attacksNotShown = m_kills = m_healthSets = m_idles = 0;
-        m_deadHere = m_weapons = m_stoodUp = m_reloadsShown = 0;
+        m_deadHere = m_weapons = m_stoodUp = m_reloadsShown = m_bodiesMoved = 0;
     }
 }

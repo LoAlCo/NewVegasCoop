@@ -104,6 +104,8 @@ namespace net
         BodyLoot = 82,
         Ping = 87,
         CompanionHurt = 86,
+        BodyMove = 83,
+        BodyLimbs = 84,
         MineChange = 63,
         ModsMatch = 48,
         WeatherState = 80,
@@ -476,6 +478,23 @@ namespace net
         float rx = 0, ry = 0, rz = 0;
         bool held = false;
     };
+    // Where a visitor's copy of a body is while they move it, for the host to steer theirs there.
+    struct BodyMove
+    {
+        uint32_t ref = 0;
+        float x = 0, y = 0, z = 0;
+    };
+    Bytes Encode(const BodyMove& m);
+    // Limbs a body lost in a visitor's game, for the host to take off theirs too.
+    struct BodyLimbs
+    {
+        uint32_t ref = 0;
+        uint16_t limbs = 0;
+    };
+    Bytes Encode(const BodyLimbs& m);
+    bool Decode(Reader& r, BodyLimbs& m);
+    bool Decode(Reader& r, BodyMove& m);
+
     struct ItemMoves
     {
         std::vector<ItemMove> moves;

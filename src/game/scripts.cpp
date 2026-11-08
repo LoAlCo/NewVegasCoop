@@ -98,6 +98,7 @@ namespace game
         Script* g_combatTarget = nullptr;
         Script* g_forceTarget = nullptr;
         Script* g_update3D = nullptr;
+        Script* g_moveBody = nullptr;
         Script* g_isLocked = nullptr;
         Script* g_pileKind = nullptr;
         Script* g_makePile = nullptr;
@@ -1356,6 +1357,14 @@ namespace game
             "Begin Function {iWhich}\n"
             "  set fFov to GetPlayerCamFOV iWhich\n"
             "  SetFunctionValue fFov\n"
+            "End\n");
+        g_moveBody = Compile("move body",
+            "ref rSelf\n"
+            "float fX\n"
+            "float fY\n"
+            "float fZ\n"
+            "Begin Function {rSelf, fX, fY, fZ}\n"
+            "  MoveTo rSelf fX fY fZ\n"
             "End\n");
         g_update3D = Compile("update 3D",
             "Begin Function {}\n"
