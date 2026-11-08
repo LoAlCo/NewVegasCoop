@@ -963,6 +963,9 @@ namespace
 
     void OnWorldLoaded()
     {
+        g_partyWatch.Rebaseline(GetTickCount());
+        if (g_coop.InGame())
+            g_chatHistory.Add("--- Game loaded ---");
         if (g_teleportersHad > 0)
             g_teleportersHad = 0;
         if (int dragged = g_coop.Dragging(g_coop.MyPlayerId()); g_coop.InGame() && dragged >= 0)
@@ -2537,6 +2540,7 @@ namespace
                 LOG_INFO("Back to the main menu");
                 g_thisGame = {};
                 g_coop.SetCurrentSaveTag(g_thisGame);
+                g_partyWatch.Forget();
                 if (g_coop.GetRole() != coop::Role::None)
                     g_coop.Stop();
             }
@@ -2556,6 +2560,7 @@ namespace
             g_doors.Forget();
             g_mines.Forget();
             g_progress.Forget();
+            g_partyWatch.Rebaseline(GetTickCount());
             g_quests.Forget();
             g_objects.Forget();
             g_weather.Forget();

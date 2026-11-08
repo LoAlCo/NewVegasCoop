@@ -23,6 +23,7 @@
 #include "coop/face_tone.h"
 #include "coop/clock.h"
 #include "coop/steer.h"
+#include "coop/chat_history.h"
 #include "coop/talk_log.h"
 #include "config.h"
 #include "coop/item_stacks.h"
@@ -8275,4 +8276,336 @@ TEST(the_hosts_weather_reaches_friends_at_once_and_on_joining)
     CHECK(!a.HostWeather(heard));
     b.Stop();
     host.Stop();
+}
+
+TEST(chat_history_keeps_the_newest_200_lines)
+{
+    coop::ChatHistory history;
+    for (int i = 0; i < 250; ++i)
+        history.Add("line " + std::to_string(i));
+    CHECK(history.Size() == coop::ChatHistory::kKeptLines);
+    auto shown = history.View();
+    CHECK(shown.lines.size() == coop::ChatHistory::kMostShown);
+    CHECK(shown.lines.back() == "line 249");
+    CHECK(shown.lines.front() == "line 238");
+    CHECK(shown.older == 188 && shown.newer == 0);
+    history.Scroll(100000);
+    shown = history.View();
+    CHECK(shown.lines.front() == "line 50");
+    CHECK(shown.lines.size() == coop::ChatHistory::kMostShown);
+    CHECK(shown.older == 0 && shown.newer == 188);
+}
+
+TEST(chat_history_scroll_stays_in_range_and_holds_when_lines_arrive)
+{
+    coop::ChatHistory empty;
+    empty.Scroll(10);
+    CHECK(empty.View().lines.empty());
+    empty.Add("first");
+    CHECK(empty.View().lines.size() == 1);
+
+    coop::ChatHistory history;
+    for (int i = 0; i < 40; ++i)
+        history.Add("line " + std::to_string(i));
+    history.Scroll(-5);
+    CHECK(history.View().lines.back() == "line 39");
+    history.Scroll(10);
+    CHECK(history.View().lines.back() == "line 29");
+    history.Add("new one");
+    history.Add("new two");
+    CHECK(history.View().lines.back() == "line 29");
+    CHECK(history.View().newer == 12);
+    history.Scroll(-3);
+    CHECK(history.View().lines.back() == "line 32");
+    history.ResetScroll();
+    CHECK(history.View().lines.back() == "new two");
+
+    history.Scroll(100000);
+    for (int i = 0; i < 300; ++i)
+        history.Add("flood");
+    auto shown = history.View();
+    CHECK(shown.older == 0 && shown.lines.size() == coop::ChatHistory::kMostShown);
+
+    auto rows = coop::HistoryPanelRows(shown);
+    CHECK(rows.size() == coop::ChatHistory::kMostShown + 1);
+    CHECK(rows.back().text == "v 188 newer (PgDn)");
+    history.ResetScroll();
+    rows = coop::HistoryPanelRows(history.View());
+    CHECK(rows.size() == coop::ChatHistory::kMostShown + 1);
+    CHECK(rows.front().text == "^ 188 older (PgUp)");
+    history.Scroll(20);
+    rows = coop::HistoryPanelRows(history.View());
+    CHECK(rows.size() == coop::kChatPanelMostRows);
+    CHECK(rows.front().alpha == 1.0f && rows.back().alpha == 1.0f);
+}
+
+TEST(chat_history_view_fits_wrapped_lines_in_its_rows)
+{
+    coop::ChatHistory history(6, 10);
+    history.Add("short one");
+    history.Add(std::string(25, 'a'));
+    history.Add(std::string(20, 'b'));
+    history.Add("short two");
+    auto shown = history.View();
+    CHECK(shown.lines.size() == 3);
+    CHECK(shown.lines.front() == std::string(25, 'a'));
+    CHECK(shown.older == 1);
+
+    coop::ChatHistory tight(2, 10);
+    tight.Add(std::string(194, 'x'));
+    CHECK(tight.View().lines.size() == 1);
+
+    coop::ChatHistory longest;
+    for (int i = 0; i < 200; ++i)
+        longest.Add(std::string(32, 'n') + ": " + std::string(160, 't'));
+    longest.Scroll(50);
+    CHECK(coop::HistoryPanelRows(longest.View()).size() <= coop::kChatPanelMostRows);
+}
+
+TEST(event_feed_drops_old_lines_and_waits_in_menus)
+{
+    coop::EventFeed feed;
+    feed.SetLineMs(8000);
+    CHECK(feed.Update(1000, false).empty());
+    feed.Add("a");
+    auto one = feed.Update(1000, false);
+    CHECK(one.size() == 1 && one[0].alpha == 1.0f);
+    CHECK(feed.Update(5000, false).size() == 1);
+    CHECK(feed.Update(60000, true).size() == 1);
+    feed.Add("b");
+    auto two = feed.Update(63000, false);
+    CHECK(two.size() == 2 && two[0].alpha > 0 && two[0].alpha < 1 && two[1].alpha == 1.0f);
+    two = feed.Update(65000, false);
+    CHECK(two.size() == 1 && two[0].text == "b");
+    feed.Clear();
+    CHECK(feed.Update(65000, false).empty());
+
+    for (const char* line : {"1", "2", "3", "4", "5"})
+        feed.Add(line);
+    auto lines = feed.Update(65100, false);
+    CHECK(lines.size() == coop::EventFeed::kMostLines);
+    CHECK(lines.front().text == "2" && lines.back().text == "5");
+
+    feed.Clear();
+    uint32_t aboutToWrap = 0xFFFFFF00u;
+    feed.Update(aboutToWrap, false);
+    feed.Add("wraps");
+    CHECK(feed.Update(aboutToWrap + 1000, false).size() == 1);
+    CHECK(feed.Update(aboutToWrap + 9000, false).empty());
+}
+
+namespace
+{
+    using Roster = std::vector<coop::PartyWatch::Member>;
+    coop::PartyWatch::Member Up(uint8_t id, const std::string& name) { return {id, name, true, false}; }
+    coop::PartyWatch::Member Down(uint8_t id, const std::string& name) { return {id, name, true, true}; }
+
+    // A session past its quiet start, with these players in it
+    void SettleWatch(coop::PartyWatch& watch, uint32_t& now, const Roster& roster)
+    {
+        watch.Observe(now, true, roster);
+        now += coop::PartyWatch::kQuietMs;
+        watch.Observe(now, true, roster);
+    }
+
+    std::vector<std::string> HoldWatch(coop::PartyWatch& watch, uint32_t& now, const Roster& roster)
+    {
+        watch.Observe(now, true, roster);
+        now += coop::PartyWatch::kHoldStateMs;
+        return watch.Observe(now, true, roster);
+    }
+}
+
+TEST(party_watch_is_quiet_for_the_first_roster)
+{
+    coop::PartyWatch watch;
+    uint32_t now = 1000;
+    CHECK(watch.Observe(now, true, {Up(0, "Host"), Down(1, "Ann")}).empty());
+    now += 2500;
+    CHECK(watch.Observe(now, true, {Up(0, "Host"), Down(1, "Ann"), Up(2, "Bo")}).empty());
+    now += 8000;
+    CHECK(watch.Observe(now, true, {Up(0, "Host"), Down(1, "Ann"), Up(2, "Bo")}).empty());
+    now += 3000;
+    CHECK(watch.Observe(now, true, {Up(0, "Host"), Down(1, "Ann"), Up(2, "Bo")}).empty());
+    now += 1000;
+    auto lines = watch.Observe(now, true, {Up(0, "Host"), Down(1, "Ann")});
+    CHECK(lines.size() == 1 && lines[0] == "* Bo left");
+}
+
+TEST(party_watch_reports_down_then_revived_once)
+{
+    coop::PartyWatch watch;
+    uint32_t now = 1000;
+    SettleWatch(watch, now, {Up(1, "Ann")});
+    auto lines = HoldWatch(watch, now, {Down(1, "Ann")});
+    CHECK(lines.size() == 1 && lines[0] == "* Ann is down");
+    now += 1000;
+    CHECK(watch.Observe(now, true, {Down(1, "Ann")}).empty());
+    now += 6000;
+    lines = HoldWatch(watch, now, {Up(1, "Ann")});
+    CHECK(lines.size() == 1 && lines[0] == "* Ann was revived");
+    now += 1000;
+    CHECK(watch.Observe(now, true, {Up(1, "Ann")}).empty());
+    // Downed again straight after being revived less than the repeat limit after the last "down"
+    now += coop::PartyWatch::kRepeatMs;
+    lines = HoldWatch(watch, now, {Down(1, "Ann")});
+    CHECK(lines.size() == 1 && lines[0] == "* Ann is down");
+    lines = HoldWatch(watch, now, {Up(1, "Ann")});
+    CHECK(lines.size() == 1 && lines[0] == "* Ann was revived");
+    lines = HoldWatch(watch, now, {Down(1, "Ann")});
+    CHECK(lines.empty());
+}
+
+TEST(party_watch_ignores_a_flicker_shorter_than_the_hold)
+{
+    coop::PartyWatch watch;
+    uint32_t now = 1000;
+    SettleWatch(watch, now, {Up(1, "Ann")});
+    CHECK(watch.Observe(now, true, {Down(1, "Ann")}).empty());
+    now += coop::PartyWatch::kHoldStateMs - 100;
+    CHECK(watch.Observe(now, true, {Down(1, "Ann")}).empty());
+    now += 50;
+    CHECK(watch.Observe(now, true, {Up(1, "Ann")}).empty());
+    now += 1000;
+    CHECK(watch.Observe(now, true, {Up(1, "Ann")}).empty());
+    // A first health report isn't a change, whatever it says
+    SettleWatch(watch, now, {Up(1, "Ann"), {2, "Bo", false, false}});
+    now += coop::PartyWatch::kJoinNameMs;
+    watch.Observe(now, true, {Up(1, "Ann"), {2, "Bo", false, false}});
+    CHECK(HoldWatch(watch, now, {Up(1, "Ann"), Down(2, "Bo")}).empty());
+}
+
+TEST(party_watch_is_muted_after_game_over_until_a_load)
+{
+    coop::PartyWatch watch;
+    uint32_t now = 1000;
+    SettleWatch(watch, now, {Down(1, "Ann")});
+    watch.Mute();
+    now += 6000;
+    CHECK(HoldWatch(watch, now, {Up(1, "Ann")}).empty());
+    now += 60000;
+    CHECK(HoldWatch(watch, now, {Down(1, "Ann")}).empty());
+    watch.Rebaseline(now);
+    CHECK(watch.Observe(now, true, {Up(1, "Ann")}).empty());
+    now += coop::PartyWatch::kQuietMs - 1;
+    CHECK(HoldWatch(watch, now, {Down(1, "Ann")}).empty());
+    now += 6000;
+    auto lines = HoldWatch(watch, now, {Up(1, "Ann")});
+    CHECK(lines.size() == 1 && lines[0] == "* Ann was revived");
+}
+
+TEST(party_watch_says_nothing_when_the_session_ends)
+{
+    coop::PartyWatch watch;
+    uint32_t now = 1000;
+    SettleWatch(watch, now, {Up(0, "Host"), Up(1, "Ann")});
+    CHECK(watch.InSession());
+    now += 100;
+    CHECK(watch.Observe(now, false, {}).empty());
+    CHECK(!watch.InSession());
+    now += 100;
+    CHECK(watch.Observe(now, true, {Up(0, "Host"), Up(1, "Ann"), Up(2, "Bo")}).empty());
+    now += 1000;
+    CHECK(watch.Observe(now, true, {Up(0, "Host")}).empty());
+    // Quitting to the menu forgets it all the same, with no frames left to see the session end
+    SettleWatch(watch, now, {Up(0, "Host"), Up(1, "Ann")});
+    watch.Forget();
+    CHECK(!watch.InSession());
+    CHECK(watch.Observe(now, true, {Up(0, "Host")}).empty());
+}
+
+TEST(party_watch_names_a_leaver_after_the_roster_entry_is_gone)
+{
+    coop::PartyWatch watch;
+    uint32_t now = 1000;
+    SettleWatch(watch, now, {Up(1, "Courier"), Up(2, "Bo")});
+    now += 100;
+    watch.Observe(now, true, {Up(1, "Ann"), Up(2, "Bo")});
+    now += 100;
+    auto lines = watch.Observe(now, true, {Up(2, "Bo")});
+    CHECK(lines.size() == 1 && lines[0] == "* Ann left");
+    now += 100;
+    CHECK(watch.Observe(now, true, {Up(2, "Bo")}).empty());
+    // A late packet can bring back a nameless entry: that's nobody joining
+    CHECK(watch.Observe(now, true, {{1, "", false, false}, Up(2, "Bo")}).empty());
+    now += coop::PartyWatch::kJoinNameMs;
+    CHECK(watch.Observe(now, true, {{1, "", false, false}, Up(2, "Bo")}).empty());
+}
+
+TEST(party_watch_uses_the_character_name_in_join_lines)
+{
+    coop::PartyWatch watch;
+    uint32_t now = 1000;
+    SettleWatch(watch, now, {Up(0, "Host")});
+    CHECK(watch.Observe(now, true, {Up(0, "Host"), {3, "SteamName", false, false}}).empty());
+    now += coop::PartyWatch::kJoinNameMs - 1;
+    CHECK(watch.Observe(now, true, {Up(0, "Host"), {3, "Sam", false, false}}).empty());
+    now += 1;
+    auto lines = watch.Observe(now, true, {Up(0, "Host"), {3, "Sam", false, false}});
+    CHECK(lines.size() == 1 && lines[0] == "* Sam joined");
+
+    // Here and gone before the name settled: nobody was told they joined, so nobody is told they left
+    CHECK(watch.Observe(now, true, {Up(0, "Host"), {3, "Sam", false, false}, Up(4, "Quick")}).empty());
+    now += 100;
+    CHECK(watch.Observe(now, true, {Up(0, "Host"), {3, "Sam", false, false}}).empty());
+}
+
+TEST(feed_names_cant_start_tags)
+{
+    CHECK(coop::CleanFeedText("<b>{Sam}&co") == "(b)(Sam)+co");
+    CHECK(coop::CleanFeedText("plain 'name' 100%") == "plain 'name' 100%");
+    CHECK(coop::CleanFeedText("two\nlines") == "two lines");
+    coop::ChatHistory history;
+    history.Add("<Sam>: {hi}");
+    CHECK(history.View().lines[0] == "(Sam): (hi)");
+    coop::EventFeed feed;
+    feed.Add("* <Sam> is down");
+    CHECK(feed.Update(1, false)[0].text == "* (Sam) is down");
+}
+
+TEST(chat_panel_stays_on_the_screen)
+{
+    coop::FeedCorner corner = coop::PlaceFeed(98, 30, 1000, 500, 200, 100, true);
+    CHECK(corner.left == 780 && corner.top == 150);
+    corner = coop::PlaceFeed(70, 30, 1000, 500, 200, 100, true);
+    CHECK(corner.left == 500);
+    corner = coop::PlaceFeed(70, 30, 1000, 500, 200, 100, false);
+    CHECK(corner.left == 700);
+    corner = coop::PlaceFeed(100, 100, 1000, 500, 200, 100, false);
+    CHECK(corner.left == 792 && corner.top == 392);
+    corner = coop::PlaceFeed(0, 0, 1000, 500, 200, 100, true);
+    CHECK(corner.left == 8 && corner.top == 8);
+    corner = coop::PlaceFeed(50, 50, 100, 50, 200, 100, true);
+    CHECK(corner.left == 8 && corner.top == 8);
+}
+
+TEST(chat_panel_fits_its_history_to_its_size_and_width)
+{
+    CHECK(coop::ChatPanelRows(65) == coop::ChatHistory::kRows);
+    CHECK(coop::ChatPanelCharsPerRow(500, 65) == coop::ChatHistory::kCharsPerRow);
+    CHECK(coop::ChatPanelRows(130) == 8);
+    CHECK(coop::ChatPanelCharsPerRow(250, 65) == 24);
+    CHECK(coop::ChatPanelCharsPerRow(500, 130) == 24);
+    CHECK(coop::ChatPanelRows(150) >= 4 && coop::ChatPanelRows(40) <= 24);
+    CHECK(coop::ChatPanelCharsPerRow(200, 150) >= 10);
+
+    coop::ChatHistory history;
+    for (int i = 0; i < 30; ++i)
+        history.Add(std::string(30, 'x'));
+    CHECK(history.View().lines.size() == coop::ChatHistory::kMostShown);
+    history.SetShape(coop::ChatPanelRows(130), coop::ChatPanelCharsPerRow(250, 65));
+    CHECK(history.View().lines.size() == 4);
+    history.Scroll(100000);
+    CHECK(history.View().older == 0 && history.View().lines.size() == 4);
+    history.SetShape(coop::ChatPanelRows(65), coop::ChatPanelCharsPerRow(500, 65));
+    CHECK(history.View().older == 0 && history.View().lines.size() == coop::ChatHistory::kMostShown);
+}
+
+TEST(chat_panel_preview_is_as_big_as_the_panel_gets)
+{
+    auto preview = coop::ChatPanelPreview();
+    CHECK(preview.size() == coop::ChatHistory::kMostShown);
+    CHECK(preview.size() <= coop::kChatPanelMostRows);
+    for (const coop::ChatPanelRow& row : preview)
+        CHECK(row.text == coop::CleanFeedText(row.text) && row.alpha == 1.0f);
 }

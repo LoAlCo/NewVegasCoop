@@ -65,6 +65,70 @@
 #include <vector>
 #include "plugin.h"
 
+    coop::ChatHistory g_chatHistory;
+    coop::EventFeed g_eventFeed;
+    coop::PartyWatch g_partyWatch;
+
+namespace
+{
+    void UpdateChatPanel(uint32_t now)
+    {
+        static bool s_wasTyping = false;
+        bool inGame = g_coop.InGame();
+        if (inGame && !g_partyWatch.InSession())
+            g_chatHistory.Add(g_coop.GetRole() == coop::Role::Host ? "--- Hosting a session ---" : "--- Joined a session ---");
+
+        std::vector<coop::PartyWatch::Member> roster;
+        if (inGame)
+            for (const auto& [id, remote] : g_coop.Remotes())
+                roster.push_back({id, remote.name, remote.maxHealth > 0, remote.Downed()});
+        for (const std::string& line : g_partyWatch.Observe(now, inGame, roster))
+        {
+            LOG_INFO("Event: %s", line.c_str());
+            g_chatHistory.Add(line);
+            if (g_config.eventFeed)
+                g_eventFeed.Add(line);
+        }
+        if (!inGame || !g_config.eventFeed)
+            g_eventFeed.Clear();
+
+        bool typing = game::ChatTyping();
+        int scroll = game::TakeChatScroll();
+        if (typing != s_wasTyping)
+        {
+            g_chatHistory.ResetScroll();
+            scroll = 0;
+        }
+        s_wasTyping = typing;
+
+        bool on = inGame && g_worldLoaded;
+        g_eventFeed.SetLineMs(static_cast<uint32_t>(g_config.feedSeconds) * 1000);
+        std::vector<coop::ChatPanelRow> feed = g_eventFeed.Update(now, on && game::InMenu());
+        g_chatHistory.SetShape(coop::ChatPanelRows(g_config.feedSize),
+            coop::ChatPanelCharsPerRow(g_config.feedWidth, g_config.feedSize));
+        std::vector<coop::ChatPanelRow> rows;
+        if (g_config.feedPreview)
+            rows = coop::ChatPanelPreview();
+        else if (on && typing && g_config.chatHistory)
+        {
+            g_chatHistory.Scroll(scroll);
+            rows = coop::HistoryPanelRows(g_chatHistory.View());
+        }
+        else if (on)
+            rows = std::move(feed);
+        game::ChatPanelLook look;
+        look.xPercent = g_config.feedX;
+        look.yPercent = g_config.feedY;
+        look.width = static_cast<float>(g_config.feedWidth);
+        look.scale = g_config.feedSize / 100.0f;
+        look.alignRight = g_config.feedAlign == 1;
+        look.gap = static_cast<float>(g_config.feedGap);
+        look.style = g_config.feedStyle;
+        look.dividers = g_config.feedDividers;
+        game::ShowChatPanel(rows, look);
+    }
+}
+
     void UpdateChat()
     {
         static bool s_keyWas = false;
@@ -86,6 +150,7 @@
             if (!on || line.empty())
                 continue;
             LOG_INFO("Chat: we say \"%s\"", line.c_str());
+            g_chatHistory.Add(g_coop.NameOf(g_coop.MyPlayerId()) + ": " + line);
             coop::VoiceStyle style{static_cast<uint8_t>(g_config.voice), static_cast<uint8_t>(g_config.voiceVariant),
                 static_cast<int8_t>(g_config.voicePitch), static_cast<int8_t>(g_config.voiceSpeed),
                 static_cast<uint8_t>(g_config.voiceEffect)};
@@ -98,6 +163,7 @@
             LOG_INFO("Chat: %s says \"%s\"", h.name.c_str(), h.text.c_str());
             if (!g_config.chat)
                 continue;
+            g_chatHistory.Add(h.name + ": " + h.text);
             TESObjectREFR* who = g_standIns.Character(h.player);
             if (who && game::DistanceToPlayer(who) < 2500)
                 game::ShowChatAbove(h.player, who, h.text);
@@ -143,6 +209,7 @@
         if (!g_coop.InGame())
             s_downedSince.clear();
         game::ShowFriendMarkers(friends);
+        UpdateChatPanel(now);
     }
 
     void UpdatePings()

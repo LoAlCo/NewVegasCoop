@@ -5,6 +5,7 @@
 #include "coop/given_rounds.h"
 #include "coop/smoothing.h"
 #include "coop/ping.h"
+#include "coop/chat_history.h"
 #include "coop/talk_log.h"
 #include "net/protocol.h"
 
@@ -321,6 +322,17 @@ namespace game
         uint8_t red = 255, green = 255, blue = 255;
     };
     void ShowTalkLog(const std::vector<coop::TalkLog::Shown>& lines, const TalkLogLook& look);
+    // One panel for the party's event lines and, while chat is open, the chat history. No rows hides it.
+    struct ChatPanelLook
+    {
+        int xPercent = 98, yPercent = 45;
+        float width = 500, scale = 0.65f, gap = 6;
+        bool alignRight = true, dividers = true;
+        int style = 1;
+    };
+    void ShowChatPanel(const std::vector<coop::ChatPanelRow>& rows, const ChatPanelLook& look);
+    // Lines to move back through the history (negative is forward) since last asked
+    int TakeChatScroll();
     void SetSpeedMult(TESObjectREFR* actor, int mult);
     float CachedRunSpeed(TESObjectREFR* actor);
     std::vector<std::string> ModAnimFiles(TESObjectREFR* actor);
