@@ -46,8 +46,6 @@ struct Config
     bool showAddress = false;
     bool syncRadio = true;
     bool emotes = true;
-    bool emoteDanceAlong = false;
-    bool emoteJoin = true;
     bool chat = true;
     int chatKey = 21;
     bool chatSpeech = true;

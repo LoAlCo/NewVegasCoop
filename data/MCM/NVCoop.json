@@ -386,47 +386,6 @@
 							"default": 1
 						}
 					]
-				},
-				"32": {
-					"title": "Emotes (Too Many Emotes)",
-					"enable": 1,
-					"type": 0
-				},
-				"33": {
-					"title": "Show Emotes and Songs",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Friends see your Too Many Emotes dances and hear their songs from your character, and you see and hear theirs. Your own Too Many Emotes music switch still decides whether you hear songs. Does nothing without Too Many Emotes",
-					"vars": [
-						{
-							"configINI": "Settings:bEmotes",
-							"default": 1
-						}
-					]
-				},
-				"34": {
-					"title": "Friends Dance Along With You",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Too Many Emotes makes everyone near you dance along. On: friends' characters join in, but only on your screen (they aren't dancing in their own game). Off: only other people dance along",
-					"vars": [
-						{
-							"configINI": "Settings:bEmoteDanceAlong",
-							"default": 0
-						}
-					]
-				},
-				"35": {
-					"title": "Join Friends' Emotes",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Look at a friend who's emoting and press E to dance the same emote with them, in step, at any point of it. Their song keeps playing from them. You don't need to own it in The Disco Shop. Move, press E on them again, or pick an emote of your own to stop",
-					"vars": [
-						{
-							"configINI": "Settings:bEmoteJoin",
-							"default": 1
-						}
-					]
 				}
 			}
 		},
@@ -751,6 +710,31 @@
 						"valueMin": 0,
 						"valueMax": 255
 					}
+				}
+			}
+		},
+		"2": {
+			"listTitle": "Emotes",
+			"pageTitle": "Emotes (Too Many Emotes)",
+			"columns": 1,
+			"enable": 1,
+			"options": {
+				"1": {
+					"title": "Emotes (Too Many Emotes)",
+					"enable": 1,
+					"type": 0
+				},
+				"2": {
+					"title": "Show Emotes and Songs",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Friends see your Too Many Emotes dances and hear their songs from your character, and you see and hear theirs. Look at a friend who's dancing and press E to dance with them, in step. Your own Too Many Emotes music switch still decides whether you hear songs. Does nothing without Too Many Emotes",
+					"vars": [
+						{
+							"configINI": "Settings:bEmotes",
+							"default": 1
+						}
+					]
 				}
 			}
 		}

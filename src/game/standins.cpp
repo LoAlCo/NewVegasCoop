@@ -372,7 +372,8 @@ namespace game
             }
         }
 
-        if (!m_danceAlong && !coop.MyEmote().path.empty() && coop::IsDue(now, e.nextDanceCheckAt))
+        // the mod makes everyone near you dance along, but friends' characters aren't dancing in their own games
+        if (!coop.MyEmote().path.empty() && coop::IsDue(now, e.nextDanceCheckAt))
         {
             e.nextDanceCheckAt = now + kDanceCheckMs;
             if (LeaveEmoteDance(e.ref))
