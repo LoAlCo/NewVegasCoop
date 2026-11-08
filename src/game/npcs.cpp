@@ -339,9 +339,9 @@ namespace game
         {
             m_nextHoldLook = now + kHoldLookEveryMs;
             NearbyActors(m_nearby);
-            std::vector<uint32_t> team;
-            if (m_spareOwnCompanions)
-                team = Teammates();
+            // Our own companions are never held, whatever the host's Visitors' Companions setting: they follow us
+            // through loads and doors, and holding one in place while that happens crashes the game.
+            std::vector<uint32_t> team = Teammates();
             std::vector<coop::LocalActor> nearby;
             nearby.reserve(m_nearby.size());
             for (TESObjectREFR* actor : m_nearby)
