@@ -81,6 +81,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bSyncRadio", syncRadio);
         Write(path, "bEmotes", emotes);
         Write(path, "bEmoteDanceAlong", emoteDanceAlong);
+        Write(path, "bEmoteJoin", emoteJoin);
         Write(path, "bDesyncNotices", desyncNotices);
         Write(path, "iFieldOfView", fieldOfView);
         Write(path, "bFriendMarkers", friendMarkers);
@@ -139,6 +140,7 @@ void Config::LoadPlayer(const std::string& path)
     syncRadio = flag("bSyncRadio", syncRadio);
     emotes = flag("bEmotes", emotes);
     emoteDanceAlong = flag("bEmoteDanceAlong", emoteDanceAlong);
+    emoteJoin = flag("bEmoteJoin", emoteJoin);
     desyncNotices = flag("bDesyncNotices", desyncNotices);
     fieldOfView = number("iFieldOfView", fieldOfView, 0, 120);
     friendMarkers = flag("bFriendMarkers", friendMarkers);

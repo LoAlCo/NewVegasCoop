@@ -19,6 +19,7 @@ namespace game
         Script* g_emoteSongPlaying = nullptr;
         Script* g_emoteSongStop = nullptr;
         Script* g_emoteNoDance = nullptr;
+        Script* g_emoteJoin = nullptr;
 
         bool ModLoaded(const char* file)
         {
@@ -111,6 +112,56 @@ namespace game
             "    let i += 1\n"
             "  loop\n"
             "End\n");
+        // Join a friend's emote: find it in the mod's list of every emote (TMEVars.wfAll; owning it isn't needed) and hand
+        // it to the mod's wheel as if it had just been picked, so the mod plays it, its song, and stops it as usual.
+        // Joining one already in its loop part starts straight on the loop and its song (the intro is left out).
+        // Not while the wheel is open (it's using its list).
+        g_emoteJoin = Compile("Too Many Emotes: join an emote",
+            "string_var sPath\n"
+            "string_var sIn\n"
+            "string_var sLoop\n"
+            "array_var aAll\n"
+            "array_var aE\n"
+            "array_var aGo\n"
+            "ref rNone\n"
+            "int i\n"
+            "int n\n"
+            "int iHow\n"
+            "Begin Function {sPath}\n"
+            "  if TMEWheel.wfOpen\n"
+            "    return\n"
+            "  endif\n"
+            "  let aAll := TMEVars.wfAll\n"
+            "  let n := ar_Size aAll\n"
+            "  while i < n\n"
+            "    let aE := aAll[i]\n"
+            "    let sIn := aE[1]\n"
+            "    let sLoop := aE[2]\n"
+            "    set iHow to 0\n"
+            "    if eval (sPath == sIn)\n"
+            "      set iHow to 1\n"
+            "    elseif eval (sv_Length sLoop) > 0\n"
+            "      if eval (sPath == sLoop)\n"
+            "        set iHow to 2\n"
+            "      endif\n"
+            "    endif\n"
+            "    if iHow\n"
+            "      let aGo := ar_Copy aE\n"
+            "      if iHow == 2\n"
+            "        let aGo[1] := sLoop\n"
+            "        let aGo[3] := 0\n"
+            "        let aGo[4] := aE[5]\n"
+            "        let aGo[5] := rNone\n"
+            "      endif\n"
+            "      let TMEWheel.wfData := ar_List aGo\n"
+            "      set TMEWheel.wfIdx to 0\n"
+            "      set TMEWheel.wfGo to 1\n"
+            "      SetFunctionValue iHow\n"
+            "      return\n"
+            "    endif\n"
+            "    let i += 1\n"
+            "  loop\n"
+            "End\n");
         if (!g_emoteNow)
             LOG_ERROR("Emotes: Too Many Emotes is loaded but its emotes can't be read, so they won't show for friends");
         else
@@ -167,6 +218,17 @@ namespace game
         TESForm* form = SongForm(song);
         if (EmotesReady() && g_emoteSongStop && from && form)
             g_scripts->CallFunctionAlt(g_emoteSongStop, from, 2, form, from);
+    }
+
+    int JoinEmote(const std::string& path)
+    {
+        std::string file = _strnicmp(path.c_str(), "meshes\\", 7) == 0 ? path.substr(7) : path;
+        NVSEArrayVarInterface::Element result;
+        TESObjectREFR* me = Player();
+        if (!EmotesReady() || !g_emoteJoin || !me || file.empty() ||
+            !g_scripts->CallFunction(g_emoteJoin, me, nullptr, &result, 1, file.c_str()))
+            return 0;
+        return static_cast<int>(result.GetNumber());
     }
 
     bool LeaveEmoteDance(TESObjectREFR* who)

@@ -322,6 +322,8 @@ namespace game
     bool EmoteSongPlaying(TESObjectREFR* from, uint32_t song);
     void StopEmoteSong(TESObjectREFR* from, uint32_t song);
     bool LeaveEmoteDance(TESObjectREFR* who);
+    // 0: couldn't (not one of the mod's emotes, or its wheel is open); 1: from the start; 2: straight into its loop
+    int JoinEmote(const std::string& path);
     float DistanceToPlayer(const TESObjectREFR* ref);
     bool InLoadingScreen();
 
