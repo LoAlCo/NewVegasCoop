@@ -196,6 +196,41 @@
         return true;
     }
 
+    // Too Many Emotes: looking at a friend who's emoting shows "[E] Join Emote"; pressing E starts the same emote here.
+    bool g_joinKeyWas = false;
+
+    bool UpdateJoinEmote()
+    {
+        bool key = game::IsControlPressed(game::layout::kControlActivate), pressed = key && !g_joinKeyWas;
+        g_joinKeyWas = key;
+        if (!g_config.emotes || !g_config.emoteJoin || !game::EmotesReady())
+            return false;
+        TESObjectREFR* aimed = game::CrosshairRef();
+        if (!aimed)
+            return false;
+        for (auto& [id, emote] : g_coop.Emotes())
+        {
+            if (g_standIns.Character(id) != aimed)
+                continue;
+            const auto remote = g_coop.Remotes().find(id);
+            if (remote == g_coop.Remotes().end() || remote->second.Downed())
+                return false;
+            bool same = !g_coop.MyEmote().path.empty() && g_coop.MyEmote().path == emote.path;
+            g_reviveHint = same ? "Dancing with " + remote->second.name : "[E] Join Emote (" + remote->second.name + ")";
+            if (pressed && !same)
+            {
+                int how = game::JoinEmote(emote.path);
+                LOG_INFO("Emotes: joining %s's emote %s: %s", remote->second.name.c_str(), emote.path.c_str(),
+                    how == 2 ? "straight into its loop" : how == 1 ? "from the start" : "couldn't (the wheel is open, "
+                    "or it isn't in Too Many Emotes' list)");
+                if (!how)
+                    game::Notify("Couldn't join that emote");
+            }
+            return true;
+        }
+        return false;
+    }
+
     const std::string kDownedAnim = "Characters\\_Male\\IdleAnims\\dlcpittlayingonfloorinpain.kf";
 
     void SetDowned(bool down, uint32_t now)
@@ -387,6 +422,11 @@
             g_reviveHint = "Dragging " + g_coop.NameOf(static_cast<uint8_t>(dragging)) + ": Z to let go";
         else if (target >= 0)
             g_reviveHint = "Hold E to revive " + name + ", Z to drag";
+        if (dragging < 0 && target < 0 && UpdateJoinEmote())
+        {
+            g_reviving = g_healing = -1;
+            return;
+        }
         if (dragging < 0 && target < 0 && UpdateHealAlly(now, player))
         {
             g_reviving = -1;

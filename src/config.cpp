@@ -88,6 +88,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bSyncWeather", syncWeather);
         Write(path, "bEmotes", emotes);
         Write(path, "bEmoteDanceAlong", emoteDanceAlong);
+        Write(path, "bEmoteJoin", emoteJoin);
         Write(path, "bDesyncNotices", desyncNotices);
         Write(path, "bShotPaths", shotPaths);
         Write(path, "bGifts", gifts);
@@ -171,6 +172,7 @@ void Config::LoadPlayer(const std::string& path)
     syncWeather = flag("bSyncWeather", syncWeather);
     emotes = flag("bEmotes", emotes);
     emoteDanceAlong = flag("bEmoteDanceAlong", emoteDanceAlong);
+    emoteJoin = flag("bEmoteJoin", emoteJoin);
     desyncNotices = flag("bDesyncNotices", desyncNotices);
     shotPaths = flag("bShotPaths", shotPaths);
     gifts = flag("bGifts", gifts);

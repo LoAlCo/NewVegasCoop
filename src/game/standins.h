@@ -58,6 +58,7 @@ namespace game
             uint32_t nextLooksAt = 0;
             coop::FaceTone face;
             coop::FriendLight light;
+            bool emoting = false;
             uint32_t song = 0;
             uint32_t nextSongCheckAt = 0;
             uint32_t nextDanceCheckAt = 0;
