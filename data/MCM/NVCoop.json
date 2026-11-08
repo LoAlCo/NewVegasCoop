@@ -749,6 +749,18 @@
 					]
 				},
 				"4": {
+					"title": "Show New Messages",
+					"type": 5,
+					"enable": 1,
+					"mouse": "A friend's chat message shows in the panel for a few seconds without you opening chat",
+					"vars": [
+						{
+							"configINI": "Settings:bChatPopup",
+							"default": 1
+						}
+					]
+				},
+				"5": {
 					"title": "Preview",
 					"type": 5,
 					"enable": 1,
@@ -760,11 +772,11 @@
 						}
 					]
 				},
-				"5": {
+				"6": {
 					"title": "Seconds",
 					"type": 2,
 					"enable": 1,
-					"mouse": "How long party event lines stay on screen",
+					"mouse": "How long party event and new message lines stay on screen. Long messages stay a little longer",
 					"vars": [
 						{
 							"configINI": "Settings:iFeedSeconds",
@@ -779,12 +791,12 @@
 						"suffix": " s"
 					}
 				},
-				"6": {
+				"7": {
 					"title": "Position",
 					"enable": 1,
 					"type": 0
 				},
-				"7": {
+				"8": {
 					"title": "Horizontal Position",
 					"type": 2,
 					"enable": 1,
@@ -803,7 +815,7 @@
 						"suffix": "%"
 					}
 				},
-				"8": {
+				"9": {
 					"title": "Vertical Position",
 					"type": 2,
 					"enable": 1,
@@ -822,7 +834,7 @@
 						"suffix": "%"
 					}
 				},
-				"9": {
+				"10": {
 					"title": "Width",
 					"type": 2,
 					"enable": 1,
@@ -840,7 +852,7 @@
 						"valueMax": 1200
 					}
 				},
-				"10": {
+				"11": {
 					"title": "Alignment",
 					"type": 1,
 					"enable": 1,
@@ -856,12 +868,12 @@
 						"Right"
 					]
 				},
-				"11": {
+				"12": {
 					"title": "Look",
 					"enable": 1,
 					"type": 0
 				},
-				"12": {
+				"13": {
 					"title": "Text Size",
 					"type": 2,
 					"enable": 1,
@@ -880,7 +892,7 @@
 						"suffix": "%"
 					}
 				},
-				"13": {
+				"14": {
 					"title": "Spacing",
 					"type": 2,
 					"enable": 1,
@@ -898,7 +910,7 @@
 						"valueMax": 40
 					}
 				},
-				"14": {
+				"15": {
 					"title": "Readability",
 					"type": 1,
 					"enable": 1,
@@ -916,7 +928,7 @@
 						"Dark Bar"
 					]
 				},
-				"15": {
+				"16": {
 					"title": "Dividers",
 					"type": 5,
 					"enable": 1,

@@ -102,6 +102,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iTalkLogBlue", talkLogBlue);
         Write(path, "bEventFeed", eventFeed);
         Write(path, "bChatHistory", chatHistory);
+        Write(path, "bChatPopup", chatPopup);
         Write(path, "iFeedX", feedX);
         Write(path, "iFeedY", feedY);
         Write(path, "iFeedWidth", feedWidth);
@@ -170,6 +171,7 @@ void Config::LoadPlayer(const std::string& path)
     talkLogBlue = number("iTalkLogBlue", talkLogBlue, 0, 255);
     eventFeed = flag("bEventFeed", eventFeed);
     chatHistory = flag("bChatHistory", chatHistory);
+    chatPopup = flag("bChatPopup", chatPopup);
     feedX = number("iFeedX", feedX, 0, 100);
     feedY = number("iFeedY", feedY, 0, 100);
     feedWidth = number("iFeedWidth", feedWidth, 200, 1200);

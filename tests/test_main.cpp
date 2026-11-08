@@ -6620,6 +6620,36 @@ TEST(event_feed_drops_old_lines_and_waits_in_menus)
     CHECK(feed.Update(aboutToWrap + 9000, false).empty());
 }
 
+TEST(chat_popup_stays_long_enough_to_read)
+{
+    CHECK(coop::ChatPopupMs(0) == 4000);
+    CHECK(coop::ChatPopupMs(20) == 5400);
+    CHECK(coop::ChatPopupMs(160) == 12000);
+    CHECK(coop::ChatPopupMs(100000) == 12000);
+
+    // A short message keeps the setting's time; a long one gets longer, and only that line does
+    coop::EventFeed feed;
+    feed.SetLineMs(5000);
+    feed.Update(0, false);
+    feed.Add("Sam: hi", coop::ChatPopupMs(2));
+    feed.Add("* Sam is down");
+    feed.Add("Sam: " + std::string(160, 'a'), coop::ChatPopupMs(160));
+    CHECK(feed.Update(5500, false).size() == 1);
+    CHECK(feed.Update(11000, false).size() == 1);
+    CHECK(feed.Update(12000, false).empty());
+
+    // A setting longer than the message's own time wins
+    feed.SetLineMs(30000);
+    feed.Add("Sam: ok", coop::ChatPopupMs(2));
+    CHECK(feed.Update(40000, false).size() == 1);
+    CHECK(feed.Update(42001, false).empty());
+
+    // The panel's text can't be broken by what a friend types
+    feed.Add("Sam: <b>{x}</b> & more");
+    auto shown = feed.Update(42001, false);
+    CHECK(shown.size() == 1 && shown[0].text == "Sam: (b)(x)(/b) + more");
+}
+
 namespace
 {
     using Roster = std::vector<coop::PartyWatch::Member>;

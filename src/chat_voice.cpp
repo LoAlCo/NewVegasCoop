@@ -89,7 +89,7 @@ namespace
             if (g_config.eventFeed)
                 g_eventFeed.Add(line);
         }
-        if (!inGame || !g_config.eventFeed)
+        if (!inGame || (!g_config.eventFeed && !g_config.chatPopup))
             g_eventFeed.Clear();
 
         bool typing = game::ChatTyping();
@@ -163,10 +163,13 @@ namespace
             if (!g_config.chat)
                 continue;
             g_chatHistory.Add(h.name + ": " + h.text);
+            // The panel shows it whether or not chat is open, so the corner notification would only say it twice
+            if (g_config.chatPopup)
+                g_eventFeed.Add(h.name + ": " + h.text, coop::ChatPopupMs(h.text.size()));
             TESObjectREFR* who = g_standIns.Character(h.player);
             if (who && game::DistanceToPlayer(who) < 2500)
                 game::ShowChatAbove(h.player, who, h.text);
-            else
+            else if (!g_config.chatPopup)
                 game::Notify((h.name + ": " + h.text).c_str(), 6);
             coop::Pose me, them;
             if (g_config.chatSpeech && who && game::GetPose(game::Player(), me) && game::GetPose(who, them) &&
