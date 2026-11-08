@@ -24,6 +24,7 @@
 #include "coop/talk_log.h"
 #include "config.h"
 #include "coop/item_stacks.h"
+#include "coop/made_copies.h"
 #include "coop/gear_lockers.h"
 #include "coop/given_rounds.h"
 #include "coop/holds.h"
@@ -6907,4 +6908,55 @@ TEST(a_window_off_screen_comes_back_and_copies_keep_apart)
     // A window bigger than the screen starts from its corner, and no screen info means no move
     CHECK(same(display::PickWindowSpot(Box{50, 50, 2610, 1490}, one, {}), Box{0, 0, 2560, 1440}));
     CHECK(same(display::PickWindowSpot(lost, {}, {}), lost));
+}
+
+TEST(copies_a_load_moved_are_counted_and_checked_for_life)
+{
+    int weapon, teleporter, other;
+    coop::MadeCopies copies;
+    copies.Note(0xFF000001, &weapon);
+    copies.Note(0xFF000002, &teleporter);
+    copies.Forget();
+    auto moved = copies.TakeMoved([&](uint32_t id) -> void* { return id == 0xFF000001 ? nullptr : &other; },
+        [&](const void* at) { return at == &weapon; });
+    CHECK(moved.moved == 2);
+    CHECK(moved.alive == 1);
+    CHECK(moved.forgotten == 2);
+    moved = copies.TakeMoved([](uint32_t) -> void* { return nullptr; }, [](const void*) { return true; });
+    CHECK(moved.moved == 0);
+    CHECK(moved.forgotten == 0);
+}
+
+TEST(copies_a_load_left_at_their_ids_arent_moved_or_read)
+{
+    int weapon;
+    coop::MadeCopies copies;
+    copies.Note(0xFF000001, &weapon);
+    copies.Forget();
+    bool read = false;
+    auto moved = copies.TakeMoved([&](uint32_t) -> void* { return &weapon; },
+        [&](const void*) { read = true; return true; });
+    CHECK(moved.moved == 0);
+    CHECK(moved.alive == 0);
+    CHECK(moved.forgotten == 1);
+    CHECK(!read);
+}
+
+TEST(copies_are_only_counted_once_forgotten_and_only_once)
+{
+    int first, second;
+    auto nowhere = [](uint32_t) -> void* { return nullptr; };
+    auto dead = [](const void*) { return false; };
+    coop::MadeCopies copies;
+    copies.Note(0xFF000001, &first);
+    auto moved = copies.TakeMoved(nowhere, dead);
+    CHECK(moved.forgotten == 0);
+    copies.Forget();
+    copies.Forget();
+    copies.Note(0xFF000002, &second);
+    moved = copies.TakeMoved(nowhere, dead);
+    CHECK(moved.forgotten == 1);
+    copies.Forget();
+    moved = copies.TakeMoved(nowhere, dead);
+    CHECK(moved.forgotten == 1);
 }

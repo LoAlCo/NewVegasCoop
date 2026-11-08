@@ -2525,6 +2525,7 @@ namespace
             g_loadingSave = msg->type == NVSEMessagingInterface::kMessage_PreLoadGame;
             g_worldLoaded = false;
             game::ForgetHolds();
+            game::ForgetMadeCopies();
             game::LetGoOfFarCells();
             g_gameOver = false;
             g_standIns.Forget();
@@ -2578,6 +2579,8 @@ namespace
                 }
             }
             g_loadingSave = false;
+            game::ReportForgottenCopies();
+            g_companions.ForgetPackages();
             OnWorldLoaded();
             break;
         case NVSEMessagingInterface::kMessage_NewGame:
