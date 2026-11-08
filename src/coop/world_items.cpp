@@ -75,6 +75,24 @@ namespace coop
         m_started = false;
     }
 
+    uint32_t FriendItems::OurRefOf(uint32_t hostRef) const
+    {
+        auto it = m_copies.find(hostRef);
+        if (it != m_copies.end())
+            return it->second;
+        return net::IsMadeWhilePlaying(hostRef) ? 0 : hostRef;
+    }
+
+    uint32_t FriendItems::HostRefOf(uint32_t ourRef) const
+    {
+        if (!ourRef)
+            return 0;
+        for (const auto& [hostRef, ours] : m_copies)
+            if (ours == ourRef)
+                return hostRef;
+        return net::IsMadeWhilePlaying(ourRef) ? 0 : ourRef;
+    }
+
     ItemActions FriendItems::Look(const std::vector<LocalItem>& local, bool sameArea, uint32_t now)
     {
         ItemActions out;

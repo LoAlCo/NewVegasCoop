@@ -6,10 +6,12 @@
   game saves a few seconds after a gift so it can't be lost. The Mod Configuration Menu has a switch for each: Gifts
   (off: you can't send, and gifts sent to you go back to the sender) and Save After A Gift.
 - When the host's game refuses a save a friend asked for, it now tries again, as friends' games already did.
-- New: pings. Press G (change it, turn it off, or pick the sound, range and icons in the Mod Configuration Menu) to mark the spot you're
+- New: pings. Press G (change it, turn it off, or pick the sound, range, icons and what it recognises in the Mod Configuration Menu) to mark the spot you're
   aiming at. Players near you see an icon, your name and how far away it is, for 15 seconds, at the edge of the screen
   if it's out of view. Containers and items show a loot icon and their name, workbenches and the like a utility icon.
-  If you aim at nothing, it says "Over here" where you stand.
+  If you aim at nothing, it says "Over here" where you stand. Ping a character and the icon sits over their head and
+  follows them: a skull for enemies, a person for anyone else, including your friends. A body shows the loot icon.
+  A ping on loot stays on it if it's knocked, thrown or carried away.
 
 ## 0.1.11
 - Everyone needs 0.1.11 to play together.

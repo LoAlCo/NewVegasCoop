@@ -4070,7 +4070,7 @@ TEST(a_ping_says_what_kind_of_thing_it_marks)
     CHECK(is(ClassifyPing(PingThing::Device, ""), PingKind::Spot, "Marked spot"));
     CHECK(ClassifyPing(PingThing::Loot, std::string(200, 'x')).name.size() == coop::kMaxPingThingName);
 
-    for (PingKind kind : {PingKind::Spot, PingKind::Loot, PingKind::Utility})
+    for (PingKind kind : {PingKind::Spot, PingKind::Loot, PingKind::Utility, PingKind::Enemy, PingKind::Person, PingKind::Friend})
     {
         net::Ping sent;
         sent.kind = kind;
@@ -4099,6 +4099,108 @@ TEST(recognising_objects_can_be_turned_off)
     CHECK(ChosenPingThing(PingThing::Nothing, false) == PingThing::Nothing);
     CHECK(coop::ClassifyPing(ChosenPingThing(PingThing::Loot, false), "Ammo Box").kind == net::PingKind::Spot);
     CHECK(coop::ClassifyPing(ChosenPingThing(PingThing::Loot, false), "Ammo Box").name == "Marked spot");
+}
+
+TEST(pinging_characters_can_be_turned_off)
+{
+    using coop::ChosenPingThing;
+    using coop::PingThing;
+    CHECK(ChosenPingThing(PingThing::Actor, true, true) == PingThing::Actor);
+    CHECK(ChosenPingThing(PingThing::Actor, false, true) == PingThing::Actor);
+    CHECK(ChosenPingThing(PingThing::Actor, true, false) == PingThing::Scenery);
+    CHECK(ChosenPingThing(PingThing::Loot, true, false) == PingThing::Loot);
+    CHECK(ChosenPingThing(PingThing::Nothing, false, false) == PingThing::Nothing);
+}
+
+TEST(a_character_ping_says_who_and_follows_the_host_ref)
+{
+    using coop::ClassifyCharacterPing;
+    using coop::PingCharacter;
+    using net::PingKind;
+    auto aim = [](std::string name, int player, uint32_t hostRef, bool dead, bool hostile) {
+        PingCharacter c;
+        c.name = name;
+        c.player = player;
+        c.hostRef = hostRef;
+        c.dead = dead;
+        c.hostile = hostile;
+        return ClassifyCharacterPing(c);
+    };
+    coop::PingAim a = aim("Powder Ganger", -1, 0x0010ABCD, false, true);
+    CHECK(a.kind == PingKind::Enemy && a.name == "Powder Ganger" && a.target == 0x0010ABCD);
+    a = aim("Sunny Smiles", -1, 0x0010BEEF, false, false);
+    CHECK(a.kind == PingKind::Person && a.name == "Sunny Smiles" && a.target == 0x0010BEEF);
+    a = aim("Powder Ganger", -1, 0x0010ABCD, true, true);
+    CHECK(a.kind == PingKind::Loot && a.name == "Powder Ganger (dead)" && a.target == 0x0010ABCD);
+    a = aim("", -1, 0x5, true, false);
+    CHECK(a.kind == PingKind::Loot && a.name == "Body");
+    a = aim("", -1, 0x5, false, true);
+    CHECK(a.kind == PingKind::Enemy && a.name == "Enemy");
+    a = aim("", -1, 0x5, false, false);
+    CHECK(a.kind == PingKind::Person && a.name == "Someone");
+    // Another player: followed by their ID, never called an enemy or a body.
+    a = aim("Ann", 0, 0x00000014, true, true);
+    CHECK(a.kind == PingKind::Friend && a.name == "Ann" && a.target == 0);
+    a = aim("Bob", 3, 0, false, false);
+    CHECK(a.kind == PingKind::Friend && a.target == 3);
+    // A character only the sender has: no target, so it marks where they stood.
+    a = aim("Raider", -1, 0, false, true);
+    CHECK(a.kind == PingKind::Enemy && a.target == 0);
+    CHECK(aim(std::string(200, 'x'), -1, 1, true, false).name.size() == coop::kMaxPingThingName);
+
+    MsgType t;
+    for (PingKind kind : {PingKind::Enemy, PingKind::Person, PingKind::Loot, PingKind::Friend})
+    {
+        net::Ping sent;
+        sent.kind = kind;
+        sent.space = 7;
+        sent.target = kind == PingKind::Friend ? 3 : 0x0010ABCD;
+        sent.name = "Powder Ganger";
+        Bytes b = Encode(sent);
+        Reader r(b);
+        net::Ping got;
+        CHECK(r.Type(t) && Decode(r, got) && got.kind == kind && got.target == sent.target);
+    }
+    net::Ping badFriend;
+    badFriend.kind = PingKind::Friend;
+    badFriend.space = 7;
+    badFriend.target = 256;
+    badFriend.name = "Ann";
+    Bytes b = Encode(badFriend);
+    Reader r(b);
+    net::Ping got;
+    CHECK(r.Type(t) && !Decode(r, got));
+
+    coop::PingBoard board;
+    board.Add(1, "Ann", "Powder Ganger", 10, 20, 30, 1000, static_cast<uint8_t>(PingKind::Enemy), 0x0010ABCD);
+    CHECK(board.Slots()[0].target == 0x0010ABCD);
+    board.Follow(0, 110, 220, 330);
+    CHECK(board.Slots()[0].x == 110 && board.Slots()[0].y == 220 && board.Slots()[0].z == 330);
+    CHECK(board.Slots()[0].until == 1000 + coop::kPingLifeMs);
+}
+
+TEST(a_loot_ping_follows_the_item_on_every_screen)
+{
+    using net::PingKind;
+    CHECK(coop::PingItemTarget(PingKind::Loot, 0x172217, true) == 0x172217);
+    CHECK(coop::PingItemTarget(PingKind::Loot, 0x172217, false) == 0);
+    CHECK(coop::PingItemTarget(PingKind::Utility, 0x172217, true) == 0);
+    CHECK(coop::PingItemTarget(PingKind::Spot, 0x172217, true) == 0);
+    CHECK(coop::PingItemTarget(PingKind::Loot, 0, true) == 0);
+
+    coop::FriendItems items;
+    // An item from the game's data is the same ref on every screen.
+    CHECK(items.OurRefOf(0x172217) == 0x172217 && items.HostRefOf(0x172217) == 0x172217);
+    // One the host made while playing only matches through our copy of it.
+    CHECK(items.OurRefOf(0xFF00131C) == 0);
+    items.Heard({0xFF00131C, 0x15169, 2, true, 100, 0, 0});
+    items.Look({});
+    CHECK(items.OurRefOf(0xFF00131C) == 0);
+    items.Made(0xFF00131C, 0xFF000200);
+    CHECK(items.OurRefOf(0xFF00131C) == 0xFF000200);
+    CHECK(items.HostRefOf(0xFF000200) == 0xFF00131C);
+    // One only we made has nothing on the host's side to follow.
+    CHECK(items.HostRefOf(0xFF000999) == 0 && items.HostRefOf(0) == 0);
 }
 
 TEST(ping_gate_allows_one_a_second)

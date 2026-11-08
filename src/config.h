@@ -88,6 +88,8 @@ struct Config
     int pingRadius = 8000;
     int pingIcons = 1;
     bool pingObjects = true;
+    bool pingCharacters = true;
+    bool pingFollowItems = true;
     bool mouths = true;
     bool skipDlcPopups = true;
     bool farCells = true;

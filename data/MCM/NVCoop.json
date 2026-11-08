@@ -565,11 +565,35 @@
 					]
 				},
 				"46": {
+					"title": "Ping Characters",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Pinging someone puts an icon over their head that follows them: a skull for enemies, a person for anyone else. Off: it's a plain marked spot",
+					"vars": [
+						{
+							"configINI": "Settings:bPingCharacters",
+							"default": 1
+						}
+					]
+				},
+				"47": {
+					"title": "Ping Follows Items",
+					"type": 5,
+					"enable": 1,
+					"mouse": "A ping on loot, such as a weapon or a Stimpak, stays on it if it's knocked, thrown or carried away. Off: it stays where the item was",
+					"vars": [
+						{
+							"configINI": "Settings:bPingFollowItems",
+							"default": 1
+						}
+					]
+				},
+				"48": {
 					"title": "Emotes (Too Many Emotes)",
 					"enable": 1,
 					"type": 0
 				},
-				"47": {
+				"49": {
 					"title": "Show Emotes and Songs",
 					"type": 5,
 					"enable": 1,
@@ -581,7 +605,7 @@
 						}
 					]
 				},
-				"48": {
+				"50": {
 					"title": "Friends Dance Along With You",
 					"type": 5,
 					"enable": 1,
@@ -593,7 +617,7 @@
 						}
 					]
 				},
-				"49": {
+				"51": {
 					"title": "Join Friends' Emotes",
 					"type": 5,
 					"enable": 1,
@@ -605,12 +629,12 @@
 						}
 					]
 				},
-				"50": {
+				"52": {
 					"title": "Testing",
 					"enable": 1,
 					"type": 0
 				},
-				"51": {
+				"53": {
 					"title": "Your Shots Fly the Same Path for Friends",
 					"type": 5,
 					"enable": 1,
