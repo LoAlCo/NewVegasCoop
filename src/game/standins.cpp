@@ -27,6 +27,7 @@ namespace game
         constexpr uint32_t kSongCheckMs = 500;
         constexpr uint32_t kSongStartMs = 1000;
         constexpr uint32_t kDanceCheckMs = 250;
+        constexpr float kEmoteDrift = 64;
     }
 
     void StandIns::Update(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, bool cutscene)
@@ -277,8 +278,12 @@ namespace game
     {
         auto it = coop.Anims().find(id);
         std::string want = e.downed ? kDownedAnim : it != coop.Anims().end() ? it->second : std::string();
-        if (auto emote = coop.Emotes().find(id); want.empty() && m_showEmotes && emote != coop.Emotes().end())
-            want = emote->second.path;
+        bool emote = false;
+        if (auto it2 = coop.Emotes().find(id); want.empty() && m_showEmotes && it2 != coop.Emotes().end())
+        {
+            want = it2->second.path;
+            emote = true;
+        }
         if (want != e.anim)
         {
             if (!e.anim.empty())
@@ -286,9 +291,12 @@ namespace game
             if (!want.empty())
             {
                 e.puppet.Release(e.ref);
-                Move(e.ref, pose);
+                // from an emote's intro to its loop, the character stays as the dance left it
+                if (!(emote && e.emoting))
+                    Move(e.ref, pose);
                 PlayAnimFile(e.ref, want);
             }
+            e.emoting = emote && !want.empty();
             LOG_INFO("%s's character %s %s", coop.NameOf(id).c_str(), want.empty() ? "stops" : "plays",
                 want.empty() ? e.anim.c_str() : want.c_str());
             e.anim = want;
@@ -307,7 +315,20 @@ namespace game
         if (!e.anim.empty() && coop::IsDue(now, e.nextHoldAt))
         {
             e.nextHoldAt = now + kHoldSeatedMs;
-            Move(e.ref, pose);
+            coop::Pose at;
+            if (!e.emoting)
+                Move(e.ref, pose);
+            else if (!GetPose(e.ref, at) || at.space != pose.space ||
+                std::hypot(at.x - pose.x, at.y - pose.y) > kEmoteDrift || std::fabs(at.z - pose.z) > kEmoteDrift)
+            {
+                // A dance that turns the body would fight the player's facing being put back every 100 ms (the
+                // twitch), so while emoting the character keeps the dance's own turn and is only put back in place
+                // if it ends up somewhere else.
+                coop::Pose to = pose;
+                if (at.space == pose.space)
+                    to.heading = at.heading;
+                Move(e.ref, to);
+            }
         }
         return !e.anim.empty();
     }
