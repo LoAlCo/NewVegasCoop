@@ -214,6 +214,7 @@ namespace game
     void SetActorAlpha(TESObjectREFR* actor, float alpha);
     bool PipBoyLightOn(TESObjectREFR* actor);
     void SetPipBoyLight(TESObjectREFR* actor, bool on);
+    void AddPipBoyLight(TESObjectREFR* actor);
     uint8_t PlayerDisabledControls();
     TESObjectREFR* SitInNearestChair(TESObjectREFR* actor);
     uint32_t PlayedIdle(TESObjectREFR* ref);

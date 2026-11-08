@@ -4127,6 +4127,13 @@ namespace game
             g_scripts->CallFunctionAlt(g_addSpell, actor, 1, spell);
     }
 
+    void AddPipBoyLight(TESObjectREFR* actor)
+    {
+        TESForm* spell = LookupForm(kPipBoyLightSpell);
+        if (g_compiled && g_addSpell && spell && IsActor(actor))
+            g_scripts->CallFunctionAlt(g_addSpell, actor, 1, spell);
+    }
+
     uint8_t PlayerDisabledControls()
     {
         const void* player = Player();

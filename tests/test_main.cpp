@@ -437,6 +437,33 @@ TEST(friends_light_turns_on_off_and_is_checked)
     CHECK(wrap.Next(true, 0xFFFFFFFFu) == L::Step::Nothing && wrap.Next(true, 1) == L::Step::Check);
 }
 
+TEST(friends_light_isnt_blinked_for_one_missed_look)
+{
+    using L = coop::FriendLight;
+    L light;
+    CHECK(light.Next(true, 1000) == L::Step::TurnOn);
+    CHECK(light.Next(true, 3000) == L::Step::Check);
+    CHECK(light.Checked(true, 3000) == L::Fix::Nothing);
+    CHECK(light.Next(true, 5000) == L::Step::Check);
+    CHECK(light.Checked(false, 5000) == L::Fix::Nothing);
+    CHECK(light.Next(true, 5000 + L::kRecheckMs - 1) == L::Step::Nothing);
+    CHECK(light.Next(true, 5000 + L::kRecheckMs) == L::Step::Check);
+    CHECK(light.Checked(true, 5500) == L::Fix::Nothing);
+    CHECK(light.Next(true, 7500) == L::Step::Check);
+    CHECK(light.Checked(false, 7500) == L::Fix::Nothing);
+    CHECK(light.Next(true, 8000) == L::Step::Check);
+    CHECK(light.Checked(false, 8000) == L::Fix::Add);
+    CHECK(light.Next(true, 9999) == L::Step::Nothing);
+    CHECK(light.Next(true, 10000) == L::Step::Check);
+    CHECK(light.Checked(false, 10000) == L::Fix::Redo);
+    CHECK(light.Next(true, 12000) == L::Step::Check);
+    CHECK(light.Checked(false, 12000) == L::Fix::Nothing);
+    CHECK(light.Next(false, 12100) == L::Step::TurnOff);
+    CHECK(light.Next(true, 12200) == L::Step::TurnOn);
+    CHECK(light.Next(true, 14200) == L::Step::Check);
+    CHECK(light.Checked(false, 14200) == L::Fix::Nothing);
+}
+
 TEST(friends_lights_setting_is_read)
 {
     std::string path = (std::filesystem::temp_directory_path() / ("nvcoop_test_lights-" + std::to_string(GetCurrentProcessId()) + ".ini")).string();
