@@ -97,6 +97,10 @@ files = {
         open(os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'ping_loot.dds'), 'rb').read(),
     'Textures/interface/nvcoop/ping_tool.dds':
         open(os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'ping_tool.dds'), 'rb').read(),
+    'Textures/interface/nvcoop/ping_enemy.dds':
+        open(os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'ping_enemy.dds'), 'rb').read(),
+    'Textures/interface/nvcoop/ping_friend.dds':
+        open(os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'ping_friend.dds'), 'rb').read(),
     'README - New Vegas Co-op.txt': README.replace('\n', '\r\n').encode('utf-8'),
     'LICENSE.txt': open(os.path.join(ROOT, 'LICENSE'), 'rb').read(),
 }
