@@ -113,7 +113,8 @@ namespace game
             {
             case coop::FriendLight::Step::TurnOn:
                 SetPipBoyLight(e.ref, true);
-                LOG_INFO("%s's Pip-Boy light is on", remote.name.c_str());
+                LOG_INFO("%s's Pip-Boy light is on (shown on their character: %s)", remote.name.c_str(),
+                    PipBoyLightOn(e.ref) ? "yes" : "not yet");
                 break;
             case coop::FriendLight::Step::TurnOff:
                 SetPipBoyLight(e.ref, false);
@@ -123,7 +124,9 @@ namespace game
                 if (!PipBoyLightOn(e.ref))
                 {
                     SetPipBoyLight(e.ref, true);
-                    LOG_DEBUG("%s's Pip-Boy light had gone out; on again", remote.name.c_str());
+                    LOG_INFO("%s's Pip-Boy light had gone out on their character (3D %s); on again: %s",
+                        remote.name.c_str(), Is3DLoaded(e.ref) ? "loaded" : "not loaded",
+                        PipBoyLightOn(e.ref) ? "shown" : "still not shown");
                 }
                 break;
             default:

@@ -165,8 +165,8 @@ namespace game
     extern Script* g_speedMult;
     extern Script* g_actorAlpha;
     extern Script* g_hasSpell;
-    extern Script* g_castOnSelf;
-    extern Script* g_dispel;
+    extern Script* g_addSpell;
+    extern Script* g_removeSpell;
     extern Script* g_collision;
     extern TESForm* g_teleporter;
     extern Script* g_armorDR;

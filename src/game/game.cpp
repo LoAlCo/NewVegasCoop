@@ -4096,8 +4096,10 @@ namespace game
 
     namespace
     {
-        // The game's own Pip-Boy light spell (spPipBoyLight). Holding the Pip-Boy key casts it on the player and
-        // dispels it again; its light effect hangs a light on whoever it's cast on, so a friend's character can wear it too.
+        // The game's own Pip-Boy light (spPipBoyLight, an ability with a light effect). Holding the Pip-Boy key casts it
+        // on the player and dispels it again. Its light effect hangs a light on any actor that has it, but an ability
+        // only stays on a character other than the player while it's in that character's spell list, so a friend's
+        // character gets it by AddSpell (each one has its own copied base, so no one else gets it too).
         constexpr uint32_t kPipBoyLightSpell = 0x147;
     }
 
@@ -4114,11 +4116,15 @@ namespace game
     void SetPipBoyLight(TESObjectREFR* actor, bool on)
     {
         TESForm* spell = LookupForm(kPipBoyLightSpell);
-        if (!g_compiled || !g_dispel || !g_castOnSelf || !spell || !IsActor(actor))
+        if (!g_compiled || !g_addSpell || !g_removeSpell || !spell || !IsActor(actor))
+        {
+            LOG_WARN("Pip-Boy light: can't %s it on %08X (scripts %s, spell %s)", on ? "put" : "take", RefId(actor),
+                g_addSpell && g_removeSpell ? "ready" : "missing", spell ? "found" : "missing");
             return;
-        g_scripts->CallFunctionAlt(g_dispel, actor, 1, spell);
+        }
+        g_scripts->CallFunctionAlt(g_removeSpell, actor, 1, spell);
         if (on)
-            g_scripts->CallFunctionAlt(g_castOnSelf, actor, 1, spell);
+            g_scripts->CallFunctionAlt(g_addSpell, actor, 1, spell);
     }
 
     uint8_t PlayerDisabledControls()
