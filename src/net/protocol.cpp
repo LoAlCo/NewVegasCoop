@@ -267,7 +267,7 @@ namespace net
     {
         if (!r.U8(m.playerId) || !r.U32(m.timeMs) || !r.U32(m.space) || !r.F32(m.x) || !r.F32(m.y) || !r.F32(m.z))
             return false;
-        if (!r.F32(m.heading) || !r.U8(m.flags) || (m.flags & ~kKnownPlayerStateFlags) != 0 || !r.U16(m.moves) ||
+        if (!r.F32(m.heading) || !r.U8(m.flags) || (m.flags & ~(kKnownPlayerStateFlags | kPlayerLightOn)) != 0 || !r.U16(m.moves) ||
             !r.F32(m.pitch) || std::fabs(m.pitch) > kMaxPitch || !r.U16(m.runSpeed) || !r.AtEnd())
             return false;
         return true;

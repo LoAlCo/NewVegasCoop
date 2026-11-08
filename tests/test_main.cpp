@@ -18,6 +18,7 @@
 #include "coop/shot_counter.h"
 #include "coop/vats_feel.h"
 #include "coop/face_tone.h"
+#include "coop/friend_light.h"
 #include "coop/clock.h"
 #include "coop/steer.h"
 #include "coop/talk_log.h"
@@ -379,6 +380,86 @@ TEST(unknown_player_flags_are_rejected)
     MsgType type;
     PlayerState out;
     CHECK(r.Type(type) && !Decode(r, out));
+}
+
+TEST(pip_boy_light_rides_in_the_player_state)
+{
+    static_assert(net::kPlayerLightOn == coop::Pose::kLightOn, "the light bit means the same on the wire and in a pose");
+    static_assert((net::kPlayerLightOn & net::kKnownPlayerStateFlags) == 0, "the light bit is a spare one");
+    static_assert((coop::Pose::kLightOn & coop::Pose::kKnownFlags) == 0, "the light bit isn't a stance bit");
+    Bytes b = Encode(PlayerState{2, 0, 0, 0, 0, 0, 0, coop::Pose::kWeaponOut | coop::Pose::kLightOn});
+    Reader r(b);
+    MsgType type;
+    PlayerState out;
+    CHECK(r.Type(type) && Decode(r, out) && out.flags == (coop::Pose::kWeaponOut | coop::Pose::kLightOn));
+    Bytes past = Encode(PlayerState{2, 0, 0, 0, 0, 0, 0, 0x08});
+    Reader r2(past);
+    CHECK(r2.Type(type) && !Decode(r2, out));
+}
+
+TEST(smoother_keeps_the_light_flag)
+{
+    coop::Smoother s;
+    coop::Pose p;
+    s.Add(0, {7, 0, 0, 0, 0, coop::Pose::kLightOn}, 1000);
+    s.Add(100, {7, 100, 0, 0, 0, 0}, 1100);
+    CHECK(s.Sample(1050 + coop::Smoother::kDelayMs, p) && (p.flags & coop::Pose::kLightOn));
+    CHECK(s.Sample(5000, p) && !(p.flags & coop::Pose::kLightOn));
+}
+
+TEST(friends_light_is_wanted_only_when_on_shown_and_allowed)
+{
+    using L = coop::FriendLight;
+    CHECK(L::Wanted(coop::Pose::kLightOn, true, false));
+    CHECK(L::Wanted(coop::Pose::kLightOn | coop::Pose::kSneaking, true, false));
+    CHECK(!L::Wanted(coop::Pose::kLightOn, false, false));
+    CHECK(!L::Wanted(coop::Pose::kLightOn, true, true));
+    CHECK(!L::Wanted(coop::Pose::kWeaponOut | coop::Pose::kSneaking, true, false));
+}
+
+TEST(friends_light_turns_on_off_and_is_checked)
+{
+    using L = coop::FriendLight;
+    L light;
+    CHECK(light.Next(false, 1000) == L::Step::Nothing && !light.On());
+    CHECK(light.Next(true, 1000) == L::Step::TurnOn && light.On());
+    CHECK(light.Next(true, 1001) == L::Step::Nothing);
+    CHECK(light.Next(true, 1000 + L::kCheckMs - 1) == L::Step::Nothing);
+    CHECK(light.Next(true, 1000 + L::kCheckMs) == L::Step::Check);
+    CHECK(light.Next(true, 1000 + L::kCheckMs + 1) == L::Step::Nothing);
+    CHECK(light.Next(false, 5000) == L::Step::TurnOff && !light.On());
+    CHECK(light.Next(false, 50000) == L::Step::Nothing);
+    CHECK(light.Next(true, 60000) == L::Step::TurnOn);
+    light.Forget();
+    CHECK(!light.On() && light.Next(true, 60001) == L::Step::TurnOn);
+    L wrap;
+    CHECK(wrap.Next(true, 0xFFFFFFFFu - L::kCheckMs + 1) == L::Step::TurnOn);
+    CHECK(wrap.Next(true, 0xFFFFFFFFu) == L::Step::Nothing && wrap.Next(true, 1) == L::Step::Check);
+}
+
+TEST(friends_lights_setting_is_read)
+{
+    std::string path = (std::filesystem::temp_directory_path() / ("nvcoop_test_lights-" + std::to_string(GetCurrentProcessId()) + ".ini")).string();
+    auto write = [&](const char* text) {
+        if (FILE* f = nullptr; fopen_s(&f, path.c_str(), "wb") == 0 && f)
+        {
+            std::fputs(text, f);
+            std::fclose(f);
+        }
+    };
+    Config c;
+    CHECK(c.friendLights);
+    write("[Settings]\r\nbFriendLights=0\r\n");
+    c.LoadPlayer(path);
+    CHECK(!c.friendLights);
+    write("[Settings]\r\nbFriendLights=1\r\n");
+    c.LoadPlayer(path);
+    CHECK(c.friendLights);
+    write("[Settings]\r\nbChat=1\r\n");
+    Config fresh;
+    fresh.LoadPlayer(path);
+    CHECK(fresh.friendLights);
+    std::filesystem::remove(path);
 }
 
 TEST(smoother_keeps_flags)

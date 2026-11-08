@@ -330,11 +330,23 @@
 					}
 				},
 				"26": {
+					"title": "Friends' Pip-Boy Lights",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Show the light of a friend's Pip-Boy on them when they turn it on",
+					"vars": [
+						{
+							"configINI": "Settings:bFriendLights",
+							"default": 1
+						}
+					]
+				},
+				"27": {
 					"title": "Joining by IP",
 					"enable": 1,
 					"type": 0
 				},
-				"27": {
+				"28": {
 					"title": "Show My Address",
 					"type": 5,
 					"enable": 1,
@@ -346,12 +358,12 @@
 						}
 					]
 				},
-				"28": {
+				"29": {
 					"title": "Co-op Settings (the host's count for everyone)",
 					"enable": 1,
 					"type": 0
 				},
-				"29": {
+				"30": {
 					"title": "Co-op Balanced",
 					"type": 5,
 					"enable": 1,
@@ -363,7 +375,7 @@
 						}
 					]
 				},
-				"30": {
+				"31": {
 					"title": "Friendly Fire",
 					"type": 5,
 					"enable": 1,
@@ -375,7 +387,7 @@
 						}
 					]
 				},
-				"31": {
+				"32": {
 					"title": "Areas Around Far Friends",
 					"type": 5,
 					"enable": 1,

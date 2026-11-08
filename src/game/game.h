@@ -212,6 +212,8 @@ namespace game
     bool IsPlayingAnimFile(TESObjectREFR* actor, const std::string& path, bool loop = true);
     void SetCollision(TESObjectREFR* actor, bool on);
     void SetActorAlpha(TESObjectREFR* actor, float alpha);
+    bool PipBoyLightOn(TESObjectREFR* actor);
+    void SetPipBoyLight(TESObjectREFR* actor, bool on);
     uint8_t PlayerDisabledControls();
     TESObjectREFR* SitInNearestChair(TESObjectREFR* actor);
     uint32_t PlayedIdle(TESObjectREFR* ref);

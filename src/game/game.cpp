@@ -4094,6 +4094,33 @@ namespace game
             g_scripts->CallFunctionAlt(g_actorAlpha, actor, 1, FloatArg(alpha));
     }
 
+    namespace
+    {
+        // The game's own Pip-Boy light spell (spPipBoyLight). Holding the Pip-Boy key casts it on the player and
+        // dispels it again; its light effect hangs a light on whoever it's cast on, so a friend's character can wear it too.
+        constexpr uint32_t kPipBoyLightSpell = 0x147;
+    }
+
+    bool PipBoyLightOn(TESObjectREFR* actor)
+    {
+        TESForm* spell = LookupForm(kPipBoyLightSpell);
+        if (!g_compiled || !g_hasSpell || !spell || !IsActor(actor))
+            return false;
+        NVSEArrayVarInterface::Element result;
+        return g_scripts->CallFunction(g_hasSpell, actor, nullptr, &result, 1, spell) &&
+            result.GetType() == NVSEArrayVarInterface::Element::kType_Numeric && result.GetNumber() != 0;
+    }
+
+    void SetPipBoyLight(TESObjectREFR* actor, bool on)
+    {
+        TESForm* spell = LookupForm(kPipBoyLightSpell);
+        if (!g_compiled || !g_dispel || !g_castOnSelf || !spell || !IsActor(actor))
+            return;
+        g_scripts->CallFunctionAlt(g_dispel, actor, 1, spell);
+        if (on)
+            g_scripts->CallFunctionAlt(g_castOnSelf, actor, 1, spell);
+    }
+
     uint8_t PlayerDisabledControls()
     {
         const void* player = Player();

@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 78;
+    constexpr uint32_t kProtocolVersion = 79;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -197,6 +197,7 @@ namespace net
         uint16_t runSpeed = 0;
     };
     constexpr uint8_t kKnownPlayerStateFlags = 0x03;
+    constexpr uint8_t kPlayerLightOn = 0x04;
     constexpr float kMaxPitch = 1.6f;
     constexpr size_t kMaxGearItems = 32;
     constexpr uint8_t kNoCondition = 255;

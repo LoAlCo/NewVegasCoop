@@ -4,6 +4,7 @@
 
 #include "coop/coop.h"
 #include "coop/face_tone.h"
+#include "coop/friend_light.h"
 #include "game/puppet.h"
 
 #include <cstdint>
@@ -26,6 +27,7 @@ namespace game
         void Attack(uint8_t playerId, uint8_t shots, bool release = false, bool reload = false);
         bool IsStandIn(const TESObjectREFR* ref) const { return PlayerIdOf(ref) >= 0; }
         int PlayerIdOf(const TESObjectREFR* ref) const;
+        void SetLights(bool on) { m_lights = on; }
 
     private:
         struct Entry
@@ -51,6 +53,7 @@ namespace game
             uint32_t looksSeen = 0;
             uint32_t nextLooksAt = 0;
             coop::FaceTone face;
+            coop::FriendLight light;
         };
         bool Spawn(const coop::RemotePlayer& remote, Entry& e, uint32_t now, const net::PlayerLooks* looks);
         static TESObjectREFR* Live(const Entry& e);
@@ -59,5 +62,6 @@ namespace game
 
         std::map<uint8_t, Entry> m_entries;
         std::map<uint8_t, bool> m_tooFar;
+        bool m_lights = true;
     };
 }

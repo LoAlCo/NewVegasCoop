@@ -144,6 +144,9 @@ namespace game
         Script* g_talkSide[kTalkSlots] = {};
         Script* g_speedMult = nullptr;
         Script* g_actorAlpha = nullptr;
+        Script* g_hasSpell = nullptr;
+        Script* g_castOnSelf = nullptr;
+        Script* g_dispel = nullptr;
         Script* g_collision = nullptr;
         TESForm* g_teleporter = nullptr;
         Script* g_armorDR = nullptr;
@@ -910,6 +913,21 @@ namespace game
             "float fAlpha\n"
             "Begin Function {fAlpha}\n"
             "  SetActorAlpha fAlpha\n"
+            "End\n");
+        g_hasSpell = Compile("has spell",
+            "ref rSpell\n"
+            "Begin Function {rSpell}\n"
+            "  SetFunctionValue IsSpellTarget rSpell\n"
+            "End\n");
+        g_castOnSelf = Compile("cast on self",
+            "ref rSpell\n"
+            "Begin Function {rSpell}\n"
+            "  CastImmediateOnSelf rSpell\n"
+            "End\n");
+        g_dispel = Compile("dispel",
+            "ref rSpell\n"
+            "Begin Function {rSpell}\n"
+            "  Dispel rSpell\n"
             "End\n");
         g_reviveBar = Compile("revive bar",
             "string_var sText\n"

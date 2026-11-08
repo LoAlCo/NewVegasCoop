@@ -109,6 +109,27 @@ namespace game
                 LOG_INFO("%s's character is %s (cutscene)", remote.name.c_str(), cutscene ? "hidden" : "shown again");
             }
 
+            switch (e.light.Next(coop::FriendLight::Wanted(pose.flags, m_lights, cutscene), now))
+            {
+            case coop::FriendLight::Step::TurnOn:
+                SetPipBoyLight(e.ref, true);
+                LOG_INFO("%s's Pip-Boy light is on", remote.name.c_str());
+                break;
+            case coop::FriendLight::Step::TurnOff:
+                SetPipBoyLight(e.ref, false);
+                LOG_INFO("%s's Pip-Boy light is off", remote.name.c_str());
+                break;
+            case coop::FriendLight::Step::Check:
+                if (!PipBoyLightOn(e.ref))
+                {
+                    SetPipBoyLight(e.ref, true);
+                    LOG_DEBUG("%s's Pip-Boy light had gone out; on again", remote.name.c_str());
+                }
+                break;
+            default:
+                break;
+            }
+
             if (e.looksSeen != coop.LooksChanges() && coop::IsDue(now, e.nextLooksAt))
             {
                 if (looks != coop.Looks().end())
@@ -119,7 +140,10 @@ namespace game
                     if (!ApplyLooks(e.ref, looks->second, &remade))
                         LOG_WARN("Looks: couldn't make %s's character look like them", remote.name.c_str());
                     else if (remade)
+                    {
                         e.face.Made(reinterpret_cast<uintptr_t>(FaceNode(e.ref)), now);
+                        e.light.Forget();
+                    }
                 }
             }
             if (e.face.TimeToLook(now))
@@ -231,6 +255,7 @@ namespace game
         e.puppet.Start(remote.name + "'s character", kStatsEveryMs);
         e.hasGear = false;
         e.downed = false;
+        e.light.Forget();
         e.loading = true;
         e.spawnedAt = now;
         return true;
