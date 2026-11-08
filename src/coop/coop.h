@@ -132,7 +132,7 @@ namespace coop
         Smoother motion;
         uint32_t heardAt = 0;
         uint32_t stateTime = 0;
-        bool dead = false, down = false, sitting = false;
+        bool dead = false, down = false, sitting = false, held = false;
         uint16_t limbs = 0;
         uint8_t pile = 0;
         float health = 0, maxHealth = 0;

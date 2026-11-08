@@ -55,10 +55,20 @@ namespace coop
     class BodyFollower
     {
     public:
-        // Is the host's body being moved after having come to rest? Bodies still falling from their death aren't
-        // followed: each game runs that fall, and BodyPlacer sorts out where they ended up.
-        bool Look(uint32_t now, const BodySpot& host)
+        // Is the host's body being moved? Followed at once while the host's player carries it, even straight after
+        // the death, the usual time to drag one; otherwise only once it moves after coming to rest. Bodies still
+        // falling from their death aren't followed: each game runs that fall, and BodyPlacer sorts out where they
+        // ended up.
+        bool Look(uint32_t now, const BodySpot& host, bool held = false)
         {
+            if (held)
+            {
+                m_started = m_rested = m_following = true;
+                m_lastLook = now;
+                m_rest = host;
+                m_restSince = now;
+                return true;
+            }
             if (!m_started)
             {
                 m_started = true;

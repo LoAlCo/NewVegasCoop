@@ -1207,8 +1207,11 @@ TEST(npc_states_round_trip_and_checks)
     twice.npcs[1].ref = twice.npcs[0].ref;
     CHECK(!decodes(twice, out));
     NpcStates odd = in;
-    odd.npcs[0].flags = 0x10;
+    odd.npcs[0].flags = 0x08;
     CHECK(!decodes(odd, out));
+    NpcStates carried = in;
+    carried.npcs[0].flags |= kNpcDead | kNpcHeld;
+    CHECK(decodes(carried, out) && (out.npcs[0].flags & kNpcHeld));
     for (int i = 0; i < 5; ++i)
     {
         NpcStates m = in;
@@ -9196,4 +9199,41 @@ TEST(a_body_that_moved_while_we_werent_looking_is_not_followed)
         CHECK(!f.Look(t, host));
     host.x += 100;
     CHECK(f.Look(t, host));
+}
+
+TEST(a_body_the_host_carries_is_followed_even_straight_after_its_death)
+{
+    coop::BodyFollower f;
+    coop::BodySpot host{0, 0, 1000};
+    uint32_t t = 1000;
+    for (int i = 0; i < 10; ++i)
+    {
+        host.z -= 50;
+        CHECK(!f.Look(t += 100, host));
+    }
+    // Picked up a second after it died, while it was still settling.
+    for (int i = 0; i < 30; ++i)
+    {
+        host.x += 20;
+        CHECK(f.Look(t += 100, host, true));
+    }
+    // Held still in the air: still followed while carried.
+    for (int i = 0; i < 30; ++i)
+        CHECK(f.Look(t += 100, host, true));
+    // Let go: it drops, and following stops once it lies still.
+    host.z -= 60;
+    CHECK(f.Look(t += 100, host));
+    uint32_t dropped = t;
+    while (t + 100 - dropped < coop::kBodyFollowEndMs)
+        CHECK(f.Look(t += 100, host));
+    CHECK(!f.Look(t += 100, host));
+}
+
+TEST(a_carried_body_survives_a_gap_in_looking)
+{
+    coop::BodyFollower f;
+    coop::BodySpot host{0, 0, 0};
+    CHECK(f.Look(1000, host, true));
+    host.x = 900;
+    CHECK(f.Look(1000 + 5 * coop::kBodyLookGapMs, host, true));
 }

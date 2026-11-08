@@ -127,6 +127,7 @@ namespace game
             QueryPerformanceCounter(&actorStart);
             timed = next;
         };
+        const uint32_t grabbed = GrabbedItem();
         for (TESObjectREFR* actor : m_nearby)
         {
             timeNext(actor);
@@ -155,6 +156,8 @@ namespace game
             if (auto it = m_watched.find(ref); it != m_watched.end())
                 w = it->second;
             uint8_t flags = net::kNpcDead;
+            if (dead && grabbed == ref)
+                flags |= net::kNpcHeld;
             if (!dead)
             {
                 int sitting = 0;
@@ -901,7 +904,7 @@ namespace game
         if (!npc.motion.Sample(now - coop::kBodyBlendMs, blended))
             return;
         coop::BodySpot target{blended.x, blended.y, blended.z}, ours;
-        bool following = b.follower.Look(now, target);
+        bool following = b.follower.Look(now, target, npc.held);
         // The host's copy moving right after we told it where the body is, is only it doing as we said. Taken for the
         // host moving it, it would stop our telling mid-flight and pull ours back to where theirs had got to.
         if (b.reporting || !coop::IsDue(now, b.echoUntil))

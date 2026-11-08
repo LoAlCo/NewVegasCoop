@@ -2982,6 +2982,7 @@ namespace coop
                 }
                 it = m_npcs.emplace(n.ref, RemoteNpc{}).first;
             }
+<<<<<<< HEAD
             HearNpc(it->second, m.timeMs, m.space, n, now);
         }
     }
@@ -3005,6 +3006,28 @@ namespace coop
             npc.weapon = n.weapon;
             npc.base = n.base;
             npc.rolled = n.rolled;
+=======
+            RemoteNpc& npc = it->second;
+            uint8_t poseFlags = n.flags & kKnownPlayerStateFlags;
+            npc.motion.Add(m.timeMs, Pose{m.space, n.x, n.y, n.z, n.heading, poseFlags, n.moves}, now);
+            npc.heardAt = now;
+            if (static_cast<int32_t>(m.timeMs - npc.stateTime) >= 0 || npc.maxHealth == 0)
+            {
+                npc.stateTime = m.timeMs;
+                npc.dead = (n.flags & kNpcDead) != 0;
+                npc.limbs = n.limbs;
+                npc.pile = n.pile;
+                npc.down = (n.flags & kNpcDown) != 0;
+                npc.sitting = (n.flags & kNpcSitting) != 0;
+                npc.held = (n.flags & kNpcHeld) != 0;
+                npc.health = n.health;
+                npc.maxHealth = n.maxHealth;
+                npc.idle = n.idle;
+                npc.weapon = n.weapon;
+                npc.base = n.base;
+                npc.rolled = n.rolled;
+            }
+>>>>>>> fix-body-positions-0111
         }
     }
 
