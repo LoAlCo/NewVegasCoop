@@ -2302,7 +2302,7 @@ namespace
         {
             g_cutscene = (game::PlayerDisabledControls() & 1) && !g_downed && !g_waitForHostLoad;
             g_standIns.SetLights(g_config.friendLights);
-            g_standIns.SetEmotes(g_config.emotes, g_config.emoteDanceAlong, JoinedAnEmote());
+            g_standIns.SetEmotes(g_config.emotes, JoinedAnEmote());
             g_standIns.Update(g_coop, now, me, g_cutscene);
         }
         else

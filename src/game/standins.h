@@ -29,13 +29,11 @@ namespace game
         bool IsStandIn(const TESObjectREFR* ref) const { return PlayerIdOf(ref) >= 0; }
         int PlayerIdOf(const TESObjectREFR* ref) const;
         void SetLights(bool on) { m_lights = on; }
-        // Too Many Emotes: show friends' emotes and play their songs; let the mod make friends' characters dance along
-        // with yours (they aren't dancing in their own games). following: we joined a friend's emote (our dance follows
-        // their character, not the other way round).
-        void SetEmotes(bool show, bool danceAlong, bool following)
+        // Too Many Emotes: show friends' emotes and play their songs. following: we joined a friend's emote (our dance
+        // follows their character, not the other way round).
+        void SetEmotes(bool show, bool following)
         {
             m_showEmotes = show;
-            m_danceAlong = danceAlong;
             m_following = following;
         }
 
@@ -83,7 +81,6 @@ namespace game
         std::map<uint8_t, bool> m_tooFar;
         bool m_lights = true;
         bool m_showEmotes = true;
-        bool m_danceAlong = false;
         bool m_following = false;
     };
 }

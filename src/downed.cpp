@@ -235,7 +235,7 @@
             return;
         uint8_t id = static_cast<uint8_t>(g_joinedWith);
         TESObjectREFR* player = game::Player();
-        if (!player || !g_coop.InGame() || g_downed || g_gameOver || !g_config.emotes || !g_config.emoteJoin)
+        if (!player || !g_coop.InGame() || g_downed || g_gameOver || !g_config.emotes)
         {
             StopJoinedEmote("can't dance now");
             return;
@@ -291,7 +291,7 @@
     {
         bool key = game::IsControlPressed(game::layout::kControlActivate), pressed = key && !g_joinKeyWas;
         g_joinKeyWas = key;
-        if (!g_config.emotes || !g_config.emoteJoin || !game::EmotesReady())
+        if (!g_config.emotes || !game::EmotesReady())
             return false;
         TESObjectREFR* aimed = game::CrosshairRef();
         if (!aimed)
