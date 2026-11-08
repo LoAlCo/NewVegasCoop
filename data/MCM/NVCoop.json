@@ -498,11 +498,6 @@
 			"enable": 1,
 			"options": {
 				"1": {
-					"title": "General",
-					"enable": 1,
-					"type": 0
-				},
-				"2": {
 					"title": "Pings",
 					"type": 5,
 					"enable": 1,
@@ -514,7 +509,7 @@
 						}
 					]
 				},
-				"3": {
+				"2": {
 					"title": "Ping Key",
 					"type": 3,
 					"enable": 1,
@@ -529,7 +524,7 @@
 						"type": 0
 					}
 				},
-				"4": {
+				"3": {
 					"title": "Ping Sound",
 					"type": 1,
 					"enable": 1,
@@ -549,26 +544,7 @@
 						"Menu OK"
 					]
 				},
-				"5": {
-					"title": "Ping Range",
-					"type": 2,
-					"enable": 1,
-					"mouse": "How near a player must be for you to see their ping. 0 means no limit. Only changes what you see",
-					"vars": [
-						{
-							"configINI": "Settings:iPingRadius",
-							"default": 8000
-						}
-					],
-					"scale": {
-						"valueDecimal": 0,
-						"valueIncrement": 500,
-						"valueMin": 0,
-						"valueMax": 20000,
-						"suffix": ""
-					}
-				},
-				"6": {
+				"4": {
 					"title": "Ping Icons",
 					"type": 1,
 					"enable": 1,
@@ -584,42 +560,6 @@
 						"HUD colour",
 						"Own colours"
 					]
-				},
-				"7": {
-					"title": "Recognise Objects",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Your pings name what you aim at and use its icon, such as loot or a workbench. Off: every ping you send is a plain marked spot",
-					"vars": [
-						{
-							"configINI": "Settings:bPingObjects",
-							"default": 1
-						}
-					]
-				},
-				"8": {
-					"title": "Ping Characters",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Pinging someone puts an icon over their head that follows them: a skull for enemies, a person for anyone else. Off: it's a plain marked spot",
-					"vars": [
-						{
-							"configINI": "Settings:bPingCharacters",
-							"default": 1
-						}
-					]
-				},
-				"9": {
-					"title": "Ping Follows Items",
-					"type": 5,
-					"enable": 1,
-					"mouse": "A ping on loot, such as a weapon or a Stimpak, stays on it if it's knocked, thrown or carried away. Off: it stays where the item was",
-					"vars": [
-						{
-							"configINI": "Settings:bPingFollowItems",
-							"default": 1
-						}
-					]
 				}
 			}
 		},
@@ -630,7 +570,7 @@
 			"enable": 1,
 			"options": {
 				"1": {
-					"title": "General",
+					"title": "Emotes (Too Many Emotes)",
 					"enable": 1,
 					"type": 0
 				},
@@ -638,34 +578,10 @@
 					"title": "Show Emotes and Songs",
 					"type": 5,
 					"enable": 1,
-					"mouse": "Friends see your Too Many Emotes dances and hear their songs from your character, and you see and hear theirs. Your own Too Many Emotes music switch still decides whether you hear songs. Does nothing without Too Many Emotes",
+					"mouse": "Friends see your Too Many Emotes dances and hear their songs from your character, and you see and hear theirs. Look at a friend who's dancing and press E to dance with them, in step. Your own Too Many Emotes music switch still decides whether you hear songs. Does nothing without Too Many Emotes",
 					"vars": [
 						{
 							"configINI": "Settings:bEmotes",
-							"default": 1
-						}
-					]
-				},
-				"3": {
-					"title": "Friends Dance Along With You",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Too Many Emotes makes everyone near you dance along. On: friends' characters join in, but only on your screen (they aren't dancing in their own game). Off: only other people dance along",
-					"vars": [
-						{
-							"configINI": "Settings:bEmoteDanceAlong",
-							"default": 0
-						}
-					]
-				},
-				"4": {
-					"title": "Join Friends' Emotes",
-					"type": 5,
-					"enable": 1,
-					"mouse": "Look at a friend who's emoting and press E to dance the same emote with them, in step, at any point of it. Their song keeps playing from them. You don't need to own it in The Disco Shop. Move, press E on them again, or pick an emote of your own to stop",
-					"vars": [
-						{
-							"configINI": "Settings:bEmoteJoin",
 							"default": 1
 						}
 					]

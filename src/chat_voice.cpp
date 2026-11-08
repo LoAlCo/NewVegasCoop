@@ -255,8 +255,7 @@ namespace
         {
             game::CrosshairPick aim;
             bool hit = game::CrosshairPoint(aim) && aim.hit;
-            coop::PingThing chosen = coop::ChosenPingThing(hit ? aim.thing : coop::PingThing::Nothing, g_config.pingObjects,
-                g_config.pingCharacters);
+            coop::PingThing chosen = hit ? aim.thing : coop::PingThing::Nothing;
             coop::PingLook look = coop::ClassifyPing(chosen, aim.name);
             net::Ping ping;
             ping.kind = look.kind;
@@ -268,7 +267,7 @@ namespace
             if (chosen == coop::PingThing::Loot)
             {
                 bool host = g_coop.GetRole() == coop::Role::Host;
-                ping.target = coop::PingItemTarget(ping.kind, host ? aim.ref : g_coop.HostItemOf(aim.ref), g_config.pingFollowItems);
+                ping.target = coop::PingItemTarget(ping.kind, host ? aim.ref : g_coop.HostItemOf(aim.ref));
                 float above[3];
                 if (ping.target && PingSpotOn(game::LookupRef(aim.ref), above))
                 {
@@ -320,7 +319,7 @@ namespace
             coop::Pose sender;
             auto remote = remotes.find(h.ping.player);
             bool known = remote != remotes.end() && remote->second.motion.Newest(sender);
-            bool inRange = placed && h.ping.space == me.space && coop::PingInRange(&me, known ? &sender : nullptr, g_config.pingRadius);
+            bool inRange = placed && h.ping.space == me.space && coop::PingInRange(&me, known ? &sender : nullptr, coop::kPingRadius);
             uint8_t kind = static_cast<uint8_t>(h.ping.kind);
             TESObjectREFR* who = PingedThing(kind, h.ping.target);
             LOG_INFO("Pings: %s marks %.0f %.0f %.0f in place %08X (%s, kind %u, target %08X, ours %08X), %s", h.who.c_str(),
