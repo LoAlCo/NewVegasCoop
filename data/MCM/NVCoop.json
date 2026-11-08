@@ -403,7 +403,7 @@
 					"title": "Visitors' Companions",
 					"type": 5,
 					"enable": 1,
-					"mouse": "Friends' companions from their own saves show in the host's game and fight beside you, their hits and hurts kept in step. Off: they stay in their owners' games only, held still there like anything the host's game doesn't have",
+					"mouse": "Friends' companions from their own saves show in the host's game and fight beside you, their hits and hurts kept in step. Off: they stay in their owners' games only, where they still follow and fight as normal",
 					"vars": [
 						{
 							"configINI": "Settings:bVisitorCompanions",

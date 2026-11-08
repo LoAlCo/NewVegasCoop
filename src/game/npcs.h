@@ -42,8 +42,6 @@ namespace game
         // Companions of our own save: the host's one of the same ref gets a spawned copy, leaving ours alone.
         void SetKeptApart(const std::set<uint32_t>& refs);
         bool KeptApart(uint32_t ref) const { return m_keptApart.count(ref) != 0; }
-        // Don't hold our own companions still: the host's game shows copies of them (Visitors' Companions).
-        void SpareOwnCompanions(bool spare) { m_spareOwnCompanions = spare; }
         // Is this actor of ours a copy of something in the host's game?
         bool IsCopy(uint32_t ourRef) const;
         std::vector<uint32_t> MadeRefIds() const;
@@ -184,7 +182,6 @@ namespace game
         std::vector<uint32_t> m_shareList;
         const std::map<uint32_t, coop::RemoteNpc>* m_copyFrom = nullptr;
         std::set<uint32_t> m_keptApart;
-        bool m_spareOwnCompanions = false;
         static inline uint32_t s_labSteps = 15;
         uint32_t m_nextMakeAt = 0;
         uint32_t m_madeCount = 0, m_unmadeCount = 0, m_dressed = 0;

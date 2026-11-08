@@ -32,7 +32,6 @@ namespace game
             if (!m_running)
                 LOG_INFO("Companions: the host's game shows ours");
             m_running = true;
-            npcs.SpareOwnCompanions(true);
             UpdateVisitor(coop, standIns, npcs, me, now);
         }
         else if (m_running)
@@ -170,7 +169,6 @@ namespace game
         else if (coop.GetRole() == coop::Role::Friend)
             coop.SetNpcs(0, {});
         npcs.SetKeptApart({});
-        npcs.SpareOwnCompanions(false);
         m_mine.ShareOnly({});
         m_own.clear();
         m_watching.clear();
