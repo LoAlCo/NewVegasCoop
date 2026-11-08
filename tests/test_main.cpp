@@ -2283,6 +2283,27 @@ TEST(a_take_seen_through_counts_on_the_player_reaches_the_host)
     CHECK(changes.empty());
 }
 
+TEST(friend_container_doesnt_count_a_menu_take_twice_after_its_screen_closed)
+{
+    const uint32_t gun = 0x15169, ammo = 0x103B1B;
+    coop::FriendContainer body;
+    std::vector<ContainerChange> changes;
+    body.View(0x1062A9, true);
+    body.Look({{gun, 2}, {ammo, 5}}, changes);
+    body.Closing({{ammo, 5}}, changes);
+    CHECK((changes.size() == 1 && changes[0].change == ItemCount{gun, -2}));
+    changes.clear();
+
+    // The next look, with the menu shut, sees the player still holding what the menu took: told once is enough.
+    body.View(0x1062A9, false);
+    body.Look({{ammo, 5}}, changes, {{gun, 2}});
+    CHECK(changes.empty());
+
+    // A quick-loot window taking from it afterwards still counts.
+    body.Look({{ammo, 1}}, changes, {{ammo, 4}});
+    CHECK((changes.size() == 1 && changes[0].change == ItemCount{ammo, -4}));
+}
+
 TEST(friend_container_keeps_the_hosts_old_list_from_undoing_a_gained_take)
 {
     const uint32_t gun = 0x15169;
