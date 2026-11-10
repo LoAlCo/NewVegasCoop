@@ -6935,13 +6935,13 @@ TEST(trade_cost_and_stall)
     CHECK(a && a->id == 1);
     rifle.count = 2;
     const coop::Listing* again = stall.Put(rifle, 40, 80);
-    CHECK(again && again->id == 1 && again->item.count == 3 && again->price == 80 && stall.All().size() == 1);
+    CHECK(again && again->id == 1 && again->item.count == 2 && again->price == 80 && stall.All().size() == 1);
     net::ItemCount other = rifle;
     other.health = 50;
     CHECK(stall.Put(other, 40, 0)->id == 2);
     int32_t left = 0;
-    CHECK(!stall.Take(1, 4, left));
-    CHECK(stall.Take(1, 2, left) && left == 1 && stall.Find(1));
+    CHECK(!stall.Take(1, 3, left));
+    CHECK(stall.Take(1, 1, left) && left == 1 && stall.Find(1));
     CHECK(stall.Take(1, 1, left) && left == 0 && !stall.Find(1));
     CHECK(stall.FindKind(other) && stall.FindKind(other)->id == 2);
     CHECK(!stall.Put(other, 40, -5));
@@ -7174,4 +7174,66 @@ TEST(host_trades_with_a_friend)
     host.ForgetTrades();
     Settle(all, 300);
     CHECK(a.TakeTradeEvents().empty());
+}
+
+TEST(trade_shares_caps_and_listings_replace_not_add)
+{
+    using Kind = coop::Coop::TradeEvent::Kind;
+    net::Trade caps;
+    caps.stage = net::TradeStage::Caps;
+    caps.count = 1234;
+    Bytes b = Encode(caps);
+    Reader r(b);
+    MsgType t;
+    net::Trade m;
+    CHECK(r.Type(t) && Decode(r, m) && m.stage == net::TradeStage::Caps && m.count == 1234);
+
+    coop::Coop host, a;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    std::vector<coop::Coop*> all{&host, &a};
+    coop::Pose here{0x3C, 100, 100, 0};
+    host.SetMyPose(here);
+    a.SetMyPose(here);
+    Settle(all);
+    CHECK(a.AskTrade(coop::kHostPlayerId));
+    CHECK(TradeEventsOf(all, host, Kind::Asked).size() == 1);
+    host.AnswerTrade(a.MyPlayerId(), true);
+    CHECK(TradeEventsOf(all, a, Kind::Opened).size() == 1);
+    CHECK(a.PartnerCaps() == -1);
+
+    // The host's caps reach Ann's stall header, and only changes are sent again.
+    host.ShareMyCaps(500);
+    auto seen = TradeEventsOf(all, a, Kind::PartnerCaps);
+    CHECK(seen.size() == 1 && seen[0].caps == 500 && a.PartnerCaps() == 500);
+    host.ShareMyCaps(500);
+    Settle(all, 300);
+    CHECK(a.TakeTradeEvents().empty());
+    host.ShareMyCaps(495);
+    CHECK(TradeEventsOf(all, a, Kind::PartnerCaps).size() == 1 && a.PartnerCaps() == 495);
+
+    // Putting the same kits up again, four at a time, never shows more than four.
+    net::ItemCount kits;
+    kits.item = 0x000FC0C4u;
+    kits.count = 4;
+    for (int i = 0; i < 3; ++i)
+    {
+        CHECK(host.ListItem(kits, 31, 2) != nullptr);
+        CHECK(TradeEventsOf(all, a, Kind::Listed).size() == 1);
+    }
+    CHECK(a.PartnerStall().All().size() == 1 && a.PartnerStall().All()[0].item.count == 4);
+    kits.count = 2;
+    CHECK(host.ListItem(kits, 31, 3) != nullptr);
+    CHECK(TradeEventsOf(all, a, Kind::Listed).size() == 1);
+    CHECK(a.PartnerStall().All()[0].item.count == 2 && a.PartnerStall().All()[0].price == 3);
+
+    // More than is up is refused by the seller's side before anything is taken out.
+    uint32_t too = a.BuyListing(a.PartnerStall().All()[0].id, 3, 9);
+    CHECK(too == 0);
+
+    // A new trade starts with nothing known about the other's caps.
+    host.CloseTrade(net::TradeReason::Closed);
+    CHECK(TradeEventsOf(all, a, Kind::Closed).size() == 1);
+    CHECK(a.PartnerCaps() == -1);
 }

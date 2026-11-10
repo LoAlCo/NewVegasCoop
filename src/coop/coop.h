@@ -500,7 +500,7 @@ namespace coop
         struct TradeEvent
         {
             enum class Kind { Asked, Opened, Refused, Closed, Listed, Unlisted, SellRequest, Delivered, CapsBack, Paid,
-                ItemBack };
+                ItemBack, PartnerCaps };
             Kind kind = Kind::Closed;
             uint8_t player = 0;
             uint32_t id = 0;
@@ -518,6 +518,9 @@ namespace coop
         uint8_t TradeAsking() const { return m_tradeAsking; }
         const Stall& MyStall() const { return m_myStall; }
         const Stall& PartnerStall() const { return m_partnerStall; }
+        // Tells the partner how many caps we have, when it changed. Theirs, or -1 before they've said.
+        void ShareMyCaps(int32_t caps);
+        int32_t PartnerCaps() const { return m_partnerCaps; }
         const Listing* ListItem(const net::ItemCount& item, uint8_t itemType, int32_t price);
         void UnlistItem(uint32_t listing);
         // `caps` must already be out of the buyer's inventory. 0 means it wasn't sent: give them back.
@@ -693,6 +696,7 @@ namespace coop
         TradeLedger m_tradeLedger;
         Stall m_myStall, m_partnerStall;
         uint8_t m_tradePartner = kNoTrade, m_tradeAsking = kNoTrade, m_tradeAsker = kNoTrade;
+        int32_t m_partnerCaps = -1, m_capsShared = -1;
         std::vector<TradeEvent> m_tradeEvents;
     };
 }

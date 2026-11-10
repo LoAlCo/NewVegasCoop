@@ -9,8 +9,9 @@
 #include <vector>
 
 // The trade window: the game's barter screen, with a hidden temporary chest as the other side. The chest holds copies
-// of what the partner has put up, every price comes from their stall (0 shows as "--"), and Accept moves nothing:
-// the picks are handed to the mod, which sends them as listings and purchases.
+// of what the partner has put up and their caps, and every price comes from their stall (0 shows as "--"). Clicking a
+// line marks nothing: after the screen's own "how many?", the click goes to the mod, which puts the item up (our side)
+// or offers to buy it (theirs). Accept moves nothing either.
 namespace game
 {
     struct StallEntry
@@ -28,13 +29,15 @@ namespace game
     // Finds the barter screen's price and Accept calls and redirects them. False (logged) if they aren't where expected.
     bool InstallTradeWindow();
     bool TradeWindowReady();
-    bool OpenTradeWindow(const std::string& title, const std::vector<StallEntry>& stall);
+    bool OpenTradeWindow(const std::string& title, const std::vector<StallEntry>& stall, int32_t caps);
     // Our trade window is the barter screen that's open.
     bool TradeWindowShown();
     // Something of ours is still placed (the window is open or closing).
     bool TradeWindowExists();
     // Puts the partner's new stall in the open window. False while picks are marked (they point at the chest's stacks).
-    bool RefreshTradeWindow(const std::vector<StallEntry>& stall);
+    bool RefreshTradeWindow(const std::vector<StallEntry>& stall, int32_t caps);
+    // A line clicked since the last call (after the screen's "how many?"), as a real kind of item.
+    bool TakeTradeClick(TradePick& pick);
     void CloseTradeWindow();
     // Removes the chest once the window is gone. Call every frame.
     void TidyTradeWindow();

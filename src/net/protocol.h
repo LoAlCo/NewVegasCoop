@@ -662,8 +662,8 @@ namespace net
     // asked, answered or traded with when going to the host, and the one it came from when coming from it.
     // Ask, Answer and Close open and end the trade window. List and Unlist put an item up and take it down.
     // A purchase: Buy (buyer's id to the host, the host's to the seller), Sold or Refuse back, Got from the buyer,
-    // then Paid or ItemBack to the seller.
-    enum class TradeStage : uint8_t { Ask, Answer, Close, List, Unlist, Buy, Sold, Refuse, Got, Paid, ItemBack };
+    // then Paid or ItemBack to the seller. Caps: how many caps the sender has, in `count`, for the stall's header.
+    enum class TradeStage : uint8_t { Ask, Answer, Close, List, Unlist, Buy, Sold, Refuse, Got, Paid, ItemBack, Caps };
     enum class TradeReason : uint8_t { Ok, No, Busy, Far, TurnedOff, PlayerLeft, NotHeld, PriceChanged, BadItem, Closed };
     struct Trade
     {

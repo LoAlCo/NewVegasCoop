@@ -47,6 +47,7 @@ namespace coop
             m_tradePartner = from;
             m_myStall.Clear();
             m_partnerStall.Clear();
+            m_partnerCaps = m_capsShared = -1;
             TradeEvent e;
             e.kind = TradeEvent::Kind::Opened;
             e.player = from;
@@ -71,6 +72,7 @@ namespace coop
         m_tradePartner = m_tradeAsking = kNoTrade;
         m_myStall.Clear();
         m_partnerStall.Clear();
+        m_partnerCaps = m_capsShared = -1;
     }
 
     const Listing* Coop::ListItem(const ItemCount& item, uint8_t itemType, int32_t price)
@@ -88,6 +90,16 @@ namespace coop
         m.price = l->price;
         SendTradeToHost(m);
         return l;
+    }
+
+    void Coop::ShareMyCaps(int32_t caps)
+    {
+        if (m_tradePartner == kNoTrade || caps < 0 || caps == m_capsShared)
+            return;
+        m_capsShared = caps;
+        Trade m = Make(TradeStage::Caps, m_tradePartner);
+        m.count = caps > kMaxItemCount ? kMaxItemCount : caps;
+        SendTradeToHost(m);
     }
 
     void Coop::UnlistItem(uint32_t listing)
@@ -174,6 +186,7 @@ namespace coop
         m_myStall.Clear();
         m_partnerStall.Clear();
         m_tradePartner = m_tradeAsking = m_tradeAsker = kNoTrade;
+        m_partnerCaps = m_capsShared = -1;
         m_tradeEvents.clear();
     }
 
@@ -245,6 +258,7 @@ namespace coop
                 m_tradePartner = m.other;
                 m_myStall.Clear();
                 m_partnerStall.Clear();
+                m_partnerCaps = m_capsShared = -1;
                 e.kind = TradeEvent::Kind::Opened;
             }
             else
@@ -274,6 +288,13 @@ namespace coop
             e.caps = m.price;
             break;
         }
+        case TradeStage::Caps:
+            if (m_tradePartner != m.other || m.count == m_partnerCaps)
+                return;
+            m_partnerCaps = m.count;
+            e.kind = TradeEvent::Kind::PartnerCaps;
+            e.caps = m.count;
+            break;
         case TradeStage::Unlist:
             if (m_tradePartner != m.other || !m_partnerStall.Remove(m.id))
                 return;
@@ -397,6 +418,7 @@ namespace coop
         }
         case TradeStage::List:
         case TradeStage::Unlist:
+        case TradeStage::Caps:
             if (m_tradeLedger.Together(from, m.other))
             {
                 Trade out = m;

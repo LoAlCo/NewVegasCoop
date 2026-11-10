@@ -22,11 +22,14 @@ namespace game
         constexpr uintptr_t kShowBarter = 0x00704F80;      // cdecl (ref, barter modifier)
         constexpr uintptr_t kBarterPrice = 0x0072ED00;     // cdecl float (tile, stack)
         constexpr uintptr_t kBarterAccept = 0x0072FD10;    // thiscall on the menu
+        constexpr uintptr_t kBarterClick = 0x0072F6F0;     // cdecl (count): a line clicked, after "how many?"
+        constexpr uintptr_t kSelectedStack = 0x011D8FA8;   // the stack on the clicked line
         constexpr uintptr_t kBarterRebuild = 0x00730690;   // cdecl (bool now)
         constexpr uintptr_t kListHasTile = 0x007242F0;     // thiscall (list, tile)
         constexpr uintptr_t kStackCondition = 0x004BCDB0;  // thiscall float (stack, as percent)
         constexpr uintptr_t kPendingTrait = 0x011D8FB4;    // the trait id marking a picked line
-        constexpr uint32_t kMerchantTiles = 0xD8, kBuyPicks = 0x10C, kSellPicks = 0x114;
+        constexpr uint32_t kPlayerTiles = 0xA8, kMerchantTiles = 0xD8, kActiveList = 0x108, kBuyPicks = 0x10C,
+            kSellPicks = 0x114;
         constexpr uint8_t kExtraWeaponModFlags = 0x8D;
         constexpr uint32_t kChestBase = 0x0009874E;        // Footlocker01Empty: no items, no script, no respawn
         constexpr uintptr_t kScanFrom = 0x00720000, kScanTo = 0x00740000;
@@ -35,6 +38,7 @@ namespace game
         TESForm* g_chestBase = nullptr;
         TESObjectREFR* g_chest = nullptr;
         std::vector<StallEntry> g_stall;
+        int32_t g_stallCaps = 0;
 
         struct RawPick
         {
@@ -47,6 +51,7 @@ namespace game
         };
         std::vector<RawPick> g_picks;
         bool g_accepted = false;
+        std::vector<RawPick> g_clicks;
         Script* g_nameOf = nullptr;
         bool g_nameTried = false;
 
@@ -146,6 +151,55 @@ namespace game
             }
         }
 
+        void __cdecl TradeClick(int count)
+        {
+            using Original = void(__cdecl*)(int);
+            if (!OursOpen())
+            {
+                reinterpret_cast<Original>(kBarterClick)(count);
+                return;
+            }
+            auto* menu = static_cast<uint8_t*>(BarterMenu());
+            const void* stack = *reinterpret_cast<const void* const*>(kSelectedStack);
+            void* active = *reinterpret_cast<void* const*>(menu + kActiveList);
+            if (count <= 0 || !stack || g_clicks.size() >= 8)
+                return;
+            bool partner = active == menu + kMerchantTiles;
+            if (!partner && active != menu + kPlayerTiles)
+                return;
+            RawPick p = ReadStack(stack);
+            if (!p.form)
+                return;
+            p.count = count;
+            p.fromPartner = partner;
+            g_clicks.push_back(p);
+            LOG_INFO("Trade: clicked %d of %08X on %s side", count, p.form, partner ? "the partner's" : "our");
+        }
+
+        int RedirectPushes(uintptr_t target, const void* to)
+        {
+            // `push imm32` of the function's address, handed to the "how many?" prompt as its callback.
+            int n = 0;
+            for (uintptr_t at = kScanFrom; at + 5 <= kScanTo; ++at)
+            {
+                auto* p = reinterpret_cast<uint8_t*>(at);
+                uint32_t imm;
+                std::memcpy(&imm, p + 1, 4);
+                if (p[0] != 0x68 || imm != target)
+                    continue;
+                DWORD old;
+                if (!VirtualProtect(p + 1, 4, PAGE_EXECUTE_READWRITE, &old))
+                    continue;
+                uint32_t now = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(to));
+                std::memcpy(p + 1, &now, 4);
+                VirtualProtect(p + 1, 4, old, &old);
+                FlushInstructionCache(GetCurrentProcess(), p, 5);
+                LOG_DEBUG("Trade: callback pushed at %08X now goes through the mod", static_cast<unsigned>(at));
+                ++n;
+            }
+            return n;
+        }
+
         void __fastcall TradeAccept(void* menu, void*)
         {
             using Original = void(__thiscall*)(void*);
@@ -189,11 +243,43 @@ namespace game
                 *reinterpret_cast<void* const*>(menu + kSellPicks));
         }
 
-        void Fill(const std::vector<StallEntry>& stall)
+        void Fill(const std::vector<StallEntry>& stall, int32_t caps)
         {
             g_stall = stall;
+            g_stallCaps = caps;
             for (const StallEntry& e : stall)
                 ChangeItem(g_chest, e.item);
+            if (caps > 0)
+                ChangeItem(g_chest, ids::kCaps, caps);
+        }
+
+        // A picked or clicked line, as a real kind of item: a listing for the partner's side, our stack for ours.
+        bool Resolve(const RawPick& p, TradePick& pick)
+        {
+            pick.fromPartner = p.fromPartner;
+            pick.itemType = p.type;
+            if (p.fromPartner)
+            {
+                int i = Closest(p, g_stall.size(), [](size_t k) -> const net::ItemCount& { return g_stall[k].item; });
+                if (i < 0)
+                    return false;
+                pick.item = g_stall[i].item;
+            }
+            else
+            {
+                std::vector<Item> mine;
+                if (!Contents(Player(), mine))
+                    return false;
+                std::vector<net::ItemCount> kinds;
+                for (const Item& m : mine)
+                    kinds.push_back({m.id, m.count, m.health, m.mods});
+                int i = Closest(p, kinds.size(), [&](size_t k) -> const net::ItemCount& { return kinds[k]; });
+                if (i < 0)
+                    return false;
+                pick.item = kinds[i];
+            }
+            pick.item.count = p.count < pick.item.count ? p.count : pick.item.count;
+            return pick.item.count > 0;
         }
     }
 
@@ -203,18 +289,21 @@ namespace game
             return true;
         int prices = RedirectCalls(kBarterPrice, reinterpret_cast<const void*>(&TradePrice));
         int accepts = RedirectCalls(kBarterAccept, reinterpret_cast<const void*>(&TradeAccept));
-        g_ready = prices > 0 && accepts > 0;
+        int clicks = RedirectCalls(kBarterClick, reinterpret_cast<const void*>(&TradeClick));
+        int prompts = RedirectPushes(kBarterClick, reinterpret_cast<const void*>(&TradeClick));
+        g_ready = prices > 0 && accepts > 0 && clicks > 0 && prompts > 0;
         if (g_ready)
-            LOG_INFO("Trade: the barter screen's prices (%d calls) and Accept (%d) go through the mod", prices, accepts);
+            LOG_INFO("Trade: the barter screen's prices (%d calls), Accept (%d), clicks (%d) and \"how many?\" (%d) go "
+                "through the mod", prices, accepts, clicks, prompts);
         else
-            LOG_WARN("Trade: couldn't find the barter screen's price (%d) or Accept (%d) calls; trading is off", prices,
-                accepts);
+            LOG_WARN("Trade: couldn't find all of the barter screen's calls (prices %d, Accept %d, clicks %d, \"how "
+                "many?\" %d); trading is off", prices, accepts, clicks, prompts);
         return g_ready;
     }
 
     bool TradeWindowReady() { return g_ready; }
 
-    bool OpenTradeWindow(const std::string& title, const std::vector<StallEntry>& stall)
+    bool OpenTradeWindow(const std::string& title, const std::vector<StallEntry>& stall, int32_t caps)
     {
         if (!g_ready || !g_compiled || !Player() || BarterMenu() || g_chest)
             return false;
@@ -245,8 +334,9 @@ namespace game
         g_chest = static_cast<TESObjectREFR*>(placed);
         SetEnabled(g_chest, false);
         RemoveAllItems(g_chest);
-        Fill(stall);
+        Fill(stall, caps);
         g_picks.clear();
+        g_clicks.clear();
         g_accepted = false;
         reinterpret_cast<void(__cdecl*)(TESObjectREFR*, int)>(kShowBarter)(g_chest, 0);
         LOG_INFO("Trade: window opened (%s, %zu listings, chest %08X)", title.c_str(), stall.size(), g_chest->refID);
@@ -257,12 +347,13 @@ namespace game
 
     bool TradeWindowExists() { return g_chest != nullptr; }
 
-    bool RefreshTradeWindow(const std::vector<StallEntry>& stall)
+    bool RefreshTradeWindow(const std::vector<StallEntry>& stall, int32_t caps)
     {
-        if (!OursOpen() || PicksMarked())
+        // Not while "how many?" is up: it holds a pointer to a stack, which emptying the chest would free.
+        if (!OursOpen() || PicksMarked() || QuantityPromptOpen())
             return false;
         RemoveAllItems(g_chest);
-        Fill(stall);
+        Fill(stall, caps);
         reinterpret_cast<void(__cdecl*)(bool)>(kBarterRebuild)(true);
         return true;
     }
@@ -329,8 +420,21 @@ namespace game
     {
         g_chest = nullptr;
         g_stall.clear();
+        g_clicks.clear();
         g_picks.clear();
         g_accepted = false;
+    }
+
+    bool TakeTradeClick(TradePick& pick)
+    {
+        while (!g_clicks.empty())
+        {
+            RawPick p = g_clicks.front();
+            g_clicks.erase(g_clicks.begin());
+            if (Resolve(p, pick))
+                return true;
+        }
+        return false;
     }
 
     bool TakeTradeAccept(std::vector<TradePick>& picks)

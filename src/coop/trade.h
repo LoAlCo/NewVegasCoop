@@ -39,8 +39,8 @@ namespace coop
         int32_t price = 0;
     };
 
-    // One player's stall: what they've put up. The same kind of item put up again joins its listing and takes the
-    // new price.
+    // One player's stall: what they've put up. Putting up the same kind again replaces its listing's count and price:
+    // a stall never adds up, so it can't show more than the seller said they have.
     class Stall
     {
     public:
@@ -51,8 +51,7 @@ namespace coop
             for (Listing& l : m_listings)
                 if (l.item.SameKind(item))
                 {
-                    int64_t count = int64_t(l.item.count) + item.count;
-                    l.item.count = count > net::kMaxItemCount ? net::kMaxItemCount : static_cast<int32_t>(count);
+                    l.item.count = item.count;
                     l.price = price;
                     return &l;
                 }

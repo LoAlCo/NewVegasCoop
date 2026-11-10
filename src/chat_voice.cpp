@@ -128,7 +128,7 @@
             else if (dragged)
                 s_downedSince[id] += step;
             TESObjectREFR* who = g_standIns.Character(id);
-            if (!who || g_cutscene || (!g_config.friendMarkers && !remote.Downed()))
+            if (!who || g_cutscene || game::TradeMenuOpen() || (!g_config.friendMarkers && !remote.Downed()))
                 continue;
             if (!remote.Downed())
             {

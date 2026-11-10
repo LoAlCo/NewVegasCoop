@@ -24,7 +24,7 @@ namespace
 {
     using Kind = coop::Coop::TradeEvent::Kind;
     constexpr uint8_t kNone = coop::Coop::kNoTrade;
-    constexpr int kTradeFriendQuestion = 19, kTradeAskQuestion = 20, kTradePriceQuestion = 21;
+    constexpr int kTradeFriendQuestion = 19, kTradeAskQuestion = 20, kTradePriceQuestion = 21, kTradeBuyQuestion = 22;
     constexpr int kMaxOpenTries = 5;
 
     std::vector<uint8_t> g_tradeFriends;
@@ -32,7 +32,7 @@ namespace
     uint8_t g_askFrom = kNone;
     uint32_t g_askUntil = 0;
     bool g_windowWanted = false, g_closingOurselves = false, g_wasShown = false, g_stallDirty = false;
-    uint32_t g_nextOpenTry = 0, g_nextDistanceCheck = 0;
+    uint32_t g_nextOpenTry = 0, g_nextDistanceCheck = 0, g_nextStallCheck = 0;
     int g_openTries = 0;
 
     struct ToPrice
@@ -41,10 +41,13 @@ namespace
         uint8_t itemType = 0;
     };
     std::deque<ToPrice> g_toPrice;
-    // Sales wait until our window is shut: the screen's marks point at our stacks, which taking an item out can free.
+    // Sales wait while the screen's "how many?" is up: it points at a stack, which taking an item out can free.
     std::vector<coop::Coop::TradeEvent> g_sales;
     bool g_pricing = false;
     std::string g_priceShown;
+    bool g_priceListed = false;
+    bool g_buying = false;
+    game::TradePick g_buyPick;
 
     std::string Many(int32_t count, const std::string& name)
     {
@@ -76,6 +79,8 @@ namespace
         return g_coop.PlayerPose(g_coop.MyPlayerId(), mine) && g_coop.PlayerPose(player, theirs) &&
             coop::Within(mine, theirs, coop::kTradeDistance);
     }
+
+    int32_t PartnerCapsShown() { return g_coop.PartnerCaps() > 0 ? g_coop.PartnerCaps() : 0; }
 
     std::vector<game::StallEntry> PartnerEntries()
     {
@@ -165,6 +170,7 @@ namespace
             return;
         }
         game::Notify(("Co-op: buying " + Many(count, name) + " for " + PriceWords(cost) + "...").c_str());
+        g_stallDirty = true;
     }
 
     void Sell(TESObjectREFR* me, const coop::Coop::TradeEvent& e)
@@ -277,10 +283,13 @@ namespace
             case Kind::SellRequest:
                 if (!me)
                     g_coop.SaleTakenOut(e.id, e.listing, false, net::TradeReason::NotHeld, e.item, e.itemType, e.caps);
-                else if (game::TradeWindowExists() || game::TradeWindowShown())
+                else if (game::QuantityPromptOpen())
                     g_sales.push_back(e);
                 else
                     Sell(me, e);
+                break;
+            case Kind::PartnerCaps:
+                g_stallDirty = true;
                 break;
             case Kind::Delivered:
                 if (me)
@@ -321,9 +330,13 @@ namespace
 
     std::string PriceBoxText(const ToPrice& p)
     {
+        std::string now;
+        if (const coop::Listing* l = g_coop.MyStall().FindKind(p.item))
+            now = "Up now: " + std::to_string(l->item.count) + " at " + PriceWords(l->price) + (l->price ? " each" : "") +
+                ".\n";
         return "Put up " + Many(p.item.count, game::ItemName(p.item.item)) + " for " +
-            g_coop.NameOf(g_coop.TradePartner()) + "\n\nPrice each, in caps: " + game::TextEntryText() +
-            "_\n\nEnter alone puts it up for free. Esc skips it.";
+            g_coop.NameOf(g_coop.TradePartner()) + "\n" + now + "\nPrice each, in caps: " + game::TextEntryText() +
+            "_\n\nEnter alone puts it up for free. Esc cancels.";
     }
 
     void StartPricing()
@@ -335,7 +348,8 @@ namespace
             return;
         }
         g_priceShown = PriceBoxText(g_toPrice.front());
-        if (game::AskChoice(g_priceShown, {"Skip"}, kTradePriceQuestion))
+        g_priceListed = g_coop.MyStall().FindKind(g_toPrice.front().item) != nullptr;
+        if (game::AskChoice(g_priceShown, {g_priceListed ? "Take it down" : "Cancel"}, kTradePriceQuestion))
             g_pricing = true;
         else
         {
@@ -365,6 +379,12 @@ namespace
         if (state != game::EntryState::Done)
         {
             game::StopTextEntry();
+            const coop::Listing* l = g_coop.MyStall().FindKind(p.item);
+            if (box == 0 && g_priceListed && l)
+            {
+                g_coop.UnlistItem(l->id);
+                game::Notify(("Co-op: took down " + game::ItemName(p.item.item)).c_str());
+            }
             return;
         }
         std::string typed = game::TakeTextEntry();
@@ -385,28 +405,70 @@ namespace
             game::ShowMessage("Couldn't put up " + game::ItemName(p.item.item) + " (your stall may be full).");
     }
 
-    void TakeAccept(TESObjectREFR* me)
+    std::string BuyBoxText(const game::TradePick& pick)
     {
-        std::vector<game::TradePick> picks;
-        if (!game::TakeTradeAccept(picks))
+        const coop::Listing* l = g_coop.PartnerStall().FindKind(pick.item);
+        int32_t cost = l ? coop::TradeCost(l->price, pick.item.count) : -1;
+        return "Buy " + Many(pick.item.count, game::ItemName(pick.item.item)) + " from " +
+            g_coop.NameOf(g_coop.TradePartner()) + " for " + PriceWords(cost < 0 ? 0 : cost) + "?";
+    }
+
+    // A line clicked in the window, after the screen's own "how many?": ours goes up for sale, theirs is offered.
+    void TakeClicks(TESObjectREFR* me)
+    {
+        std::vector<game::TradePick> accepted;
+        game::TakeTradeAccept(accepted);
+        if (g_pricing || g_buying)
             return;
-        // Close the window so nothing points at the chest while it changes; it reopens once prices are typed.
-        CloseWindow();
-        g_windowWanted = true;
-        g_nextOpenTry = 0;
-        for (const game::TradePick& pick : picks)
-            if (pick.fromPartner)
-                Buy(me, pick);
-        for (const game::TradePick& pick : picks)
+        game::TradePick pick;
+        if (!game::TakeTradeClick(pick))
+            return;
+        if (pick.fromPartner)
         {
-            if (pick.fromPartner)
+            if (!g_coop.PartnerStall().FindKind(pick.item))
+                return;
+            g_buyPick = pick;
+            g_buying = game::AskYesNo(BuyBoxText(pick), kTradeBuyQuestion);
+            return;
+        }
+        if (const char* why = game::WhyNotTradeable(pick.item))
+        {
+            game::ShowMessage("Can't put up " + game::ItemName(pick.item.item) + ": " + why + ".");
+            return;
+        }
+        (void)me;
+        g_toPrice.push_back({pick.item, pick.itemType});
+    }
+
+    void UpdateBuying(TESObjectREFR* me)
+    {
+        int answer = game::TakeAnswer(kTradeBuyQuestion);
+        if (answer < 0)
+            return;
+        g_buying = false;
+        if (answer == 1)
+            Buy(me, g_buyPick);
+    }
+
+    // Our listings never claim more than we hold: anything used, dropped or sold elsewhere comes off.
+    void CheckOurStall(TESObjectREFR* me)
+    {
+        std::vector<coop::Listing> listings = g_coop.MyStall().All();
+        for (const coop::Listing& l : listings)
+        {
+            int32_t held = KindCount(me, l.item);
+            if (held < 0 || held >= l.item.count)
                 continue;
-            if (const char* why = game::WhyNotTradeable(pick.item))
+            LOG_INFO("Trade: listing %u of %08X says %d but we hold %d; correcting it", l.id, l.item.item, l.item.count,
+                held);
+            if (held == 0)
+                g_coop.UnlistItem(l.id);
+            else
             {
-                game::ShowMessage("Can't put up " + game::ItemName(pick.item.item) + ": " + why + ".");
-                continue;
+                net::ItemCount kind = l.item;
+                kind.count = held;
+                g_coop.ListItem(kind, l.itemType, l.price);
             }
-            g_toPrice.push_back({pick.item, pick.itemType});
         }
     }
 
@@ -420,8 +482,10 @@ namespace
             game::DropQuestion(kTradeAskQuestion);
         if (g_pricing)
             game::DropQuestion(kTradePriceQuestion);
+        if (g_buying)
+            game::DropQuestion(kTradeBuyQuestion);
         CloseWindow();
-        g_pickingFriend = g_pricing = g_windowWanted = g_stallDirty = false;
+        g_pickingFriend = g_pricing = g_buying = g_windowWanted = g_stallDirty = false;
         g_askFrom = kNone;
         g_toPrice.clear();
         TESObjectREFR* me = game::Player();
@@ -475,7 +539,7 @@ void StopTrade()
     g_sales.clear();
     if (g_pricing)
         game::StopTextEntry();
-    g_pickingFriend = g_pricing = g_windowWanted = g_stallDirty = g_closingOurselves = g_wasShown = false;
+    g_pickingFriend = g_pricing = g_buying = g_windowWanted = g_stallDirty = g_closingOurselves = g_wasShown = false;
     g_askFrom = kNone;
     g_toPrice.clear();
     game::ForgetTradeWindow();
@@ -538,20 +602,23 @@ void UpdateTrade(uint32_t now)
         }
     }
 
-    TakeAccept(me);
-    if (!g_sales.empty())
+    TakeClicks(me);
+    if (g_buying)
+        UpdateBuying(me);
+    if (!g_sales.empty() && !game::QuantityPromptOpen())
     {
-        if (game::TradeWindowShown())
-        {
-            CloseWindow();
-            g_windowWanted = true;
-        }
-        else if (!game::TradeWindowExists())
-        {
-            for (const coop::Coop::TradeEvent& e : g_sales)
-                Sell(me, e);
-            g_sales.clear();
-        }
+        for (const coop::Coop::TradeEvent& e : g_sales)
+            Sell(me, e);
+        g_sales.clear();
+    }
+    if (coop::IsDue(now, g_nextStallCheck))
+    {
+        g_nextStallCheck = now + 1000;
+        TESForm* caps = game::LookupForm(game::ids::kCaps);
+        if (caps)
+            g_coop.ShareMyCaps(game::ItemCount(me, caps));
+        if (!g_pricing && !game::QuantityPromptOpen())
+            CheckOurStall(me);
     }
     bool shown = game::TradeWindowShown();
     if (g_wasShown && !shown && !g_closingOurselves)
@@ -566,17 +633,17 @@ void UpdateTrade(uint32_t now)
 
     if (g_pricing)
         UpdatePricing();
-    else if (!g_toPrice.empty() && !shown && !game::TradeWindowExists())
+    else if (!g_toPrice.empty() && !g_buying)
         StartPricing();
 
-    if (shown && g_stallDirty && game::RefreshTradeWindow(PartnerEntries()))
+    if (shown && g_stallDirty && game::RefreshTradeWindow(PartnerEntries(), PartnerCapsShown()))
         g_stallDirty = false;
 
-    if (g_windowWanted && !shown && !g_pricing && g_toPrice.empty() && !game::TradeWindowExists() &&
+    if (g_windowWanted && !shown && !g_pricing && !g_buying && !game::TradeWindowExists() &&
         !game::TradeMenuOpen() && !game::QuestionOpen() && coop::IsDue(now, g_nextOpenTry))
     {
         g_nextOpenTry = now + 500;
-        if (game::OpenTradeWindow(g_coop.NameOf(partner) + "'s stall", PartnerEntries()))
+        if (game::OpenTradeWindow(g_coop.NameOf(partner) + "'s stall", PartnerEntries(), PartnerCapsShown()))
         {
             g_windowWanted = g_stallDirty = g_closingOurselves = false;
             g_openTries = 0;
