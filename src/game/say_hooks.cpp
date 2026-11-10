@@ -456,6 +456,37 @@ namespace game
         return said;
     }
 
+    bool PlayFlatSound(const std::string& path, Sound& sound)
+    {
+        // Not placed in the world: heard the same wherever you look, like the game's own voices with no body to follow.
+        constexpr uint32_t kFlat = 0x105;
+        sound = Sound{};
+        void* audio = reinterpret_cast<void*(__cdecl*)()>(addr::kAudioManager)();
+        if (!audio || path.empty())
+            return false;
+        reinterpret_cast<Sound*(__thiscall*)(void*, Sound*, const char*, uint32_t, uint32_t)>(addr::kSoundHandleByFilePath)(
+            audio, &sound, path.c_str(), kFlat, 0);
+        if (sound.id == 0xFFFFFFFF)
+            return false;
+        return reinterpret_cast<bool(__thiscall*)(Sound*, bool)>(addr::kSoundHandleStart)(&sound, false);
+    }
+
+    void SetSoundVolume(Sound& sound, float volume)
+    {
+        if (sound.id != 0xFFFFFFFF)
+            reinterpret_cast<bool(__thiscall*)(Sound*, float)>(addr::kSoundHandleSetVolume)(&sound, volume);
+    }
+
+    bool SpokenSound(const TESObjectREFR* speaker, Sound& sound)
+    {
+        std::lock_guard<std::mutex> lock(g_voicesLock);
+        auto it = speaker ? g_voices.find(speaker->refID) : g_voices.end();
+        if (it == g_voices.end())
+            return false;
+        sound = it->second;
+        return true;
+    }
+
     bool StopSpeaking(const TESObjectREFR* speaker)
     {
         Sound voice;

@@ -84,6 +84,10 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iVoiceLineRed", voiceLineRed);
         Write(path, "iVoiceLineGreen", voiceLineGreen);
         Write(path, "iVoiceLineBlue", voiceLineBlue);
+        Write(path, "bVoiceLineHearOwn", voiceLineHearOwn);
+        Write(path, "bAutoVoiceLines", autoVoiceLines);
+        Write(path, "iAutoVoiceLineGap", autoVoiceLineGap);
+        Write(path, "iAutoGreetingGap", autoGreetingGap);
         Write(path, "bMouths", mouths);
         Write(path, "bSkipDlcPopups", skipDlcPopups);
         Write(path, "bSyncRadio", syncRadio);
@@ -147,6 +151,10 @@ void Config::LoadPlayer(const std::string& path)
     voiceLineRed = number("iVoiceLineRed", voiceLineRed, 0, 255);
     voiceLineGreen = number("iVoiceLineGreen", voiceLineGreen, 0, 255);
     voiceLineBlue = number("iVoiceLineBlue", voiceLineBlue, 0, 255);
+    voiceLineHearOwn = flag("bVoiceLineHearOwn", voiceLineHearOwn);
+    autoVoiceLines = flag("bAutoVoiceLines", autoVoiceLines);
+    autoVoiceLineGap = number("iAutoVoiceLineGap", autoVoiceLineGap, 5, 300);
+    autoGreetingGap = number("iAutoGreetingGap", autoGreetingGap, 0, 60);
     mouths = flag("bMouths", mouths);
     skipDlcPopups = flag("bSkipDlcPopups", skipDlcPopups);
     syncRadio = flag("bSyncRadio", syncRadio);

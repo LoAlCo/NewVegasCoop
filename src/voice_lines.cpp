@@ -1,9 +1,12 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
-// The voice line wheel: hold the key, turn the view towards a phrase, let go, and your character says it in an NPC
-// voice. Friends hear it from your character, with lip sync, through the game's own speech.
+// The voice line wheel: hold the key, move the mouse towards a phrase, let go, and your character says it in an NPC
+// voice. Friends hear it from your character, with lip sync, through the game's own speech. With Say Lines By
+// Themselves on, your character also shouts now and then by itself (a fight starting, attacking, being hit...), the
+// way other players' characters did by accident in co-op 0.1.10 and before; those lines go to friends the same way.
 
 #include "nvse/PluginAPI.h"
+#include "nvse/GameObjects.h"
 #include "config.h"
 #include "coop/coop.h"
 #include "coop/voice_lines.h"
@@ -12,7 +15,11 @@
 #include "log.h"
 #include "plugin.h"
 
+#include <algorithm>
+#include <cmath>
+#include <deque>
 #include <random>
+#include <string>
 
 namespace
 {
@@ -20,7 +27,10 @@ namespace
     float g_pointerX = 0, g_pointerY = 0;
     int g_chosen = 0;
     coop::VoiceLineLimiter g_myLimit;
+    coop::AutoLines g_auto;
     std::minstd_rand g_random{GetTickCount()};
+
+    float Roll() { return std::uniform_real_distribution<float>(0.0f, 1.0f)(g_random); }
 
     const char* Text(uint8_t phrase, uint8_t line)
     {
@@ -33,29 +43,80 @@ namespace
         return game::SayInVoice(who, voice, form.topic, form.info, sound);
     }
 
-    void SayMine(int slot, uint32_t now)
+    // The game does make our own character speak (and move its mouth), but that copy can't be heard well from our
+    // own view, so it's turned down and the same voice file is played to us directly instead.
+    uint32_t g_muteUntil = 0;
+    uint32_t g_mutedId = 0xFFFFFFFF;
+
+    void MuteMine(const game::Sound& spoken)
     {
-        if (slot < 0 || slot >= coop::kVoiceSlots)
+        g_mutedId = spoken.id;
+        g_muteUntil = GetTickCount() + 2000;
+        game::Sound s = spoken;
+        game::SetSoundVolume(s, 0);
+    }
+
+    // The first time a voice file loads, its sound turns up a little after the line starts: turn that down too.
+    void KeepMineMuted(uint32_t now)
+    {
+        if (!g_muteUntil)
             return;
-        if (!g_myLimit.Allow(now))
+        if (static_cast<int32_t>(now - g_muteUntil) >= 0)
         {
-            LOG_DEBUG("Voice lines: too soon after the last one; \"%s\" not said", coop::kVoicePhrases[slot].name);
+            g_muteUntil = 0;
             return;
         }
-        auto phrase = static_cast<uint8_t>(slot);
-        auto line = static_cast<uint8_t>(g_random() % coop::kVoicePhrases[slot].count);
+        game::Sound s;
+        if (game::Player() && game::SpokenSound(game::Player(), s) && s.id != g_mutedId && s.id != 0xFFFFFFFF)
+        {
+            g_mutedId = s.id;
+            game::SetSoundVolume(s, 0);
+            LOG_DEBUG("Voice lines: turned down your character's own copy of the line (sound %08X)", s.id);
+        }
+    }
+
+    void HearMyself(uint8_t phrase, uint8_t line, uint32_t voice, game::Sound& spoken)
+    {
+        MuteMine(spoken);
+        if (!g_config.voiceLineHearOwn)
+            return;
+        const char* folder = coop::VoiceFolder(voice);
+        if (!folder)
+            return;
+        std::string path = std::string("Data\\Sound\\Voice\\FalloutNV.esm\\") + folder + "\\" +
+            coop::kVoicePhrases[phrase].lines[line].file + "_1.ogg";
+        game::Sound flat;
+        if (!game::PlayFlatSound(path, flat))
+            LOG_WARN("Voice lines: couldn't play %s for you to hear", path.c_str());
+    }
+
+    // Says a phrase on our character and sends it to friends. why: "" for the wheel, else what made us say it.
+    bool Speak(uint8_t phrase, uint32_t now, const char* why)
+    {
+        if (phrase >= coop::kVoicePhraseCount)
+            return false;
+        if (!g_myLimit.Allow(now))
+        {
+            LOG_DEBUG("Voice lines: too soon after the last one; \"%s\" not said", coop::kVoicePhrases[phrase].name);
+            return false;
+        }
+        auto line = static_cast<uint8_t>(g_random() % coop::kVoicePhrases[phrase].count);
         net::PlayerLooks looks;
         bool female = game::ReadMyLooks(looks) && looks.female;
         uint32_t voice = coop::VoiceFor(female, g_config.voiceLineVoice);
         game::Sound sound;
         bool said = Say(game::Player(), phrase, line, voice, sound);
+        if (said)
+            HearMyself(phrase, line, voice, sound);
         bool sent = g_coop.SendVoiceLine(phrase, line, voice);
         if (said)
-            LOG_INFO("Voice lines: you say \"%s\" (%s, voice %08X, sound %08X%s)", Text(phrase, line),
-                coop::kVoicePhrases[slot].name, voice, sound.id, sent ? ", sent to friends" : "");
+            LOG_INFO("Voice lines: you say \"%s\" (%s%s, voice %08X, sound %08X%s)", Text(phrase, line),
+                *why ? "by itself: " : "", *why ? why : coop::kVoicePhrases[phrase].name, voice, sound.id,
+                sent ? ", sent to friends" : "");
         else
             LOG_WARN("Voice lines: your character couldn't say \"%s\" (voice %08X)%s", Text(phrase, line), voice,
                 sent ? "; friends still hear it" : "");
+        return true;
     }
 
     void HearFriends()
@@ -80,12 +141,127 @@ namespace
                     Text(v.phrase, v.line), v.voice);
         }
     }
+
+    // Say Lines By Themselves.
+    bool g_autoOn = false;
+    bool g_inFight = false;
+    uint32_t g_fightSince = 0;
+    float g_lastHealth = -1;
+    bool g_wasDowned = false;
+    uint32_t g_nextAutoLook = 0, g_nextGreetLook = 0;
+    std::deque<uint32_t> g_greeted;
+    constexpr uint32_t kAutoLookMs = 250, kGreetLookMs = 1000;
+    constexpr float kGreetReach = 250;
+    constexpr uint32_t kShortestFightMs = 3000;
+
+    bool AutoAllowed() { return g_config.voiceLines && g_config.autoVoiceLines && g_autoOn; }
+
+    void Auto(coop::AutoEvent e, uint32_t now, const char* why)
+    {
+        int phrase = g_auto.Pick(e, now, Roll(), static_cast<uint32_t>(g_config.autoVoiceLineGap) * 1000,
+            static_cast<uint32_t>(g_config.autoGreetingGap) * 60000);
+        if (phrase >= 0)
+            Speak(static_cast<uint8_t>(phrase), now, why);
+    }
+
+    bool Fighting(TESObjectREFR* me)
+    {
+        if (game::InCombat(me))
+            return true;
+        return g_coop.InGame() && g_coop.GetRole() == coop::Role::Friend && g_coop.HostSaysFighting();
+    }
+
+    TESObjectREFR* SomeoneToGreet(TESObjectREFR* me)
+    {
+        std::vector<TESObjectREFR*> actors;
+        game::NearbyActors(actors);
+        TESObjectREFR* best = nullptr;
+        float bestDistance = kGreetReach;
+        for (TESObjectREFR* a : actors)
+        {
+            if (a == me || g_standIns.IsStandIn(a) || game::IsDead(a) || game::IsTeammate(a) || game::CombatTarget(a))
+                continue;
+            uint32_t id = game::RefId(a);
+            if (std::find(g_greeted.begin(), g_greeted.end(), id) != g_greeted.end())
+                continue;
+            float d = std::hypot(a->posX - me->posX, a->posY - me->posY);
+            if (d < bestDistance && std::fabs(a->posZ - me->posZ) < 200)
+            {
+                best = a;
+                bestDistance = d;
+            }
+        }
+        return best;
+    }
+
+    void UpdateAuto(uint32_t now, TESObjectREFR* me, bool able)
+    {
+        bool on = g_config.voiceLines && g_config.autoVoiceLines && me && g_worldLoaded;
+        if (on && !g_autoOn)
+        {
+            g_auto.Started(now);
+            g_inFight = false;
+            g_lastHealth = -1;
+            g_wasDowned = g_downed;
+            LOG_INFO("Voice lines: your character says lines by itself now");
+        }
+        g_autoOn = on;
+        if (!on || !coop::IsDue(now, g_nextAutoLook))
+            return;
+        g_nextAutoLook = now + kAutoLookMs;
+
+        if (g_downed && !g_wasDowned)
+            Auto(coop::AutoEvent::BadlyHurt, now, "went down");
+        g_wasDowned = g_downed;
+        if (!able)
+            return;
+
+        bool fight = Fighting(me);
+        if (fight && !g_inFight)
+        {
+            g_fightSince = now;
+            Auto(coop::AutoEvent::FightStarts, now, "a fight starts");
+        }
+        else if (!fight && g_inFight && now - g_fightSince >= kShortestFightMs)
+            Auto(coop::AutoEvent::FightOver, now, "the fight is over");
+        g_inFight = fight;
+
+        float health = game::Health(me), most = game::MaxHealth(me);
+        if (fight && g_lastHealth > 0 && most > 0 && health < g_lastHealth - (std::max)(1.0f, most * 0.03f))
+        {
+            if (health < most * 0.3f)
+                Auto(coop::AutoEvent::BadlyHurt, now, "badly hurt");
+            else
+                Auto(coop::AutoEvent::Hit, now, "hit");
+        }
+        g_lastHealth = health;
+
+        if (!fight && coop::IsDue(now, g_nextGreetLook) && g_config.autoGreetingGap > 0)
+        {
+            g_nextGreetLook = now + kGreetLookMs;
+            if (TESObjectREFR* who = SomeoneToGreet(me))
+            {
+                g_greeted.push_back(game::RefId(who));
+                if (g_greeted.size() > 32)
+                    g_greeted.pop_front();
+                std::string why = std::string("greeting ") + game::Name(who);
+                Auto(coop::AutoEvent::Greeting, now, why.c_str());
+            }
+        }
+    }
+}
+
+void NoteMyAttack(uint8_t shots, bool release)
+{
+    if ((shots || release) && AutoAllowed() && g_inFight && !g_downed)
+        Auto(coop::AutoEvent::Attacking, GetTickCount(), "attacking");
 }
 
 void UpdateVoiceLines(uint32_t now)
 {
     TESObjectREFR* me = game::Player();
-    bool can = g_config.voiceLines && g_worldLoaded && me && !g_downed && !game::IsDead(me) && !game::ChatTyping() &&
+    bool alive = me && !game::IsDead(me);
+    bool can = g_config.voiceLines && g_worldLoaded && alive && !g_downed && !game::ChatTyping() &&
         !game::InMenuMode();
     bool held = can && game::IsKeyPressed(g_config.voiceLineKey);
     game::VoiceWheelLook look;
@@ -117,9 +293,11 @@ void UpdateVoiceLines(uint32_t now)
         game::WheelPointer(false, dx, dy);
         game::ShowVoiceWheel(false, g_chosen, look);
         if (can)
-            SayMine(g_chosen, now);
+            Speak(static_cast<uint8_t>(g_chosen), now, "");
         else
             LOG_DEBUG("Voice lines: wheel closed without saying anything");
     }
+    KeepMineMuted(now);
+    UpdateAuto(now, me, alive && !g_wheelOpen && !game::InMenuMode() && !game::ChatTyping());
     HearFriends();
 }

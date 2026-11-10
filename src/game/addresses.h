@@ -92,6 +92,12 @@ namespace game::addr
     constexpr uintptr_t kSayEnded = 0x005790F0;
     constexpr uintptr_t kSoundHandleStop = 0x00AD88F0;
     constexpr uintptr_t kSoundHandleIsPlaying = 0x00AD8930;
+    constexpr uintptr_t kAudioManager = 0x00453A70;
+    constexpr uintptr_t kSoundHandleByFilePath = 0x00AD7480;
+    constexpr uintptr_t kSoundHandleStart = 0x00AD8830; // same as pings' kSoundHandlePlay
+    constexpr uintptr_t kSoundHandleSetVolume = 0x00AD89E0;
+    constexpr uintptr_t kInputGlobals = 0x011F35CC;
+    constexpr uintptr_t kMouseMovement = 0x00A239E0;
     constexpr uintptr_t kHudMainMenu = 0x011D96C0;
     constexpr uintptr_t kSettingGeneralSubtitles = 0x011D8928;
     constexpr uintptr_t kSettingDialogueSubtitles = 0x011D8934;

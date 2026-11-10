@@ -65,6 +65,10 @@ struct Config
     int voiceLineRed = 255;
     int voiceLineGreen = 255;
     int voiceLineBlue = 255;
+    bool voiceLineHearOwn = true;
+    bool autoVoiceLines = false;
+    int autoVoiceLineGap = 15;
+    int autoGreetingGap = 10;
     bool mouths = true;
     bool skipDlcPopups = true;
     bool farCells = true;
