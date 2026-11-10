@@ -35,6 +35,8 @@ namespace game
         constexpr uint32_t kSettleMs = 1500;
         constexpr uint32_t kReviveAfterMs = 2000;
         constexpr uint32_t kReviveEveryMs = 3000;
+        // A copy hurt here (the other players' copies shoot it too) is put back to the host's health this often.
+        constexpr uint32_t kHealthCheckEveryMs = 1000;
         constexpr uint32_t kWeaponCheckEveryMs = 2000;
         constexpr uint32_t kMaxWeaponGifts = 2;
         constexpr uint32_t kMaxGiftsPerCopy = 10;
@@ -455,6 +457,8 @@ namespace game
             it = shared.count(it->first) ? std::next(it) : m_nextRevive.erase(it);
         for (auto it = m_switchedOff.begin(); it != m_switchedOff.end();)
             it = shared.count(it->first) ? std::next(it) : m_switchedOff.erase(it);
+        for (auto it = m_putDown.begin(); it != m_putDown.end();)
+            it = shared.count(*it) ? std::next(it) : m_putDown.erase(it);
 
         const float showDistance = ShowDistance();
         for (auto& [ref, npc] : shared)
@@ -604,10 +608,24 @@ namespace game
                 }
                 continue;
             }
-            if (npc.down)
-                continue;
             // FNV Delirium runs the host's hit reaction on our copy: its body is Delirium's until that ends.
             bool reacting = delirium::IsReacting(RefId(actor));
+            if (npc.down)
+            {
+                // Knocked out on the host (an essential NPC at 0 health, or a script): ours goes down too, once; the
+                // wake-up below brings it back when the host's gets up.
+                if (!reacting && !IsKnockedOut(actor) && m_putDown.insert(ref).second)
+                {
+                    SetUnconscious(actor, true);
+                    ++m_knockedDown;
+                    LOG_INFO("NPCs: %s (%08X) is knocked out on the host; knocked ours out (life state %d)", Name(actor),
+                        ref, LifeState(actor));
+                }
+                if (it != m_entries.end())
+                    MatchHealth(actor, npc, it->second, now, true);
+                continue;
+            }
+            m_putDown.erase(ref);
             if (IsKnockedOut(actor) && reacting)
                 continue;
             if (IsKnockedOut(actor))
@@ -706,23 +724,7 @@ namespace game
                 e.puppet.Update(actor, pose, now);
             }
 
-            if (npc.health != e.hostHealth)
-            {
-                float max = MaxHealth(actor);
-                if (std::fabs(max - npc.maxHealth) > 0.5f)
-                {
-                    if (e.ownMaxHealth == 0)
-                        e.ownMaxHealth = max;
-                    SetMaxHealth(actor, npc.maxHealth);
-                }
-                float change = npc.health - Health(actor);
-                if (std::fabs(change) >= 0.5f)
-                {
-                    ChangeHealth(actor, change);
-                    ++m_healthSets;
-                }
-                e.hostHealth = npc.health;
-            }
+            MatchHealth(actor, npc, e, now, false);
             bool settled = true;
             if (made)
             {
@@ -801,6 +803,32 @@ namespace game
                 }
             }
         }
+    }
+
+    void Npcs::MatchHealth(TESObjectREFR* actor, const coop::RemoteNpc& npc, Entry& e, uint32_t now, bool down)
+    {
+        // Down on the host: never below 1 here, so a copy that isn't essential here isn't killed by it.
+        float want = down && npc.health < 1 ? 1 : npc.health;
+        bool changed = npc.health != e.hostHealth;
+        if (!changed && !coop::IsDue(now, e.nextHealthCheck))
+            return;
+        e.nextHealthCheck = now + kHealthCheckEveryMs;
+        float max = MaxHealth(actor);
+        if (std::fabs(max - npc.maxHealth) > 0.5f)
+        {
+            if (e.ownMaxHealth == 0)
+                e.ownMaxHealth = max;
+            SetMaxHealth(actor, npc.maxHealth);
+        }
+        float change = want - Health(actor);
+        if (std::fabs(change) >= 0.5f)
+        {
+            ChangeHealth(actor, change);
+            ++m_healthSets;
+            if (!changed)
+                ++m_healthFixes;
+        }
+        e.hostHealth = npc.health;
     }
 
     void Npcs::Attack(uint32_t ref, uint8_t shots, bool reload, bool release)
@@ -1038,6 +1066,10 @@ namespace game
             LOG_INFO("NPCs: %zu copies we made of ones the host's game made while playing or rolled differently "
                 "(%zu of ours switched off for that); made %u, deleted %u, dressed %u times (in 30 s)", m_made.size(),
                 m_rerolled.size(), m_madeCount, m_unmadeCount, m_dressed);
+        if (!first && (m_knockedDown || m_healthFixes))
+            LOG_INFO("NPCs: knocked out %u copies with the host's; put %u copies hurt only here back to the host's "
+                "health (in 30 s)", m_knockedDown, m_healthFixes);
+        m_knockedDown = m_healthFixes = 0;
         if (!first && (m_holdsStarted || !m_heldActors.empty()))
             LOG_INFO("NPCs: holding %zu still that the host's game doesn't share (%u newly held in 30 s)",
                 m_heldActors.size(), m_holdsStarted);

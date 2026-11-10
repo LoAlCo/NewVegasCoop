@@ -57,11 +57,15 @@ namespace game
             uint32_t nextGearCheck = 0;
             uint32_t dressings = 0;
             bool letGo = false;
+            uint32_t nextHealthCheck = 0;
         };
         void UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
         void HoldUnshared(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
         void LetGoOfHold(const coop::Holds::Released& held, bool nowOurCopy);
         void ReleaseHolds();
+        void MatchHealth(TESObjectREFR* actor, const coop::RemoteNpc& npc, Entry& e, uint32_t now, bool down);
+        std::set<uint32_t> m_putDown;
+        uint32_t m_knockedDown = 0, m_healthFixes = 0;
         struct Held
         {
             Puppet puppet;
