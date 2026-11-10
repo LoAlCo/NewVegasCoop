@@ -1235,6 +1235,18 @@
 					]
 				},
 				"5": {
+					"title": "Hear Your Own Lines",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Hear your own character say the lines you pick (friends always hear them from your character)",
+					"vars": [
+						{
+							"configINI": "Settings:bVoiceLineHearOwn",
+							"default": 1
+						}
+					]
+				},
+				"6": {
 					"title": "Use HUD Colour",
 					"type": 5,
 					"enable": 1,
@@ -1246,7 +1258,7 @@
 						}
 					]
 				},
-				"6": {
+				"7": {
 					"title": "Red",
 					"type": 2,
 					"enable": 1,
@@ -1264,7 +1276,7 @@
 						"valueMax": 255
 					}
 				},
-				"7": {
+				"8": {
 					"title": "Green",
 					"type": 2,
 					"enable": 1,
@@ -1282,7 +1294,7 @@
 						"valueMax": 255
 					}
 				},
-				"8": {
+				"9": {
 					"title": "Blue",
 					"type": 2,
 					"enable": 1,
@@ -1298,6 +1310,59 @@
 						"valueIncrement": 5,
 						"valueMin": 0,
 						"valueMax": 255
+					}
+				},
+				"10": {
+					"title": "Lines Said By Themselves",
+					"enable": 1,
+					"type": 0
+				},
+				"11": {
+					"title": "Say Lines By Themselves",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Like early co-op versions: your character shouts by itself now and then, when a fight starts, while attacking, when hit or badly hurt and when the fight is over, and greets people now and then. Friends hear it too",
+					"vars": [
+						{
+							"configINI": "Settings:bAutoVoiceLines",
+							"default": 0
+						}
+					]
+				},
+				"12": {
+					"title": "Seconds Between Them",
+					"type": 2,
+					"enable": 1,
+					"mouse": "The shortest time between two lines your character says by itself",
+					"vars": [
+						{
+							"configINI": "Settings:iAutoVoiceLineGap",
+							"default": 15
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 5,
+						"valueMin": 5,
+						"valueMax": 120
+					}
+				},
+				"13": {
+					"title": "Minutes Between Greetings",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How long your character waits before greeting someone again ('Hey.', 'Hello.'). 0 never greets",
+					"vars": [
+						{
+							"configINI": "Settings:iAutoGreetingGap",
+							"default": 10
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 0,
+						"valueMax": 60
 					}
 				}
 			}

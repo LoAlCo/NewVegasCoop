@@ -1418,9 +1418,11 @@ namespace
             g_config.voicePitch, g_config.voiceSpeed, g_config.voiceEffect, g_config.voiceChat, g_config.voiceChatKey,
             g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.syncWeather, g_config.desyncNotices, g_config.pings,
             g_config.pingKey, g_config.pingSound, g_config.pingIcons);
-        LOG_INFO("Settings: voice lines %d, key %d, voice %d, HUD colour %d (%d %d %d)", g_config.voiceLines,
-            g_config.voiceLineKey, g_config.voiceLineVoice + 1, g_config.voiceLineHudColor, g_config.voiceLineRed,
-            g_config.voiceLineGreen, g_config.voiceLineBlue);
+        LOG_INFO("Settings: voice lines %d, key %d, voice %d, hear own %d, HUD colour %d (%d %d %d), by themselves %d "
+            "(every %d s at most, greeting every %d min)", g_config.voiceLines, g_config.voiceLineKey,
+            g_config.voiceLineVoice + 1, g_config.voiceLineHearOwn, g_config.voiceLineHudColor, g_config.voiceLineRed,
+            g_config.voiceLineGreen, g_config.voiceLineBlue, g_config.autoVoiceLines, g_config.autoVoiceLineGap,
+            g_config.autoGreetingGap);
         LOG_INFO("Settings: Delirium sync %d", g_config.syncDelirium);
     }
 
@@ -2372,6 +2374,7 @@ namespace
         for (const net::ShotPath& shot : game::TakeMyShots())
             g_coop.ShareShotPath(shot);
         game::MyAttack mine = game::TakeMyAttacks();
+        NoteMyAttack(mine.shots, mine.release);
         if (mine.shots || mine.reload)
         {
             g_coop.Attack(mine.shots, false, mine.reload, mine.paths);

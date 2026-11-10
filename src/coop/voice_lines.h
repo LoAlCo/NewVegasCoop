@@ -15,58 +15,96 @@ namespace coop
     {
         uint32_t topic = 0, info = 0;
         const char* text = "";
+        const char* file = ""; // the voice file's name in each voice's folder, without "_1.ogg"
     };
 
     struct VoicePhrase
     {
         const char* name = "";
-        VoiceLineForm lines[4];
+        VoiceLineForm lines[5];
         uint8_t count = 0;
     };
 
-    // Slot 0 is the middle of the wheel; 1-8 go clockwise from the top.
+    // Slot 0 is the middle of the wheel; 1-8 go clockwise from the top. After the wheel's phrases come the ones a
+    // character says by itself (Say Lines By Themselves).
     constexpr int kVoiceSlots = 9;
-    constexpr VoicePhrase kVoicePhrases[kVoiceSlots] = {
-        {"Hey", {{0x000000D2, 0x0017529D, "Hey."}, {0x000000D2, 0x0017529A, "Hello."}, {0x000000D4, 0x001751C5, "Later."}}, 3},
-        {"Help", {{0x000000DE, 0x0017525B, "Help!"}, {0x000000EE, 0x001750E9, "Help me out!"}}, 2},
-        {"Look Out", {{0x000000ED, 0x00175210, "Look out!"}, {0x0000011A, 0x001750BD, "Watch out!"}}, 2},
-        {"Over Here", {{0x000000EE, 0x001750E6, "Over here!"}}, 1},
-        {"Enemy Spotted", {{0x000000EE, 0x001750E8, "I've got one!"}, {0x000000F3, 0x001751DA, "Found you!"}}, 2},
-        {"Grenade", {{0x000000CA, 0x001750CF, "Grenade!"}, {0x000000EC, 0x0017528F, "Incoming!"},
-            {0x000000EC, 0x0017528E, "Get down!"}, {0x000000CA, 0x001750D0, "Take cover!"}}, 4},
-        {"Retreat", {{0x000000DE, 0x00175259, "I'm out of here!"}}, 1},
-        {"Taunt", {{0x000000DC, 0x001751E8, "Had enough?"}, {0x000000DC, 0x001751E9, "Come on!"},
-            {0x000000DC, 0x001751EA, "You like that?"}, {0x000000F6, 0x0017518B, "Teach you to mess with me."}}, 4},
-        {"Thanks", {{0x00000116, 0x0017511B, "Thanks."}}, 1},
+    constexpr uint8_t kGrenadePhrase = 5;
+    enum AutoPhrase : uint8_t { kAutoFight = 9, kAutoAttack, kAutoHit, kAutoHurt, kAutoFightOver, kAutoGreet };
+    constexpr int kVoicePhraseCount = 15;
+    constexpr VoicePhrase kVoicePhrases[kVoicePhraseCount] = {
+        {"Hey", {{0xD2, 0x0017529D, "Hey.", "genericadult_hello_0017529d"},
+            {0xD2, 0x0017529A, "Hello.", "generic_hello_0017529a"},
+            {0xD4, 0x001751C5, "Later.", "genericadult_goodbye_001751c5"}}, 3},
+        {"Help", {{0xDE, 0x0017525B, "Help!", "genericadultcombat_flee_0017525b"},
+            {0xEE, 0x001750E9, "Help me out!", "genericadu_normaltocombat_001750e9"}}, 2},
+        {"Look Out", {{0xED, 0x00175210, "Look out!", "genericadu_avoidthreat_00175210"},
+            {0x11A, 0x001750BD, "Watch out!", "genericadult_observecombat_001750bd"}}, 2},
+        {"Over Here", {{0xEE, 0x001750E6, "Over here!", "generic_normaltocombat_001750e6"}}, 1},
+        {"Enemy Spotted", {{0xEE, 0x001750E8, "I've got one!", "genericadu_normaltocombat_001750e8"},
+            {0xF3, 0x001751DA, "Found you!", "genericadu_alerttocombat_001751da"}}, 2},
+        {"Grenade", {{0xCA, 0x001750CF, "Grenade!", "genericadu_playerthrowgren_001750cf"},
+            {0xEC, 0x0017528F, "Incoming!", "genericadu_fireexplosive_0017528f"},
+            {0xEC, 0x0017528E, "Get down!", "genericadu_fireexplosive_0017528e"},
+            {0xCA, 0x001750D0, "Take cover!", "genericadu_playerthrowgren_001750d0"}}, 4},
+        {"Retreat", {{0xDE, 0x00175259, "I'm out of here!", "genericadultcombat_flee_00175259"}}, 1},
+        {"Taunt", {{0xDC, 0x001751E8, "Had enough?", "genericadultcombat_attack_001751e8"},
+            {0xDC, 0x001751E9, "Come on!", "genericadultcombat_attack_001751e9"},
+            {0xDC, 0x001751EA, "You like that?", "genericadultcombat_attack_001751ea"},
+            {0xF6, 0x0017518B, "Teach you to mess with me.", "genericadu_combattonormal_0017518b"}}, 4},
+        {"Thanks", {{0x116, 0x0017511B, "Thanks.", "genericadult_barterexit_0017511b"}}, 1},
+        {"(fight starts)", {{0xEE, 0x001750E7, "Hey!", "genericadu_normaltocombat_001750e7"},
+            {0xEE, 0x001750E8, "I've got one!", "genericadu_normaltocombat_001750e8"},
+            {0xF3, 0x001751DA, "Found you!", "genericadu_alerttocombat_001751da"},
+            {0xF3, 0x001751D8, "I've got you now.", "generic_alerttocombat_001751d8"},
+            {0xF3, 0x001751DB, "Aha!", "genericadu_alerttocombat_001751db"}}, 5},
+        {"(attacking)", {{0xDC, 0x001751E8, "Had enough?", "genericadultcombat_attack_001751e8"},
+            {0xDC, 0x001751E9, "Come on!", "genericadultcombat_attack_001751e9"},
+            {0xDC, 0x001751EA, "You like that?", "genericadultcombat_attack_001751ea"}}, 3},
+        {"(hit)", {{0xDD, 0x0017523D, "Damn!", "genericadultcombat_hit_0017523d"},
+            {0xDD, 0x0017523E, "I'm hit!", "genericadultcombat_hit_0017523e"}}, 2},
+        {"(badly hurt)", {{0xDE, 0x0017525B, "Help!", "genericadultcombat_flee_0017525b"},
+            {0xEE, 0x001750E9, "Help me out!", "genericadu_normaltocombat_001750e9"},
+            {0xDE, 0x0017525A, "This is hopeless!", "genericadultcombat_flee_0017525a"}}, 3},
+        {"(fight over)", {{0xF6, 0x0017518A, "Well, that's the end of that.", "genericadu_combattonormal_0017518a"},
+            {0xF6, 0x0017518B, "Teach you to mess with me.", "genericadu_combattonormal_0017518b"},
+            {0xF6, 0x0017518C, "That takes care of that.", "genericadu_combattonormal_0017518c"},
+            {0xF6, 0x00175189, "Phew. I'm glad that's over.", "generic_combattonormal_00175189"}}, 4},
+        {"(greeting)", {{0xD2, 0x0017529D, "Hey.", "genericadult_hello_0017529d"},
+            {0xD2, 0x0017529A, "Hello.", "generic_hello_0017529a"}}, 2},
     };
 
-    // Generic voices that have every line above (voice type forms in FalloutNV.esm).
-    constexpr uint32_t kMaleVoices[] = {
-        0x0000002D, // MaleAdult01Default
-        0x0002AB62, // MaleAdult01DefaultB
-        0x00019FC8, // MaleAdult02
-        0x00019FCA, // MaleAdult04
-        0x000717E1, // MaleAdult05
-        0x0013C8D7, // MaleAdult07
-        0x0013C8D8, // MaleAdult08
-        0x0013C8D9, // MaleAdult09
-        0x00019FD2, // MaleOld01
-        0x0013C8DB, // MaleOld02
-        0x00061EA7, // MaleGenericGhoul
+    // Generic voices that have every line above (voice type forms in FalloutNV.esm, and their voice folders).
+    struct WheelVoice
+    {
+        uint32_t form;
+        const char* folder;
     };
-    constexpr uint32_t kFemaleVoices[] = {
-        0x0000002E, // FemaleAdult01Default
-        0x00019FCB, // FemaleAdult02
-        0x0013C8CD, // FemaleAdult03
-        0x00019FCD, // FemaleAdult04
-        0x0013C8CF, // FemaleAdult06
-        0x0013C8D0, // FemaleAdult07
-        0x0013C8D2, // FemaleAdult09
-        0x0013C8D3, // FemaleAdult10
-        0x00019FD5, // FemaleOld01
-        0x0013C8D5, // FemaleOld02
-        0x00061EA8, // FemaleGenericGhoul
-        0x00143779, // FemaleGhoul02
+    constexpr WheelVoice kMaleVoices[] = {
+        {0x0000002D, "MaleAdult01Default"},
+        {0x0002AB62, "MaleAdult01DefaultB"},
+        {0x00019FC8, "MaleAdult02"},
+        {0x00019FCA, "MaleAdult04"},
+        {0x000717E1, "MaleAdult05"},
+        {0x0013C8D7, "MaleAdult07"},
+        {0x0013C8D8, "MaleAdult08"},
+        {0x0013C8D9, "MaleAdult09"},
+        {0x00019FD2, "MaleOld01"},
+        {0x0013C8DB, "MaleOld02"},
+        {0x00061EA7, "MaleGenericGhoul"},
+    };
+    constexpr WheelVoice kFemaleVoices[] = {
+        {0x0000002E, "FemaleAdult01Default"},
+        {0x00019FCB, "FemaleAdult02"},
+        {0x0013C8CD, "FemaleAdult03"},
+        {0x00019FCD, "FemaleAdult04"},
+        {0x0013C8CF, "FemaleAdult06"},
+        {0x0013C8D0, "FemaleAdult07"},
+        {0x0013C8D2, "FemaleAdult09"},
+        {0x0013C8D3, "FemaleAdult10"},
+        {0x00019FD5, "FemaleOld01"},
+        {0x0013C8D5, "FemaleOld02"},
+        {0x00061EA8, "FemaleGenericGhoul"},
+        {0x00143779, "FemaleGhoul02"},
     };
     constexpr int kMostVoiceChoices = 12;
 
@@ -76,28 +114,31 @@ namespace coop
     {
         size_t n = female ? std::size(kFemaleVoices) : std::size(kMaleVoices);
         size_t i = choice < 0 ? 0 : static_cast<size_t>(choice) % n;
-        return female ? kFemaleVoices[i] : kMaleVoices[i];
+        return female ? kFemaleVoices[i].form : kMaleVoices[i].form;
     }
 
-    inline bool IsWheelVoice(uint32_t voice)
+    // The voice's folder under Sound/Voice/FalloutNV.esm, or null if it isn't one of the wheel's voices.
+    inline const char* VoiceFolder(uint32_t voice)
     {
-        for (uint32_t v : kMaleVoices)
-            if (v == voice)
-                return true;
-        for (uint32_t v : kFemaleVoices)
-            if (v == voice)
-                return true;
-        return false;
+        for (const WheelVoice& v : kMaleVoices)
+            if (v.form == voice)
+                return v.folder;
+        for (const WheelVoice& v : kFemaleVoices)
+            if (v.form == voice)
+                return v.folder;
+        return nullptr;
     }
+
+    inline bool IsWheelVoice(uint32_t voice) { return VoiceFolder(voice) != nullptr; }
 
     inline bool IsVoiceLine(uint8_t phrase, uint8_t line)
     {
-        return phrase < kVoiceSlots && line < kVoicePhrases[phrase].count;
+        return phrase < kVoicePhraseCount && line < kVoicePhrases[phrase].count;
     }
 
-    // The pointer is how far the view was turned since the wheel opened (radians): x to the right, y up.
-    constexpr float kWheelDeadZone = 0.035f;
-    constexpr float kWheelReach = 0.09f;
+    // The pointer is how far the mouse moved since the wheel opened (the game's mouse counts): x right, y up.
+    constexpr float kWheelDeadZone = 40;
+    constexpr float kWheelReach = 120;
 
     // Which slot the pointer is on: 0 (middle) inside the dead zone, else 1-8 clockwise from the top.
     inline int WheelSlot(float x, float y)
@@ -177,5 +218,63 @@ namespace coop
         int m_next = 0, m_filled = 0;
         uint32_t m_last = 0;
         bool m_any = false;
+    };
+
+    // Say Lines By Themselves: what happened to the character, and which phrase (if any) it says about it.
+    enum class AutoEvent : uint8_t { FightStarts, Attacking, Hit, BadlyHurt, FightOver, Greeting, Count };
+
+    struct AutoRule
+    {
+        uint8_t phrase;
+        float chance;    // how often it's said when it happens
+        uint32_t gapMs;  // at least this long between two of the same kind
+    };
+    constexpr AutoRule kAutoRules[static_cast<int>(AutoEvent::Count)] = {
+        {kAutoFight, 0.9f, 20000},
+        {kAutoAttack, 0.25f, 15000},
+        {kAutoHit, 0.4f, 10000},
+        {kAutoHurt, 1.0f, 30000},
+        {kAutoFightOver, 0.7f, 30000},
+        {kAutoGreet, 1.0f, 0}, // its gap is the Greeting Gap setting
+    };
+
+    class AutoLines
+    {
+    public:
+        // roll: a random number in [0, 1). gapMs: at least this long after any line said by itself. greetGapMs: between
+        // two greetings (0 = never greet). Returns the phrase to say, or -1.
+        int Pick(AutoEvent e, uint32_t now, float roll, uint32_t gapMs, uint32_t greetGapMs)
+        {
+            int k = static_cast<int>(e);
+            if (k < 0 || k >= static_cast<int>(AutoEvent::Count))
+                return -1;
+            const AutoRule& rule = kAutoRules[k];
+            if (e == AutoEvent::Greeting && greetGapMs == 0)
+                return -1;
+            uint32_t own = e == AutoEvent::Greeting ? greetGapMs : rule.gapMs;
+            if (m_any && static_cast<int32_t>(now - m_last) < static_cast<int32_t>(gapMs))
+                return -1;
+            if (m_said[k] && static_cast<int32_t>(now - m_lastOf[k]) < static_cast<int32_t>(own))
+                return -1;
+            if (!(roll < rule.chance))
+                return -1;
+            m_any = m_said[k] = true;
+            m_last = m_lastOf[k] = now;
+            return rule.phrase;
+        }
+
+        // Counts as a greeting just said, so the first one waits a whole Greeting Gap after the game starts.
+        void Started(uint32_t now)
+        {
+            int k = static_cast<int>(AutoEvent::Greeting);
+            m_said[k] = true;
+            m_lastOf[k] = now;
+        }
+
+    private:
+        bool m_any = false;
+        uint32_t m_last = 0;
+        bool m_said[static_cast<int>(AutoEvent::Count)] = {};
+        uint32_t m_lastOf[static_cast<int>(AutoEvent::Count)] = {};
     };
 }

@@ -4,11 +4,14 @@
 
 #include "game/game.h"
 #include "game/internal.h"
+#include "game/addresses.h"
 #include "coop/voice_lines.h"
 #include "log.h"
 #include "nvse/GameObjects.h"
 
+#include <atomic>
 #include <cmath>
+#include <cstring>
 #include <string>
 
 namespace game
@@ -126,6 +129,61 @@ namespace game
 
         bool g_pointing = false;
         float g_heading = 0, g_pitch = 0;
+
+        // The game asks one small function how far the mouse moved this frame (axis 1 = x, 2 = y, 3 = wheel); the
+        // numbers sit in its input object at +0x1B24/+0x1B28/+0x1B2C. While the voice wheel is open we answer "not at
+        // all" for x and y, so the view can't turn, and read the movement ourselves.
+        constexpr uint32_t kMouseX = 0x1B24, kMouseY = 0x1B28, kMouseWheel = 0x1B2C;
+        std::atomic<bool> g_blockLook{false};
+        uintptr_t g_mouseBefore = 0;
+        bool g_mouseHooked = false, g_mouseTried = false;
+
+        int __fastcall MouseMovementHook(void* input, void*, int axis)
+        {
+            if (g_blockLook && (axis == 1 || axis == 2))
+                return 0;
+            if (g_mouseBefore)
+                return reinterpret_cast<int(__thiscall*)(void*, int)>(g_mouseBefore)(input, axis);
+            switch (axis)
+            {
+            case 1: return At<int>(input, kMouseX);
+            case 2: return At<int>(input, kMouseY);
+            case 3: return At<int>(input, kMouseWheel);
+            default: return 0;
+            }
+        }
+
+        // Puts a jump to our own version at the start of the game's function. If another plugin got there first (a
+        // jump already), ours passes on to theirs.
+        bool HookMouseMovement()
+        {
+            if (g_mouseTried)
+                return g_mouseHooked;
+            g_mouseTried = true;
+            auto* at = reinterpret_cast<uint8_t*>(addr::kMouseMovement);
+            if (at[0] == 0xE9)
+            {
+                int32_t rel;
+                std::memcpy(&rel, at + 1, 4);
+                g_mouseBefore = addr::kMouseMovement + 5 + rel;
+            }
+            DWORD old;
+            if (!VirtualProtect(at, 5, PAGE_EXECUTE_READWRITE, &old))
+            {
+                LOG_WARN("Voice lines: couldn't hold the view still (the mouse function can't be changed)");
+                return false;
+            }
+            int32_t rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(&MouseMovementHook) -
+                (addr::kMouseMovement + 5));
+            at[0] = 0xE9;
+            std::memcpy(at + 1, &rel, 4);
+            VirtualProtect(at, 5, old, &old);
+            FlushInstructionCache(GetCurrentProcess(), at, 5);
+            g_mouseHooked = true;
+            LOG_INFO("Voice lines: the view holds still while the wheel is open%s", g_mouseBefore ?
+                " (passing on to another plugin's mouse hook)" : "");
+            return true;
+        }
     }
 
     void ShowVoiceWheel(bool show, int chosen, const VoiceWheelLook& look)
@@ -162,11 +220,19 @@ namespace game
     {
         dx = dy = 0;
         TESObjectREFR* me = Player();
-        if (!open || !me)
+        auto* input = *reinterpret_cast<uint8_t**>(addr::kInputGlobals);
+        if (open)
+            HookMouseMovement();
+        g_blockLook = open && g_mouseHooked;
+        if (!open || !me || !input)
         {
             g_pointing = false;
             return false;
         }
+        // This frame's mouse movement (y grows downwards), taken from the game so it can't turn the view either.
+        int mx = At<int>(input, kMouseX), my = At<int>(input, kMouseY);
+        *reinterpret_cast<int*>(input + kMouseX) = 0;
+        *reinterpret_cast<int*>(input + kMouseY) = 0;
         if (!g_pointing)
         {
             g_pointing = true;
@@ -174,13 +240,14 @@ namespace game
             g_pitch = me->rotX;
             return true;
         }
-        // Turning right raises the heading; looking down raises the pitch. Put the view back after reading it.
-        dx = std::remainder(me->rotZ - g_heading, 6.2831853f);
-        dy = -(me->rotX - g_pitch);
-        if (!std::isfinite(dx) || !std::isfinite(dy))
-            dx = dy = 0;
-        me->rotZ = g_heading;
-        SetPitch(me, g_pitch);
+        dx = static_cast<float>(mx);
+        dy = static_cast<float>(-my);
+        // In case anything still turned it, put the view back where it was when the wheel opened.
+        if (me->rotZ != g_heading || me->rotX != g_pitch)
+        {
+            me->rotZ = g_heading;
+            SetPitch(me, g_pitch);
+        }
         return true;
     }
 }

@@ -9903,20 +9903,28 @@ TEST(trade_shares_caps_and_listings_replace_not_add)
 
 TEST(voice_line_table_has_lines_for_every_phrase)
 {
-    std::set<uint32_t> infos;
-    for (int i = 0; i < coop::kVoiceSlots; ++i)
+    for (int i = 0; i < coop::kVoicePhraseCount; ++i)
     {
+        std::set<uint32_t> infos;
         const coop::VoicePhrase& p = coop::kVoicePhrases[i];
-        CHECK(p.count >= 1 && p.count <= 4 && p.name[0]);
+        CHECK(p.count >= 1 && p.count <= 5 && p.name[0]);
         for (int l = 0; l < p.count; ++l)
         {
             CHECK(p.lines[l].topic && p.lines[l].info && p.lines[l].text[0]);
             CHECK(infos.insert(p.lines[l].info).second);
+            // The voice file is named after the line's form ID.
+            char id[16];
+            std::snprintf(id, sizeof(id), "_%08x", p.lines[l].info);
+            std::string file = p.lines[l].file;
+            CHECK(file.size() > 9 && file.compare(file.size() - 9, 9, id) == 0);
         }
         CHECK(coop::IsVoiceLine(static_cast<uint8_t>(i), 0));
         CHECK(!coop::IsVoiceLine(static_cast<uint8_t>(i), p.count));
     }
-    CHECK(!coop::IsVoiceLine(coop::kVoiceSlots, 0));
+    CHECK(!coop::IsVoiceLine(coop::kVoicePhraseCount, 0));
+    for (const coop::AutoRule& r : coop::kAutoRules)
+        CHECK(r.phrase >= coop::kVoiceSlots && r.phrase < coop::kVoicePhraseCount);
+    CHECK(std::string(coop::VoiceFolder(0x2E)) == "FemaleAdult01Default" && !coop::VoiceFolder(0x14));
     CHECK(coop::VoiceFor(false, 0) == 0x2D && coop::VoiceFor(true, 0) == 0x2E);
     CHECK(coop::VoiceFor(false, 11) == 0x2D && coop::VoiceFor(true, 11) == 0x143779);
     CHECK(coop::VoiceFor(false, -3) == 0x2D);
@@ -9940,9 +9948,9 @@ TEST(voice_wheel_points_at_the_slot_you_turn_towards)
     CHECK(WheelSlot(-reach, reach) == 8);
     CHECK(WheelSlot(-0.01f, reach) == 1);
     CHECK(WheelSlot(NAN, 1) == 0);
-    float x = 1, y = 1;
+    float x = 1000, y = 1000;
     coop::ClampWheelPointer(x, y);
-    CHECK(std::fabs(std::sqrt(x * x + y * y) - coop::kWheelReach) < 1e-5f && std::fabs(x - y) < 1e-6f);
+    CHECK(std::fabs(std::sqrt(x * x + y * y) - coop::kWheelReach) < 1e-3f && std::fabs(x - y) < 1e-3f);
     x = INFINITY;
     coop::ClampWheelPointer(x, y);
     CHECK(x == 0 && y == 0);
@@ -9991,7 +9999,7 @@ TEST(voice_line_round_trip_and_relay)
     Reader r(b);
     CHECK(r.Type(t) && t == MsgType::VoiceLine && Decode(r, m) && m.player == 3 && m.phrase == 5 && m.line == 2 &&
         m.voice == 0x2E);
-    for (net::VoiceLine odd : {net::VoiceLine{3, coop::kVoiceSlots, 0, 0x2D}, net::VoiceLine{3, 3, 1, 0x2D},
+    for (net::VoiceLine odd : {net::VoiceLine{3, coop::kVoicePhraseCount, 0, 0x2D}, net::VoiceLine{3, 3, 1, 0x2D},
              net::VoiceLine{3, 0, 0, 0x14}, net::VoiceLine{3, 0, 0, 0}})
     {
         Bytes x = Encode(odd);
@@ -10354,4 +10362,31 @@ TEST(delirium_is_off_when_the_host_lacks_it)
     a.Stop();
     CHECK(!a.OthersHaveDelirium());
     host.Stop();
+}
+
+TEST(lines_said_by_themselves_are_rare)
+{
+    using coop::AutoEvent;
+    coop::AutoLines a;
+    const uint32_t gap = 15000, greet = 10 * 60000;
+    a.Started(0);
+    CHECK(a.Pick(AutoEvent::Greeting, 1000, 0, gap, greet) == -1);
+    CHECK(a.Pick(AutoEvent::FightStarts, 1000, 0.95f, gap, greet) == -1);
+    CHECK(a.Pick(AutoEvent::FightStarts, 1000, 0, gap, greet) == coop::kAutoFight);
+    // Nothing else for the whole gap, whatever happens.
+    CHECK(a.Pick(AutoEvent::Hit, 1000 + gap - 1, 0, gap, greet) == -1);
+    CHECK(a.Pick(AutoEvent::Hit, 1000 + gap, 0, gap, greet) == coop::kAutoHit);
+    // The same kind waits its own gap, even when the shared one is shorter.
+    CHECK(a.Pick(AutoEvent::Hit, 1000 + gap + 5000, 0, 0, greet) == -1);
+    // Attacks are said only now and then.
+    CHECK(a.Pick(AutoEvent::Attacking, 1000 + 2 * gap, 0.5f, gap, greet) == -1);
+    CHECK(a.Pick(AutoEvent::Attacking, 1000 + 2 * gap, 0.1f, gap, greet) == coop::kAutoAttack);
+    // Greetings: a whole Greeting Gap after starting, then a whole gap between two; 0 never greets.
+    CHECK(a.Pick(AutoEvent::Greeting, greet - 1, 0, gap, greet) == -1);
+    CHECK(a.Pick(AutoEvent::Greeting, greet, 0, gap, greet) == coop::kAutoGreet);
+    CHECK(a.Pick(AutoEvent::Greeting, greet + 5 * 60000, 0, gap, greet) == -1);
+    CHECK(a.Pick(AutoEvent::Greeting, 2 * greet, 0, gap, greet) == coop::kAutoGreet);
+    coop::AutoLines never;
+    CHECK(never.Pick(AutoEvent::Greeting, 100000000, 0, gap, 0) == -1);
+    CHECK(never.Pick(AutoEvent::Count, 1, 0, gap, greet) == -1);
 }

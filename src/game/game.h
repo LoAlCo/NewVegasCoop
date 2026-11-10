@@ -506,6 +506,11 @@ namespace game
     // Says one line (response 1) in the given voice type, then gives the speaker back its own voice.
     bool SayInVoice(TESObjectREFR* speaker, uint32_t voice, uint32_t topic, uint32_t info, Sound& sound);
     void StopSound(Sound& sound);
+    // Plays a sound file (e.g. "Data\Sound\Voice\...ogg") that isn't placed in the world.
+    bool PlayFlatSound(const std::string& path, Sound& sound);
+    void SetSoundVolume(Sound& sound, float volume);
+    // The voice a character's line plays with (it can turn up a moment after the line starts, the first time a file loads).
+    bool SpokenSound(const TESObjectREFR* speaker, Sound& sound);
     bool StopSpeaking(const TESObjectREFR* speaker);
     bool IsPlaying(Sound& sound);
     void EndSubtitle(const std::string& text);
