@@ -241,11 +241,28 @@
 					]
 				},
 				"23": {
-					"title": "Testing",
+					"title": "Other Mods",
 					"enable": 1,
 					"type": 0
 				},
 				"24": {
+					"title": "Sync Delirium Reactions",
+					"type": 5,
+					"enable": 1,
+					"mouse": "With FNV Delirium installed: an NPC's stagger and fall from a hit look the same in everyone's game (the host's game decides). The others need Delirium too. Off: co-op leaves Delirium alone",
+					"vars": [
+						{
+							"configINI": "Settings:bSyncDelirium",
+							"default": 1
+						}
+					]
+				},
+				"25": {
+					"title": "Testing",
+					"enable": 1,
+					"type": 0
+				},
+				"26": {
 					"title": "Your Shots Fly the Same Path for Friends",
 					"type": 5,
 					"enable": 1,

@@ -53,6 +53,8 @@
 #include "game/steam.h"
 #include "game/quests.h"
 #include "game/npcs.h"
+#include "game/delirium.h"
+#include "coop/delirium_sync.h"
 #include "game/standins.h"
 #include "log.h"
 #include "version.h"
@@ -1256,6 +1258,104 @@ namespace
         g_killCredits.Hit(hit.targetRef, hit.playerId, GetTickCount());
         game::ApplyHit(target, by, hit.damage);
         g_threats.Hurt(hit.targetRef, hit.playerId, hit.damage, GetTickCount());
+        if (game::delirium::On())
+            game::delirium::ReportHit(coop::ToDeliriumHit(game::RefId(target), hit.damage, game::IsDead(target),
+                hit.hasWhere ? &hit.where : nullptr));
+    }
+
+    // FNV Delirium asks this for each ref it would react on: true means another game owns that NPC, so ours waits
+    // for the owner's reaction. Only while syncing is on (game::delirium checks that first).
+    bool IsDeliriumCopy(uint32_t localRef)
+    {
+        if (!g_coop.InGame())
+            return false;
+        TESObjectREFR* ref = game::LookupRef(localRef);
+        if (!ref || ref == game::Player())
+            return false;
+        if (g_standIns.IsStandIn(ref))
+            return true;
+        if (g_coop.GetRole() != coop::Role::Friend)
+            return false;
+        uint32_t hostRef = g_npcs.HostRefOf(localRef);
+        return hostRef && (net::IsMadeWhilePlaying(localRef) || g_coop.Npcs().count(hostRef) ||
+            g_npcs.IsHeld(localRef));
+    }
+
+    void UpdateDelirium(uint32_t now)
+    {
+        static coop::DeliriumRootClock s_roots;
+        static uint32_t s_started = 0, s_copied = 0, s_notStarted = 0, s_nextLog = 0;
+        bool have = game::delirium::Present() && g_config.syncDelirium;
+        g_coop.SetHasDelirium(have);
+        game::delirium::SetOn(have && g_coop.InGame());
+        std::vector<DeliriumEvent> events = game::delirium::TakeEvents();
+        std::vector<coop::DeliriumHeard> heard = g_coop.TakeDelirium();
+        std::map<uint32_t, net::DeliriumRoot> roots = g_coop.TakeDeliriumRoots();
+        if (!game::delirium::On())
+        {
+            s_roots.Clear();
+            return;
+        }
+        bool owner = g_coop.GetRole() == coop::Role::Host && g_coop.OthersHaveDelirium();
+        if (!owner)
+            s_roots.Clear();
+        for (const DeliriumEvent& ev : events)
+        {
+            if (!owner || !net::IsSharedRef(ev.refId))
+                continue;
+            if (ev.kind == DeliriumReactionStart)
+            {
+                g_coop.ShareDelirium(coop::ToMessage(ev.reaction, ev.refId));
+                s_roots.Started(ev.refId);
+                ++s_started;
+                LOG_DEBUG("Delirium: %08X reacts to a hit (part %d%s%s); sent to the others", ev.refId,
+                    ev.reaction.part, ev.reaction.again ? ", again" : "", ev.reaction.death ? ", dying" : "");
+            }
+            else if (ev.kind == DeliriumOutcomeEvent)
+            {
+                g_coop.ShareDelirium(coop::ToMessage(ev, ev.refId));
+                LOG_DEBUG("Delirium: %08X's reaction: outcome %u; sent to the others", ev.refId, ev.outcome);
+            }
+        }
+        if (owner && s_roots.Due(now))
+            g_coop.ShareDelirium(s_roots.Collect(now, [](uint32_t ref, float out[7]) {
+                return game::delirium::GetRoot(ref, out);
+            }));
+
+        auto local = [](uint32_t hostRef) -> uint32_t {
+            TESObjectREFR* actor = g_npcs.OurRefOf(hostRef);
+            return actor && game::IsActor(actor) ? game::RefId(actor) : 0;
+        };
+        for (const coop::DeliriumHeard& h : heard)
+        {
+            uint32_t hostRef = h.start ? h.reaction.ref : h.outcome.ref;
+            uint32_t ref = local(hostRef);
+            if (!ref)
+                continue;
+            if (h.start)
+            {
+                if (game::delirium::StartReaction(coop::ToReaction(h.reaction, ref)))
+                    ++s_copied;
+                else
+                {
+                    ++s_notStarted;
+                    LOG_DEBUG("Delirium: couldn't run the host's reaction on our copy of %08X", hostRef);
+                }
+            }
+            else
+                game::delirium::ForceOutcome(ref, h.outcome.outcome, h.outcome.pos, h.outcome.heading);
+        }
+        for (const auto& [hostRef, root] : roots)
+            if (uint32_t ref = local(hostRef))
+                game::delirium::SteerRoot(ref, root.root);
+        if (coop::IsDue(now, s_nextLog))
+        {
+            if (s_nextLog && (s_started || s_copied || s_notStarted))
+                LOG_INFO("Delirium: %u reactions sent, %u of the host's run here, %u couldn't be", s_started,
+                    s_copied, s_notStarted);
+            s_nextLog = now + 30000;
+            s_started = s_copied = s_notStarted = 0;
+        }
     }
 
     std::string LabStatus()
@@ -1321,6 +1421,7 @@ namespace
         LOG_INFO("Settings: voice lines %d, key %d, voice %d, HUD colour %d (%d %d %d)", g_config.voiceLines,
             g_config.voiceLineKey, g_config.voiceLineVoice + 1, g_config.voiceLineHudColor, g_config.voiceLineRed,
             g_config.voiceLineGreen, g_config.voiceLineBlue);
+        LOG_INFO("Settings: Delirium sync %d", g_config.syncDelirium);
     }
 
     double QpcMs(const LARGE_INTEGER& from, const LARGE_INTEGER& to)
@@ -2170,7 +2271,11 @@ namespace
                     uint32_t hostRef = g_npcs.HostRefOf(hit.targetRef);
                     if (!hostRef)
                         continue;
-                    g_coop.ReportHit(hostRef, hit.damage);
+                    net::HitWhere where;
+                    DeliriumHit seen{};
+                    bool hasWhere = g_coop.GetRole() == coop::Role::Friend &&
+                        game::delirium::GetLastHit(hit.targetRef, seen) && coop::ToHitWhere(seen, where);
+                    g_coop.ReportHit(hostRef, hit.damage, hasWhere ? &where : nullptr);
                     if (g_coop.GetRole() == coop::Role::Friend)
                         g_tally.sent.Add(hit.damage);
                 }
@@ -2353,6 +2458,7 @@ namespace
             g_npcs.ReleaseAll();
         g_visitorCompanions.Update(g_coop, g_standIns, g_npcs, me, now, g_config.visitorCompanions,
             g_config.companionsBoth);
+        UpdateDelirium(now);
         g_partClock.Done(kPartNpcs);
         static uint32_t s_nextDesyncNotice = 0;
         for (const std::string& text : g_coop.TakeDesyncNotices())
@@ -2537,6 +2643,8 @@ namespace
             if (g_config.mode != Config::Mode::Off && !game::AddCoopToMainMenu(&HostClicked, &JoinClicked))
                 LOG_WARN("Main menu: couldn't add Host Co-op and Join Co-op (another plugin changed it?)");
             g_dialogue.Install(g_coop, g_npcs, g_progress);
+            if (game::delirium::Load(&IsDeliriumCopy))
+                g_coop.SetHasDelirium(g_config.syncDelirium);
             g_terminals.Install(g_coop, g_progress);
             game::InstallFarCellGuard();
             if (game::InstallAllyDetectionSkip())
@@ -2711,7 +2819,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
         return false;
 
     Log::Open("");
-    LOG_INFO("NVCoop %s, Combined v38 test build, starting (xNVSE %08X, game %08X)",
+    LOG_INFO("NVCoop %s, Combined v39 test build, starting (xNVSE %08X, game %08X)",
         NVCOOP_VERSION_STRING, nvse->nvseVersion, nvse->runtimeVersion);
 
     if (nvse->runtimeVersion != RUNTIME_VERSION_1_4_0_525)

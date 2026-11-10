@@ -136,6 +136,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iFeedSeconds", feedSeconds);
         Write(path, "bShowAddress", showAddress);
         Write(path, "bFarAreas", farAreas);
+        Write(path, "bSyncDelirium", syncDelirium);
         WriteSwitches(path);
     }
     auto flag = [&](const char* key, bool now) {
@@ -227,6 +228,7 @@ void Config::LoadPlayer(const std::string& path)
     coopBalanced = flag("bCoopBalanced", coopBalanced);
     friendlyFire = flag("bFriendlyFire", friendlyFire);
     farAreas = flag("bFarAreas", farAreas);
+    syncDelirium = flag("bSyncDelirium", syncDelirium);
     if (fieldOfView && fieldOfView < 60)
         fieldOfView = 60;
 }

@@ -61,6 +61,7 @@ struct Config
     bool coopBalanced = false;
     bool friendlyFire = false;
     bool farAreas = true;
+    bool syncDelirium = true;
     bool askMode = true;
     bool askHardcore = true;
     std::vector<std::string> patches;

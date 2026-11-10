@@ -112,6 +112,9 @@ namespace net
         WeatherState = 80,
         PlayerEmote = 89,
         VoiceLine = 91,
+        DeliriumStart = 92,
+        DeliriumResult = 93,
+        DeliriumRoots = 94,
     };
 
     using Bytes = std::vector<uint8_t>;
@@ -162,6 +165,7 @@ namespace net
         bool hasMods = false;
         Hash mods{};
         bool checkOnly = false;
+        bool hasDelirium = false;
     };
 
     enum class ModKind : uint8_t { Plugin = 0, Archive = 1, Dll = 2 };
@@ -190,6 +194,7 @@ namespace net
         std::vector<std::string> questMods;
         coop::SaveMode mode;
         int32_t hostXp = 0;
+        bool hasDelirium = false;
     };
     constexpr int32_t kMaxXp = 10000000;
     constexpr size_t kMaxQuestMods = 64;
@@ -219,11 +224,24 @@ namespace net
         std::vector<uint32_t> items;
     };
 
+    // Where a shot landed, as FNV Delirium saw it on the shooter's game (GetLastHit): part is the game's body part
+    // (-1 unknown, 0-14), impact a world point, dir the way the shot travelled.
+    constexpr int8_t kMinBodyPart = -1, kMaxBodyPart = 14;
+    struct HitWhere
+    {
+        int8_t part = -1;
+        float impact[3] = {};
+        float dir[3] = {};
+        bool fire = false;
+    };
+    bool IsGoodHitWhere(const HitWhere& w);
     struct Hit
     {
         uint8_t playerId = 0;
         uint32_t targetRef = 0;
         float damage = 0;
+        bool hasWhere = false;
+        HitWhere where;
     };
 
     constexpr float kMaxHealth = 100000;
@@ -973,6 +991,48 @@ namespace net
     };
     Bytes Encode(const PlayerHit& m);
     bool Decode(Reader& r, PlayerHit& m);
+    // FNV Delirium reaction sync (the NPC's owner, the host, sends; the others run the same reaction on their copy).
+    constexpr uint8_t kDeliriumFire = 0x01, kDeliriumAgain = 0x02, kDeliriumDeath = 0x04;
+    constexpr uint8_t kKnownDeliriumFlags = kDeliriumFire | kDeliriumAgain | kDeliriumDeath;
+    constexpr float kMaxDeliriumImpact = 1000;
+    constexpr float kMaxDeliriumSpeed = 20000;
+    constexpr float kMaxDeliriumHealth = 100000;
+    struct DeliriumStart
+    {
+        uint32_t ref = 0;
+        int8_t part = -1;
+        float impactLocal[3] = {};
+        float dir[3] = {};
+        float health = 0;
+        float carried[2] = {};
+        uint32_t seed = 0;
+        uint8_t flags = 0;
+    };
+    Bytes Encode(const DeliriumStart& m);
+    bool Decode(Reader& r, DeliriumStart& m);
+    constexpr uint8_t kDeliriumFell = 1, kDeliriumRecovered = 2, kDeliriumFireOut = 3, kDeliriumEnded = 4;
+    struct DeliriumResult
+    {
+        uint32_t ref = 0;
+        uint8_t outcome = kDeliriumEnded;
+        float pos[3] = {};
+        float heading = 0;
+    };
+    Bytes Encode(const DeliriumResult& m);
+    bool Decode(Reader& r, DeliriumResult& m);
+    constexpr size_t kMaxDeliriumRoots = 16;
+    struct DeliriumRoot
+    {
+        uint32_t ref = 0;
+        float root[7] = {};     // pelvis position x y z, speed x y z, heading (degrees)
+    };
+    struct DeliriumRoots
+    {
+        uint32_t timeMs = 0;
+        std::vector<DeliriumRoot> roots;
+    };
+    Bytes Encode(const DeliriumRoots& m);
+    bool Decode(Reader& r, DeliriumRoots& m);
     Bytes Encode(const VoiceData& m);
     bool Decode(Reader& r, VoiceData& m);
     Bytes Encode(const ChatLine& m);

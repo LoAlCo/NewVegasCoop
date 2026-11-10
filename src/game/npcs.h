@@ -88,6 +88,7 @@ namespace game
             uint32_t gearChanges = 0;
             uint32_t nextGearCheck = 0;
             uint32_t dressings = 0;
+            bool letGo = false;
         };
         void UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
         void HoldUnshared(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
