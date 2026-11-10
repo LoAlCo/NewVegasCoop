@@ -32,7 +32,7 @@ namespace
     uint8_t g_askFrom = kNone;
     uint32_t g_askUntil = 0;
     bool g_windowWanted = false, g_closingOurselves = false, g_wasShown = false, g_stallDirty = false;
-    uint32_t g_nextOpenTry = 0, g_nextDistanceCheck = 0, g_nextStallCheck = 0;
+    uint32_t g_nextOpenTry = 0, g_nextDistanceCheck = 0, g_nextStallCheck = 0, g_dirtySince = 0;
     int g_openTries = 0;
 
     struct ToPrice
@@ -282,11 +282,14 @@ namespace
                     std::string(" (") + who + " " + ReasonWords(e.reason) + ")")).c_str());
                 break;
             case Kind::Listed:
+                LOG_INFO("Trade: %s put up %d of %08X (condition %d, mods %d, type %u) at %d caps each (listing %u)",
+                    who.c_str(), e.item.count, e.item.item, e.item.health, e.item.mods, e.itemType, e.caps, e.listing);
                 g_stallDirty = true;
                 game::Notify(("Co-op: " + who + " put up " + Many(e.item.count, game::ItemName(e.item.item)) + " (" +
                     PriceWords(e.caps) + (e.caps ? " each" : "") + ")").c_str());
                 break;
             case Kind::Unlisted:
+                LOG_INFO("Trade: %s took down listing %u", who.c_str(), e.listing);
                 g_stallDirty = true;
                 break;
             case Kind::SellRequest:
@@ -649,13 +652,34 @@ void UpdateTrade(uint32_t now)
         StartPricing();
 
     game::SetOurListings(OurEntries());
+    if (!g_stallDirty)
+        g_dirtySince = 0;
+    else if (!g_dirtySince)
+        g_dirtySince = now ? now : 1;
     if (shown && g_stallDirty && game::RefreshTradeWindow(PartnerEntries(), PartnerCapsShown()))
         g_stallDirty = false;
+    else if (shown && g_stallDirty && !g_pricing && !g_buying && !game::QuantityPromptOpen() &&
+        now - g_dirtySince > 3000)
+    {
+        // It couldn't be redrawn in place for a while: shut it and open it again with everything current.
+        LOG_INFO("Trade: reopening the window to show the latest stall");
+        CloseWindow();
+        g_windowWanted = true;
+        g_nextOpenTry = now + 300;
+        g_dirtySince = 0;
+    }
 
     if (g_windowWanted && !shown && !g_pricing && !g_buying && !game::TradeWindowExists() &&
         !game::TradeMenuOpen() && !game::QuestionOpen() && coop::IsDue(now, g_nextOpenTry))
     {
         g_nextOpenTry = now + 500;
+        // Trading usually starts from the teleporter in the Pip-Boy, which would stay up under the window.
+        if (game::PipBoyOpen())
+        {
+            LOG_INFO("Trade: closing the Pip-Boy before opening the window");
+            game::CloseMenu();
+            return;
+        }
         if (game::OpenTradeWindow(g_coop.NameOf(partner) + "'s stall", PartnerEntries(), PartnerCapsShown()))
         {
             g_windowWanted = g_stallDirty = g_closingOurselves = false;

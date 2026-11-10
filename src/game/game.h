@@ -325,6 +325,8 @@ namespace game
     void OpenMenus(char* out, size_t size);
     bool QuantityPromptOpen();
     bool TradeMenuOpen();
+    // The Pip-Boy (its items, stats or map pages) is open.
+    bool PipBoyOpen();
     bool SetFieldOfView(int degrees);
     bool ReadMyLooks(net::PlayerLooks& out);
     bool ApplyLooks(TESObjectREFR* standIn, const net::PlayerLooks& looks, bool* headRemade = nullptr);

@@ -1231,6 +1231,17 @@ namespace game
             *reinterpret_cast<const void* const*>(addr::kBarterMenu);
     }
 
+    bool PipBoyOpen()
+    {
+        uint32_t ids[addr::kMenuStackSlots] = {};
+        if (!ReadMenuStack(ids))
+            return false;
+        for (uint32_t id : ids)
+            if (id == 1002 || id == 1003 || id == 1023)
+                return true;
+        return false;
+    }
+
     bool QuantityPromptOpen()
     {
         uint32_t ids[addr::kMenuStackSlots] = {};

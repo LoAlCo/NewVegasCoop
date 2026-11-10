@@ -11,6 +11,7 @@
 #include "nvse/GameObjects.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <windows.h>
@@ -323,6 +324,46 @@ namespace game
                 ChangeItem(g_chest, e.item);
             if (caps > 0)
                 ChangeItem(g_chest, ids::kCaps, caps);
+            std::vector<Item> held;
+            bool read = Contents(g_chest, held);
+            std::string what;
+            for (const Item& i : held)
+                what += (what.empty() ? "" : ", ") + std::to_string(i.count) + " of " + [&] {
+                    char id[12];
+                    std::snprintf(id, sizeof(id), "%08X", i.id);
+                    return std::string(id);
+                }();
+            LOG_INFO("Trade: stall filled with %zu listings and %d caps; the chest holds %s", stall.size(), caps,
+                read ? (what.empty() ? "nothing" : what.c_str()) : "(couldn't read it)");
+        }
+
+        // How many lines a side of the window has, and how many of them its category hides.
+        void CountLines(uint32_t list, int& lines, int& hidden)
+        {
+            lines = hidden = 0;
+            auto* menu = static_cast<const uint8_t*>(BarterMenu());
+            if (!menu)
+                return;
+            for (const void* const* node = reinterpret_cast<const void* const*>(menu + list + 4); node && lines < 1000;
+                node = static_cast<const void* const*>(node[1]))
+            {
+                if (!node[0])
+                    continue;
+                ++lines;
+                hidden += *(static_cast<const uint8_t*>(node[0]) + 8) != 0;
+            }
+        }
+
+        void LogLines(const char* when)
+        {
+            int mine, mineHidden, theirs, theirsHidden;
+            CountLines(kPlayerTiles, mine, mineHidden);
+            CountLines(kMerchantTiles, theirs, theirsHidden);
+            auto* menu = static_cast<const uint8_t*>(BarterMenu());
+            LOG_INFO("Trade: %s: our side %d lines (%d hidden by its category), the stall %d lines (%d hidden); "
+                "categories %d and %d", when, mine, mineHidden, theirs, theirsHidden,
+                menu ? *reinterpret_cast<const int32_t*>(menu + 0x9C) : -1,
+                menu ? *reinterpret_cast<const int32_t*>(menu + 0xA0) : -1);
         }
 
         // A picked or clicked line, as a real kind of item: a listing for the partner's side, our stack for ours.
@@ -419,6 +460,7 @@ namespace game
         g_accepted = false;
         reinterpret_cast<void(__cdecl*)(TESObjectREFR*, int)>(kShowBarter)(g_chest, 0);
         LOG_INFO("Trade: window opened (%s, %zu listings, chest %08X)", title.c_str(), stall.size(), g_chest->refID);
+        LogLines("opened");
         return true;
     }
 
@@ -429,11 +471,22 @@ namespace game
     bool RefreshTradeWindow(const std::vector<StallEntry>& stall, int32_t caps)
     {
         // Not while "how many?" is up: it holds a pointer to a stack, which emptying the chest would free.
-        if (!OursOpen() || PicksMarked() || QuantityPromptOpen())
+        const char* why = !OursOpen() ? "the window isn't up" : PicksMarked() ? "lines are marked" :
+            QuantityPromptOpen() ? "\"how many?\" is up" : nullptr;
+        if (why)
+        {
+            static uint32_t s_nextLog = 0;
+            if (GetTickCount() - s_nextLog < 0x80000000u)
+            {
+                s_nextLog = GetTickCount() + 2000;
+                LOG_INFO("Trade: not redrawing yet (%s)", why);
+            }
             return false;
+        }
         RemoveAllItems(g_chest);
         Fill(stall, caps);
         reinterpret_cast<void(__cdecl*)(bool)>(kBarterRebuild)(true);
+        LogLines("redrawn");
         return true;
     }
 
