@@ -140,17 +140,32 @@ namespace coop
     constexpr float kWheelDeadZone = 40;
     constexpr float kWheelReach = 120;
 
-    // Which slot the pointer is on: 0 (middle) inside the dead zone, else 1-8 clockwise from the top.
+    // The wheel is laid out like the game's Companion Commands wheel: four 30-degree wedges on the right (30-150 degrees
+    // clockwise from the top) and four on the left (210-330), slots 1-8 clockwise from the upper right. Pointing into
+    // the gaps at the top and bottom picks the nearest wedge.
+    constexpr float kWedgeDegrees = 30;
+
+    // Which slot the pointer is on: 0 (middle) inside the dead zone, else 1-8.
     inline int WheelSlot(float x, float y)
     {
         if (!std::isfinite(x) || !std::isfinite(y) || x * x + y * y < kWheelDeadZone * kWheelDeadZone)
             return 0;
-        constexpr float kTurn = 6.2831853f;
-        float angle = std::atan2(x, y);
-        if (angle < 0)
-            angle += kTurn;
-        int sector = static_cast<int>(std::floor((angle + kTurn / 16) / (kTurn / 8))) % 8;
-        return 1 + sector;
+        float degrees = std::atan2(x, y) * 57.2957795f;
+        if (degrees < 0)
+            degrees += 360;
+        bool right = degrees < 180;
+        float from = right ? 30.0f : 210.0f;
+        int wedge = static_cast<int>(std::floor((degrees - from) / kWedgeDegrees));
+        wedge = wedge < 0 ? 0 : wedge > 3 ? 3 : wedge;
+        return (right ? 1 : 5) + wedge;
+    }
+
+    // The middle of a slot's wedge, in degrees clockwise from the top (0 for the middle slot).
+    inline float WheelSlotDegrees(int slot)
+    {
+        if (slot < 1 || slot >= kVoiceSlots)
+            return 0;
+        return slot <= 4 ? 45.0f + (slot - 1) * kWedgeDegrees : 225.0f + (slot - 5) * kWedgeDegrees;
     }
 
     // Keeps the pointer within reach, so turning far one way doesn't need turning as far back.
@@ -169,18 +184,19 @@ namespace coop
         }
     }
 
-    // Where a slot's label sits around the middle (unit circle, y down as on screen).
-    inline void WheelSlotPlace(int slot, float& x, float& y)
-    {
-        if (slot <= 0 || slot >= kVoiceSlots)
-        {
-            x = y = 0;
-            return;
-        }
-        float angle = (slot - 1) * 6.2831853f / 8;
-        x = std::sin(angle);
-        y = -std::cos(angle);
-    }
+    // The Vault Boy shown for each phrase on the wheel: the game's own pictures, by path (nothing of ours is shipped).
+    // The game has no Vault Girl versions of these, so female characters get the same ones.
+    constexpr const char* kVoiceIcons[kVoiceSlots] = {
+        "interface\\companion_wheel\\comp_talk_on.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_in_pain.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_surprised.dds",
+        "interface\\companion_wheel\\comp_stepback_on.dds",
+        "interface\\icons\\pipboyimages\\perks\\perk_spotting.dds",
+        "interface\\icons\\pipboyimages\\perks\\perk_hit_the_deck.dds",
+        "interface\\icons\\pipboyimages\\perks\\perk_run_n_gun.dds",
+        "interface\\icons\\pipboyimages\\perks\\perk_terrifying_presence.dds",
+        "interface\\icons\\stats\\special_charisma.dds",
+    };
 
     // Lines a player may say: one every so often, and a short burst at most, so the wheel can't be spammed.
     constexpr uint32_t kVoiceLineGapMs = 1200;

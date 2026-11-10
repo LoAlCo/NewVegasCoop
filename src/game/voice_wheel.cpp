@@ -1,6 +1,6 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
-// The voice line wheel on the HUD, and the view turning that points at its phrases.
+// The voice line wheel on the HUD, and the mouse that points at its phrases.
 
 #include "game/game.h"
 #include "game/internal.h"
@@ -18,23 +18,64 @@ namespace game
 {
     namespace
     {
-        constexpr float kRadius = 175;
-        constexpr float kSlotAlpha = 150, kChosenAlpha = 255;
-        constexpr float kBackAlpha = 120;
-        constexpr float kLineWidth = 190;
+        // Drawn like the game's Companion Commands wheel, from its own pictures: the dark disc, the dial (rim, ticks,
+        // spokes, middle circle), a highlight per wedge and a Vault Boy per phrase. Sizes and places are on the HUD's
+        // 960-high scale, measured from the middle of the dial.
+        constexpr float kDial = 760, kHalf = kDial / 2;
+        constexpr float kIconSize = 180, kFaceSize = 140, kMiddleIcon = 96;
+        constexpr float kIconAlpha = 130, kChosenIconAlpha = 255, kSliceAlpha = 110, kMatteAlpha = 225;
+        // Top left of each wedge's picture, from the dial's top left (slots 1-8).
+        constexpr float kIconSpots[coop::kVoiceSlots][2] = {
+            {0, 0}, {467, 115}, {532, 230}, {532, 359}, {467, 465}, {112, 455}, {52, 359}, {52, 230}, {122, 115}};
+        constexpr const char* kTitle = "Voice Lines";
+        constexpr const char* kHint = "Let go to say it";
+        constexpr const char* kTile = "HUDMainMenu/NVCoopVW";
 
         bool g_wheelMade = false;
         bool g_wheelTried = false;
         Script* g_wheelSlot[coop::kVoiceSlots] = {};
-        Script* g_wheelBack = nullptr;
+        Script* g_wheelFrame = nullptr;
 
-        std::string Slot(int i) { return "HUDMainMenu/NVCoopWheel" + std::to_string(i); }
-
-        void Place(int slot, float& x, float& y)
+        bool IsFace(int slot)
         {
-            coop::WheelSlotPlace(slot, x, y);
-            x *= kRadius * 1.25f;
-            y *= kRadius;
+            return std::strstr(coop::kVoiceIcons[slot], "message icons") != nullptr;
+        }
+
+        std::string F(float v) { return std::to_string(static_cast<int>(std::lround(v))); }
+
+        // x and y measured from the middle of the screen.
+        std::string Place(float x, float y)
+        {
+            return "<x><copy src=\"screen()\" trait=\"width\"/><div>2</div><add>" + F(x) + "</add></x>"
+                "<y><copy src=\"screen()\" trait=\"height\"/><div>2</div><add>" + F(y) + "</add></y>";
+        }
+
+        std::string Image(const std::string& name, const std::string& file, float x, float y, float size, int depth,
+            bool tinted)
+        {
+            return "<image name=\"NVCoopVW" + name + "\"><visible>0</visible>"
+                "<filename>" + file + "</filename>" + Place(x, y) + "<depth>" + std::to_string(depth) + "</depth>"
+                "<width>" + F(size) + "</width><height>" + F(size) + "</height><zoom>-1</zoom>" +
+                (tinted ? "<systemcolor>1</systemcolor><brightness>-1</brightness><red>255</red><green>255</green>"
+                    "<blue>255</blue>" : "") + "</image>";
+        }
+
+        std::string Text(const std::string& name, const std::string& text, float y, int font, float wrap, int depth)
+        {
+            return "<text name=\"NVCoopVW" + name + "\"><visible>0</visible>" + Place(0, y) + "<depth>" +
+                std::to_string(depth) + "</depth><font>" + std::to_string(font) + "</font><justify>&center;</justify>"
+                "<wrapwidth>" + F(wrap) + "</wrapwidth><systemcolor>1</systemcolor><brightness>-1</brightness>"
+                "<red>255</red><green>255</green><blue>255</blue><string>" + text + "</string></text>";
+        }
+
+        // The script lines that colour one tile: the HUD colour (brightness 255) or the chosen one.
+        std::string Tint(const std::string& tile)
+        {
+            std::string path = std::string(kTile) + tile;
+            return "  SetUIFloat \"" + path + "/brightness\" fBright\n"
+                "  SetUIFloat \"" + path + "/red\" fRed\n"
+                "  SetUIFloat \"" + path + "/green\" fGreen\n"
+                "  SetUIFloat \"" + path + "/blue\" fBlue\n";
         }
 
         bool MakeWheel()
@@ -46,84 +87,72 @@ namespace game
             if (!g_wheelTried)
             {
                 g_wheelTried = true;
-                for (int i = 0; i < coop::kVoiceSlots; ++i)
+                for (int i = 1; i < coop::kVoiceSlots; ++i)
                 {
-                    std::string path = Slot(i);
+                    std::string n = std::to_string(i);
+                    std::string icon = std::string(kTile) + "Icon" + n, slice = std::string(kTile) + "Slice" + n;
                     g_wheelSlot[i] = Compile("voice wheel slot",
-                        "string_var sText\n"
                         "float fAlpha\n"
+                        "int iChosen\n"
                         "float fBright\n"
                         "float fRed\n"
                         "float fGreen\n"
                         "float fBlue\n"
                         "int iShow\n"
-                        "Begin Function {sText, fAlpha, fBright, fRed, fGreen, fBlue, iShow}\n"
-                        "  SetUIStringEx \"" + path + "/string\" \"%z\" sText\n"
-                        "  SetUIFloat \"" + path + "/alpha\" fAlpha\n"
-                        "  SetUIFloat \"" + path + "/brightness\" fBright\n"
-                        "  SetUIFloat \"" + path + "/red\" fRed\n"
-                        "  SetUIFloat \"" + path + "/green\" fGreen\n"
-                        "  SetUIFloat \"" + path + "/blue\" fBlue\n"
-                        "  SetUIFloat \"" + path + "/visible\" iShow\n"
+                        "Begin Function {fAlpha, iChosen, fBright, fRed, fGreen, fBlue, iShow}\n"
+                        "  SetUIFloat \"" + icon + "/alpha\" fAlpha\n" + Tint("Icon" + n) +
+                        "  SetUIFloat \"" + icon + "/visible\" iShow\n" + Tint("Slice" + n) +
+                        "  SetUIFloat \"" + slice + "/visible\" iChosen\n"
                         "End\n");
                 }
-                g_wheelBack = Compile("voice wheel back",
+                std::string frame;
+                for (const char* t : {"Dial", "Title", "Hint", "MiddleIcon", "Name"})
+                    frame += Tint(t) + "  SetUIFloat \"" + std::string(kTile) + t + "/visible\" iShow\n";
+                g_wheelFrame = Compile("voice wheel frame",
                     "int iShow\n"
-                    "float fX\n"
-                    "float fY\n"
+                    "string_var sName\n"
+                    "string_var sIcon\n"
                     "float fBright\n"
                     "float fRed\n"
                     "float fGreen\n"
                     "float fBlue\n"
-                    "Begin Function {iShow, fX, fY, fBright, fRed, fGreen, fBlue}\n"
-                    "  SetUIFloat \"HUDMainMenu/NVCoopWheelBack/visible\" iShow\n"
-                    "  SetUIFloat \"HUDMainMenu/NVCoopWheelLine/user0\" fX\n"
-                    "  SetUIFloat \"HUDMainMenu/NVCoopWheelLine/user1\" fY\n"
-                    "  SetUIFloat \"HUDMainMenu/NVCoopWheelLine/brightness\" fBright\n"
-                    "  SetUIFloat \"HUDMainMenu/NVCoopWheelLine/red\" fRed\n"
-                    "  SetUIFloat \"HUDMainMenu/NVCoopWheelLine/green\" fGreen\n"
-                    "  SetUIFloat \"HUDMainMenu/NVCoopWheelLine/blue\" fBlue\n"
-                    "  SetUIFloat \"HUDMainMenu/NVCoopWheelLine/visible\" iShow\n"
+                    "Begin Function {iShow, sName, sIcon, fBright, fRed, fGreen, fBlue}\n"
+                    "  SetUIStringEx \"" + std::string(kTile) + "Name/string\" \"%z\" sName\n"
+                    "  SetUIStringEx \"" + std::string(kTile) + "MiddleIcon/filename\" \"%z\" sIcon\n"
+                    "  SetUIFloat \"" + std::string(kTile) + "Matte/visible\" iShow\n" + frame +
                     "End\n");
             }
-            for (Script* s : g_wheelSlot)
-                if (!s)
+            for (int i = 1; i < coop::kVoiceSlots; ++i)
+                if (!g_wheelSlot[i])
                     return false;
-            if (!g_wheelBack)
+            if (!g_wheelFrame)
                 return false;
             NVSEArrayVarInterface::Element result;
             auto inject = [&](const std::string& xml) {
                 g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
             };
-            auto f = [](float v) { return std::to_string(static_cast<int>(std::lround(v))); };
-            const float backW = kRadius * 2.5f + 260, backH = kRadius * 2 + 110;
-            inject("<image name=\"NVCoopWheelBack\"><visible>0</visible>"
-                "<filename>interface\\shared\\solid_black.dds</filename>"
-                "<x><copy src=\"screen()\" trait=\"width\"/><div>2</div><sub>" + f(backW / 2) + "</sub></x>"
-                "<y><copy src=\"screen()\" trait=\"height\"/><div>2</div><sub>" + f(backH / 2) + "</sub></y>"
-                "<depth>20</depth><width>" + f(backW) + "</width><height>" + f(backH) + "</height><zoom>-1</zoom>"
-                "<alpha>" + f(kBackAlpha) + "</alpha></image>");
-            inject("<image name=\"NVCoopWheelLine\"><visible>0</visible>"
-                "<filename>interface\\shared\\line\\glow_tip_line_horizontal.dds</filename>"
-                "<user0>0</user0><user1>0</user1>"
-                "<x><copy src=\"screen()\" trait=\"width\"/><div>2</div><add src=\"me()\" trait=\"user0\"/><sub>" +
-                f(kLineWidth / 2) + "</sub></x>"
-                "<y><copy src=\"screen()\" trait=\"height\"/><div>2</div><add src=\"me()\" trait=\"user1\"/><add>16</add></y>"
-                "<depth>22</depth><width>" + f(kLineWidth) + "</width><height>8</height><zoom>-1</zoom>"
-                "<brightness>-1</brightness><red>255</red><green>255</green><blue>255</blue></image>");
-            for (int i = 0; i < coop::kVoiceSlots; ++i)
+            constexpr float kMatteMore = 30;
+            std::string matte = Image("Matte", "interface\\companion_wheel\\hud_comp_bkg.dds", -kHalf - kMatteMore / 2,
+                -kHalf - kMatteMore / 2, kDial + kMatteMore, 20, false);
+            inject(matte.substr(0, matte.size() - 8) + "<alpha>" + F(kMatteAlpha) + "</alpha></image>");
+            inject(Image("Dial", "interface\\companion_wheel\\hud_comp_pie.dds", -kHalf, -kHalf, kDial, 21, true));
+            for (int i = 1; i < coop::kVoiceSlots; ++i)
             {
-                float x, y;
-                Place(i, x, y);
-                inject("<text name=\"NVCoopWheel" + std::to_string(i) + "\"><visible>0</visible>"
-                    "<x><copy src=\"screen()\" trait=\"width\"/><div>2</div><add>" + f(x) + "</add></x>"
-                    "<y><copy src=\"screen()\" trait=\"height\"/><div>2</div><add>" + f(y - 14) + "</add></y>"
-                    "<depth>23</depth><font>" + std::string(i == 0 ? "1" : "2") + "</font><justify>&center;</justify>"
-                    "<wrapwidth>320</wrapwidth><systemcolor>1</systemcolor><brightness>-1</brightness>"
-                    "<red>255</red><green>255</green><blue>255</blue><string> </string></text>");
+                std::string n = std::to_string(i);
+                std::string slice = Image("Slice" + n, "interface\\companion_wheel\\hud_comp_slice" + n + ".dds", -kHalf,
+                    -kHalf, kDial, 22, true);
+                inject(slice.substr(0, slice.size() - 8) + "<alpha>" + F(kSliceAlpha) + "</alpha></image>");
+                float size = IsFace(i) ? kFaceSize : kIconSize, inset = (kIconSize - size) / 2;
+                inject(Image("Icon" + n, coop::kVoiceIcons[i], kIconSpots[i][0] - kHalf + inset,
+                    kIconSpots[i][1] - kHalf + inset, size, 23, true));
             }
+            inject(Image("MiddleIcon", coop::kVoiceIcons[0], -kMiddleIcon / 2, -kMiddleIcon / 2 - 18, kMiddleIcon, 23,
+                true));
+            inject(Text("Name", " ", 28, 3, 140, 24));
+            inject(Text("Title", kTitle, 65 - kHalf - 14, 1, 300, 24));
+            inject(Text("Hint", kHint, 160 - kHalf - 12, 3, 240, 24));
             g_wheelMade = true;
-            LOG_INFO("Voice lines: wheel added to the HUD");
+            LOG_INFO("Voice lines: wheel added to the HUD (companion wheel style)");
             return true;
         }
 
@@ -197,20 +226,17 @@ namespace game
             return;
         if (!MakeWheel())
             return;
+        if (chosen < 0 || chosen >= coop::kVoiceSlots)
+            chosen = 0;
         float bright = look.hudColor ? 255.0f : -1.0f;
-        for (int i = 0; i < coop::kVoiceSlots; ++i)
-        {
-            std::string text = coop::kVoicePhrases[i].name;
-            if (i == chosen)
-                text = "> " + text + " <";
-            g_scripts->CallFunction(g_wheelSlot[i], Player(), nullptr, nullptr, 7, text.c_str(),
-                FloatArg(i == chosen ? kChosenAlpha : kSlotAlpha), FloatArg(bright), FloatArg(look.red),
-                FloatArg(look.green), FloatArg(look.blue), static_cast<uint32_t>(show ? 1 : 0));
-        }
-        float x, y;
-        Place(chosen, x, y);
-        g_scripts->CallFunction(g_wheelBack, Player(), nullptr, nullptr, 7, static_cast<uint32_t>(show ? 1 : 0),
-            FloatArg(x), FloatArg(y), FloatArg(bright), FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue));
+        for (int i = 1; i < coop::kVoiceSlots; ++i)
+            g_scripts->CallFunction(g_wheelSlot[i], Player(), nullptr, nullptr, 7,
+                FloatArg(i == chosen ? kChosenIconAlpha : kIconAlpha), static_cast<uint32_t>(show && i == chosen ? 1 : 0),
+                FloatArg(bright), FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue),
+                static_cast<uint32_t>(show ? 1 : 0));
+        g_scripts->CallFunction(g_wheelFrame, Player(), nullptr, nullptr, 7, static_cast<uint32_t>(show ? 1 : 0),
+            coop::kVoicePhrases[chosen].name, coop::kVoiceIcons[chosen], FloatArg(bright), FloatArg(look.red),
+            FloatArg(look.green), FloatArg(look.blue));
         s_shown = show;
         s_chosen = chosen;
         s_look = look;

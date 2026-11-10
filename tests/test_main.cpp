@@ -6541,35 +6541,37 @@ TEST(voice_wheel_points_at_the_slot_you_turn_towards)
     using coop::WheelSlot;
     const float reach = coop::kWheelReach, inside = coop::kWheelDeadZone * 0.5f;
     CHECK(WheelSlot(0, 0) == 0 && WheelSlot(inside, 0) == 0 && WheelSlot(0, -inside) == 0);
-    CHECK(WheelSlot(0, reach) == 1);
-    CHECK(WheelSlot(reach, reach) == 2);
+    // Laid out like the Companion Commands wheel: 1-4 on the right, 5-8 on the left, both clockwise.
+    CHECK(WheelSlot(reach, reach) == 1);
     CHECK(WheelSlot(reach, 0) == 3);
     CHECK(WheelSlot(reach, -reach) == 4);
-    CHECK(WheelSlot(0, -reach) == 5);
-    CHECK(WheelSlot(-reach, -reach) == 6);
+    CHECK(WheelSlot(-reach, -reach) == 5);
     CHECK(WheelSlot(-reach, 0) == 7);
     CHECK(WheelSlot(-reach, reach) == 8);
-    CHECK(WheelSlot(-0.01f, reach) == 1);
+    // The gaps at the top and bottom pick the nearest wedge.
+    CHECK(WheelSlot(0.01f, reach) == 1 && WheelSlot(-0.01f, reach) == 8);
+    CHECK(WheelSlot(0.01f, -reach) == 4 && WheelSlot(-0.01f, -reach) == 5);
     CHECK(WheelSlot(NAN, 1) == 0);
+    for (int s = 1; s < coop::kVoiceSlots; ++s)
+    {
+        float a = coop::WheelSlotDegrees(s) / 57.2957795f;
+        CHECK(WheelSlot(std::sin(a) * reach, std::cos(a) * reach) == s);
+        // Just inside each edge of the wedge.
+        CHECK(WheelSlot(std::sin(a + 0.24f) * reach, std::cos(a + 0.24f) * reach) == s);
+        CHECK(WheelSlot(std::sin(a - 0.24f) * reach, std::cos(a - 0.24f) * reach) == s);
+    }
+    CHECK(coop::WheelSlotDegrees(0) == 0 && coop::WheelSlotDegrees(1) == 45 && coop::WheelSlotDegrees(8) == 315);
     float x = 1000, y = 1000;
     coop::ClampWheelPointer(x, y);
     CHECK(std::fabs(std::sqrt(x * x + y * y) - coop::kWheelReach) < 1e-3f && std::fabs(x - y) < 1e-3f);
     x = INFINITY;
     coop::ClampWheelPointer(x, y);
     CHECK(x == 0 && y == 0);
-    // Labels sit where pointing picks them: slot 1 on top (screen y up is negative), slot 3 on the right.
-    float px, py;
-    coop::WheelSlotPlace(1, px, py);
-    CHECK(std::fabs(px) < 1e-5f && std::fabs(py + 1) < 1e-5f);
-    coop::WheelSlotPlace(3, px, py);
-    CHECK(std::fabs(px - 1) < 1e-5f && std::fabs(py) < 1e-5f);
-    for (int s = 1; s < coop::kVoiceSlots; ++s)
+    for (const char* icon : coop::kVoiceIcons)
     {
-        coop::WheelSlotPlace(s, px, py);
-        CHECK(WheelSlot(px * reach, -py * reach) == s);
+        std::string path = icon;
+        CHECK(path.compare(0, 10, "interface\\") == 0 && path.size() > 4 && path.compare(path.size() - 4, 4, ".dds") == 0);
     }
-    coop::WheelSlotPlace(0, px, py);
-    CHECK(px == 0 && py == 0);
 }
 
 TEST(voice_lines_are_spaced_out)
