@@ -195,6 +195,7 @@ namespace
             return;
         }
         game::TakeOffForTrade(kind);
+        game::StacksChanged();
         net::ItemCount out = kind;
         out.count = -kind.count;
         game::ChangeItem(me, out);

@@ -30,6 +30,11 @@ namespace game
         constexpr uintptr_t kSortLines = 0x0072F070;       // cdecl int (item, item): the lists' order
         constexpr uintptr_t kHideMine = 0x0072E570;        // cdecl bool (stack): hides a stack on the player's side
         constexpr uintptr_t kPriceTrait = 0x011D8FB0;      // the id of the trait holding a line's price text
+        constexpr uintptr_t kApplyCategory = 0x00730BB0;   // thiscall on a list (filter): hides lines by category
+        constexpr uintptr_t kCategoryFilter = 0x007304B0;  // the filter that reads each side's category
+        constexpr uintptr_t kSetPaneTitle = 0x007301F0;    // thiscall on the menu (title tile)
+        constexpr uintptr_t kHoverActive = 0x0119FDB0;     // set while the selected stack is being read each frame
+        constexpr uint32_t kPlayerCategory = 0x9C, kStallCategory = 0xA0, kPlayerTitle = 0x34, kStallTitle = 0x48;
         constexpr uintptr_t kBarterRebuild = 0x00730690;   // cdecl (bool now)
         constexpr uintptr_t kListHasTile = 0x007242F0;     // thiscall (list, tile)
         constexpr uintptr_t kStackCondition = 0x004BCDB0;  // thiscall float (stack, as percent)
@@ -354,6 +359,27 @@ namespace game
             }
         }
 
+        // Both sides on "everything". The screen steps a side's category on by itself whenever the side in focus has
+        // nothing to show (an empty stall), and its title isn't redrawn then, so a side could sit on Misc under "ITEMS".
+        void ShowAllCategories()
+        {
+            auto* menu = static_cast<uint8_t*>(BarterMenu());
+            if (!menu)
+                return;
+            auto& mine = *reinterpret_cast<int32_t*>(menu + kPlayerCategory);
+            auto& theirs = *reinterpret_cast<int32_t*>(menu + kStallCategory);
+            if (mine != 0 || theirs != 0)
+                LOG_INFO("Trade: categories were %d and %d; showing everything on both sides", mine, theirs);
+            mine = theirs = 0;
+            using Apply = void(__thiscall*)(void*, const void*);
+            reinterpret_cast<Apply>(kApplyCategory)(menu + kPlayerTiles, reinterpret_cast<const void*>(kCategoryFilter));
+            reinterpret_cast<Apply>(kApplyCategory)(menu + kMerchantTiles, reinterpret_cast<const void*>(kCategoryFilter));
+            using Title = void(__thiscall*)(void*, void*);
+            for (uint32_t at : {kPlayerTitle, kStallTitle})
+                if (void* tile = *reinterpret_cast<void* const*>(menu + at))
+                    reinterpret_cast<Title>(kSetPaneTitle)(menu, tile);
+        }
+
         void LogLines(const char* when)
         {
             int mine, mineHidden, theirs, theirsHidden;
@@ -461,6 +487,8 @@ namespace game
         reinterpret_cast<void(__cdecl*)(TESObjectREFR*, int)>(kShowBarter)(g_chest, 0);
         LOG_INFO("Trade: window opened (%s, %zu listings, chest %08X)", title.c_str(), stall.size(), g_chest->refID);
         LogLines("opened");
+        ShowAllCategories();
+        LogLines("showing everything");
         return true;
     }
 
@@ -483,11 +511,23 @@ namespace game
             }
             return false;
         }
+        StacksChanged();
         RemoveAllItems(g_chest);
         Fill(stall, caps);
         reinterpret_cast<void(__cdecl*)(bool)>(kBarterRebuild)(true);
         LogLines("redrawn");
+        ShowAllCategories();
         return true;
+    }
+
+    void StacksChanged()
+    {
+        // The screen keeps a pointer to the stack under the cursor and reads it each frame; taking items out can
+        // free it, so it's forgotten until the cursor moves again.
+        if (!OursOpen())
+            return;
+        *reinterpret_cast<void**>(kSelectedStack) = nullptr;
+        *reinterpret_cast<uint8_t*>(kHoverActive) = 0;
     }
 
     void CloseTradeWindow()

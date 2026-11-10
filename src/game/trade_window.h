@@ -41,6 +41,8 @@ namespace game
     // A line clicked since the last call (after the screen's "how many?"), as a real kind of item.
     bool TakeTradeClick(TradePick& pick);
     void CloseTradeWindow();
+    // Items were taken out of the player while the window is up: forget the stack under the cursor.
+    void StacksChanged();
     // Removes the chest once the window is gone. Call every frame.
     void TidyTradeWindow();
     // A save is loading: the chest goes with the old world, so only forget it.
