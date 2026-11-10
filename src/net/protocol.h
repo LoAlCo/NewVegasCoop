@@ -100,7 +100,7 @@ namespace net
         QuestCommand = 79,
         MineChange = 63,
         ModsMatch = 48,
-        VoiceLine = 85,
+        VoiceLine = 91,
     };
 
     using Bytes = std::vector<uint8_t>;
