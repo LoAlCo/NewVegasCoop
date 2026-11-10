@@ -199,7 +199,8 @@ namespace coop
 
     // Vault Girl pictures for a female character. The game has none for these phrases, so each is used only if it's
     // installed (looked for in this order), else the Vault Boy above: first an optional icon pack in our own folder
-    // (art made for the wheel), then a picture another mod adds (Pop-Up Message Icons' smiling Vault Girl for Hey).
+    // (art made for the wheel), then a picture another mod adds (Pop-Up Message Icons' women: smiling Vault Girl for Hey, shouting for Taunt,
+    // smiling for Thanks).
     struct VaultGirlIcons
     {
         const char* paths[2];
@@ -212,8 +213,8 @@ namespace coop
         {{"interface\\nvcoop\\voicewheel\\vaultgirl_enemyspotted.dds", nullptr}},
         {{"interface\\nvcoop\\voicewheel\\vaultgirl_grenade.dds", nullptr}},
         {{"interface\\nvcoop\\voicewheel\\vaultgirl_retreat.dds", nullptr}},
-        {{"interface\\nvcoop\\voicewheel\\vaultgirl_taunt.dds", nullptr}},
-        {{"interface\\nvcoop\\voicewheel\\vaultgirl_thanks.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_taunt.dds", "interface\\icons\\pipboyimages\\itsmejesushchrist\\message icons\\glow_barb.dds"}},
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_thanks.dds", "interface\\icons\\pipboyimages\\itsmejesushchrist\\message icons\\glow_explorer.dds"}},
     };
 
     // Lines a player may say: one every so often, and a short burst at most, so the wheel can't be spammed.
