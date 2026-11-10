@@ -374,6 +374,8 @@ namespace game
     void OpenMenus(char* out, size_t size);
     bool QuantityPromptOpen();
     bool TradeMenuOpen();
+    // The Pip-Boy (its items, stats or map pages) is open.
+    bool PipBoyOpen();
     bool SetFieldOfView(int degrees);
     bool ReadMyLooks(net::PlayerLooks& out);
     // The voice line wheel: shown with one phrase picked (0 = the middle), in the HUD colour or its own.
