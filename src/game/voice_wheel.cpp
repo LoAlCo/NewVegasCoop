@@ -36,6 +36,50 @@ namespace game
         Script* g_wheelSlot[coop::kVoiceSlots] = {};
         Script* g_wheelFrame = nullptr;
 
+        // A Vault Girl picture is used when its file is there (loose, under Data\\Textures); looked for once a session.
+        bool Installed(const char* texture)
+        {
+            static std::string s_textures;
+            if (s_textures.empty())
+            {
+                char exe[MAX_PATH] = {};
+                GetModuleFileNameA(nullptr, exe, MAX_PATH);
+                s_textures = exe;
+                s_textures = s_textures.substr(0, s_textures.find_last_of("\\/") + 1) + "Data\\Textures\\";
+            }
+            DWORD attributes = GetFileAttributesA((s_textures + texture).c_str());
+            return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+        }
+
+        const char* IconFor(int slot, bool female)
+        {
+            static int s_girl[coop::kVoiceSlots];
+            static bool s_looked = false;
+            if (!s_looked)
+            {
+                s_looked = true;
+                int found = 0;
+                for (int i = 0; i < coop::kVoiceSlots; ++i)
+                {
+                    s_girl[i] = -1;
+                    for (int k = 0; k < 2 && s_girl[i] < 0; ++k)
+                        if (const char* path = coop::kVaultGirlIcons[i].paths[k]; path && Installed(path))
+                            s_girl[i] = k;
+                    if (s_girl[i] >= 0)
+                    {
+                        ++found;
+                        LOG_INFO("Voice lines: Vault Girl picture for %s: %s", coop::kVoicePhrases[i].name,
+                            coop::kVaultGirlIcons[i].paths[s_girl[i]]);
+                    }
+                }
+                LOG_INFO("Voice lines: %d of %d phrases have a Vault Girl picture installed (the rest show Vault Boy)",
+                    found, coop::kVoiceSlots);
+            }
+            if (!female || slot < 0 || slot >= coop::kVoiceSlots || s_girl[slot] < 0)
+                return coop::kVoiceIcons[slot < 0 || slot >= coop::kVoiceSlots ? 0 : slot];
+            return coop::kVaultGirlIcons[slot].paths[s_girl[slot]];
+        }
+
         bool IsFace(int slot)
         {
             return std::strstr(coop::kVoiceIcons[slot], "message icons") != nullptr;
@@ -94,12 +138,14 @@ namespace game
                     g_wheelSlot[i] = Compile("voice wheel slot",
                         "float fAlpha\n"
                         "int iChosen\n"
+                        "string_var sIcon\n"
                         "float fBright\n"
                         "float fRed\n"
                         "float fGreen\n"
                         "float fBlue\n"
                         "int iShow\n"
-                        "Begin Function {fAlpha, iChosen, fBright, fRed, fGreen, fBlue, iShow}\n"
+                        "Begin Function {fAlpha, iChosen, fBright, fRed, fGreen, fBlue, iShow, sIcon}\n"
+                        "  SetUIStringEx \"" + icon + "/filename\" \"%z\" sIcon\n"
                         "  SetUIFloat \"" + icon + "/alpha\" fAlpha\n" + Tint("Icon" + n) +
                         "  SetUIFloat \"" + icon + "/visible\" iShow\n" + Tint("Slice" + n) +
                         "  SetUIFloat \"" + slice + "/visible\" iChosen\n"
@@ -221,7 +267,7 @@ namespace game
         static int s_chosen = -1;
         static VoiceWheelLook s_look;
         bool lookChanged = look.hudColor != s_look.hudColor || look.red != s_look.red || look.green != s_look.green ||
-            look.blue != s_look.blue;
+            look.blue != s_look.blue || look.female != s_look.female;
         if (show == s_shown && (!show || (chosen == s_chosen && !lookChanged)))
             return;
         if (!MakeWheel())
@@ -230,12 +276,12 @@ namespace game
             chosen = 0;
         float bright = look.hudColor ? 255.0f : -1.0f;
         for (int i = 1; i < coop::kVoiceSlots; ++i)
-            g_scripts->CallFunction(g_wheelSlot[i], Player(), nullptr, nullptr, 7,
+            g_scripts->CallFunction(g_wheelSlot[i], Player(), nullptr, nullptr, 8,
                 FloatArg(i == chosen ? kChosenIconAlpha : kIconAlpha), static_cast<uint32_t>(show && i == chosen ? 1 : 0),
                 FloatArg(bright), FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue),
-                static_cast<uint32_t>(show ? 1 : 0));
+                static_cast<uint32_t>(show ? 1 : 0), IconFor(i, look.female));
         g_scripts->CallFunction(g_wheelFrame, Player(), nullptr, nullptr, 7, static_cast<uint32_t>(show ? 1 : 0),
-            coop::kVoicePhrases[chosen].name, coop::kVoiceIcons[chosen], FloatArg(bright), FloatArg(look.red),
+            coop::kVoicePhrases[chosen].name, IconFor(chosen, look.female), FloatArg(bright), FloatArg(look.red),
             FloatArg(look.green), FloatArg(look.blue));
         s_shown = show;
         s_chosen = chosen;

@@ -6567,6 +6567,12 @@ TEST(voice_wheel_points_at_the_slot_you_turn_towards)
     x = INFINITY;
     coop::ClampWheelPointer(x, y);
     CHECK(x == 0 && y == 0);
+    for (const coop::VaultGirlIcons& girl : coop::kVaultGirlIcons)
+    {
+        // Every phrase can have its own Vault Girl picture in the optional pack's folder.
+        std::string own = girl.paths[0];
+        CHECK(own.rfind("interface", 0) == 0 && own.find("nvcoop") == 10 && own.find("voicewheel") == 17 && own.find("vaultgirl_") == 28);
+    }
     for (const char* icon : coop::kVoiceIcons)
     {
         std::string path = icon;

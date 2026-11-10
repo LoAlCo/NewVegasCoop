@@ -185,7 +185,6 @@ namespace coop
     }
 
     // The Vault Boy shown for each phrase on the wheel: the game's own pictures, by path (nothing of ours is shipped).
-    // The game has no Vault Girl versions of these, so female characters get the same ones.
     constexpr const char* kVoiceIcons[kVoiceSlots] = {
         "interface\\companion_wheel\\comp_talk_on.dds",
         "interface\\icons\\message icons\\glow_message_vaultboy_in_pain.dds",
@@ -196,6 +195,25 @@ namespace coop
         "interface\\icons\\pipboyimages\\perks\\perk_run_n_gun.dds",
         "interface\\icons\\pipboyimages\\perks\\perk_terrifying_presence.dds",
         "interface\\icons\\stats\\special_charisma.dds",
+    };
+
+    // Vault Girl pictures for a female character. The game has none for these phrases, so each is used only if it's
+    // installed (looked for in this order), else the Vault Boy above: first an optional icon pack in our own folder
+    // (art made for the wheel), then a picture another mod adds (Pop-Up Message Icons' smiling Vault Girl for Hey).
+    struct VaultGirlIcons
+    {
+        const char* paths[2];
+    };
+    constexpr VaultGirlIcons kVaultGirlIcons[kVoiceSlots] = {
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_hey.dds", "interface\\icons\\pipboyimages\\itsmejesushchrist\\message icons\\glow_vaultgirl.dds"}},
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_help.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_lookout.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_overhere.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_enemyspotted.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_grenade.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_retreat.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_taunt.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultgirl_thanks.dds", nullptr}},
     };
 
     // Lines a player may say: one every so often, and a short burst at most, so the wheel can't be spammed.
