@@ -122,6 +122,57 @@ namespace coop
             it = std::find(refs.begin(), refs.end(), it->first) != refs.end() ? std::next(it) : m_seen.erase(it);
     }
 
+    std::vector<uint32_t> ContainerShareWatch::ToRead(const std::vector<uint32_t>& inReach, size_t maxNew)
+    {
+        m_near = inReach;
+        std::sort(m_near.begin(), m_near.end());
+        m_near.erase(std::unique(m_near.begin(), m_near.end()), m_near.end());
+        for (auto it = m_seen.begin(); it != m_seen.end();)
+            it = std::binary_search(m_near.begin(), m_near.end(), it->first) ? std::next(it) : m_seen.erase(it);
+        std::vector<uint32_t> out;
+        bool anySeen = false;
+        for (uint32_t ref : m_near)
+            if (!m_seen.count(ref))
+            {
+                if (out.size() < maxNew)
+                    out.push_back(ref);
+            }
+            else
+                anySeen = true;
+        if (anySeen)
+        {
+            auto next = std::upper_bound(m_near.begin(), m_near.end(), m_last);
+            for (size_t i = 0; i < m_near.size(); ++i, ++next)
+            {
+                if (next == m_near.end())
+                    next = m_near.begin();
+                if (m_seen.count(*next))
+                {
+                    m_last = *next;
+                    out.push_back(*next);
+                    break;
+                }
+            }
+        }
+        return out;
+    }
+
+    bool ContainerShareWatch::Read(uint32_t ref, const std::vector<net::ItemCount>& items)
+    {
+        if (!std::binary_search(m_near.begin(), m_near.end(), ref))
+            return false;
+        auto seen = m_seen.find(ref);
+        if (seen == m_seen.end())
+        {
+            m_seen[ref] = items;
+            return true;
+        }
+        if (ItemDiff(seen->second, items).empty())
+            return false;
+        seen->second = items;
+        return true;
+    }
+
     bool FriendContainer::View(uint32_t ref, bool open)
     {
         m_open = ref && open;

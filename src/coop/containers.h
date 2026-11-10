@@ -46,6 +46,26 @@ namespace coop
         std::map<uint32_t, std::vector<net::ItemCount>> m_seen;
     };
 
+    // Each game rolls a container's random loot itself as its cell loads, so a friend's copy holds different loot
+    // from the host's until it's matched. The host shares the containers near each friend ahead of time: a new one
+    // is read at once (a few per look, so walking into a full room costs little), the rest one at a time in turn to
+    // notice the host's game changing them. A container out of reach and back is shared again, since the friend's
+    // game may have rolled it afresh.
+    class ContainerShareWatch
+    {
+    public:
+        // The refs near a friend now. Returns the ones to read this look.
+        std::vector<uint32_t> ToRead(const std::vector<uint32_t>& inReach, size_t maxNew);
+        // What a read found. True if friends should be told: the first read of it, or a change since the last.
+        bool Read(uint32_t ref, const std::vector<net::ItemCount>& items);
+        size_t Size() const { return m_seen.size(); }
+
+    private:
+        std::map<uint32_t, std::vector<net::ItemCount>> m_seen;
+        std::vector<uint32_t> m_near;
+        uint32_t m_last = 0;
+    };
+
     class FriendContainer
     {
     public:

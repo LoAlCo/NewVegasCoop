@@ -6366,6 +6366,55 @@ TEST(bodies_gone_from_the_list_are_forgotten)
     CHECK(w.Look(8, {}, false));
 }
 
+TEST(containers_near_a_friend_are_shared_once_and_again_when_changed)
+{
+    coop::ContainerShareWatch w;
+    std::vector<net::ItemCount> full{{100, 2, 50, 0}}, less{{100, 1, 50, 0}};
+    std::vector<uint32_t> both{7, 8};
+    std::vector<uint32_t> read = w.ToRead(both, 4);
+    CHECK(read.size() == 2);
+    CHECK(w.Read(7, full));
+    CHECK(w.Read(8, full));
+    // Then one at a time, in turn, told only when changed.
+    read = w.ToRead(both, 4);
+    CHECK(read.size() == 1 && read[0] == 7);
+    CHECK(!w.Read(7, full));
+    read = w.ToRead(both, 4);
+    CHECK(read.size() == 1 && read[0] == 8);
+    CHECK(w.Read(8, less));
+    read = w.ToRead(both, 4);
+    CHECK(read.size() == 1 && read[0] == 7);
+}
+
+TEST(walking_into_a_full_room_reads_a_few_containers_a_look)
+{
+    coop::ContainerShareWatch w;
+    std::vector<uint32_t> inReach{1, 2, 3, 4, 5, 6};
+    std::vector<uint32_t> read = w.ToRead(inReach, 4);
+    CHECK(read.size() == 4);
+    std::vector<net::ItemCount> empty;
+    for (uint32_t r : read)
+        CHECK(w.Read(r, empty));
+    read = w.ToRead(inReach, 4);
+    // The two left, and one already read to check in turn.
+    CHECK(read.size() == 3 && read[0] == 5 && read[1] == 6);
+}
+
+TEST(a_container_out_of_reach_and_back_is_shared_again)
+{
+    coop::ContainerShareWatch w;
+    std::vector<net::ItemCount> full{{100, 2, 50, 0}};
+    std::vector<uint32_t> inReach{7}, none;
+    w.ToRead(inReach, 4);
+    CHECK(w.Read(7, full));
+    w.ToRead(none, 4);
+    CHECK(w.Size() == 0);
+    CHECK(!w.Read(7, full));
+    size_t again = w.ToRead(inReach, 4).size();
+    CHECK(again == 1);
+    CHECK(w.Read(7, full));
+}
+
 TEST(body_loot_messages_read_back)
 {
     std::vector<net::ItemCount> items{{100, 2, 50, 0}, {200, 1, 80, 1}};
