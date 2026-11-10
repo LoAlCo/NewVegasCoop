@@ -6567,12 +6567,18 @@ TEST(voice_wheel_points_at_the_slot_you_turn_towards)
     x = INFINITY;
     coop::ClampWheelPointer(x, y);
     CHECK(x == 0 && y == 0);
-    for (const coop::VaultGirlIcons& girl : coop::kVaultGirlIcons)
+    const char* const slugs[coop::kVoiceSlots] = {"hey", "help", "lookout", "overhere", "enemyspotted", "grenade",
+        "retreat", "taunt", "thanks"};
+    for (int i = 0; i < coop::kVoiceSlots; ++i)
     {
-        // Every phrase can have its own Vault Girl picture in the optional pack's folder.
-        std::string own = girl.paths[0];
-        CHECK(own.rfind("interface", 0) == 0 && own.find("nvcoop") == 10 && own.find("voicewheel") == 17 && own.find("vaultgirl_") == 28);
+        // Every phrase has its own Vault Boy and Vault Girl picture in the wheel's folder, named after the phrase.
+        std::string folder = "interface\\nvcoop\\voicewheel\\";
+        CHECK(coop::kPhraseIcons[i].boy[0] == folder + "vaultboy_" + slugs[i] + ".dds");
+        CHECK(coop::kPhraseIcons[i].girl[0] == folder + "vaultgirl_" + slugs[i] + ".dds");
     }
+    // Look Out and Retreat have no drawing yet: their Vault Boy falls back to the TEMP card (girls fall back to boys).
+    CHECK(coop::kPhraseIcons[2].boy[1] == std::string(coop::kVoiceIconTemp));
+    CHECK(coop::kPhraseIcons[6].boy[1] == std::string(coop::kVoiceIconTemp));
     for (const char* icon : coop::kVoiceIcons)
     {
         std::string path = icon;

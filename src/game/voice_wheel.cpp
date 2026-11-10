@@ -36,7 +36,7 @@ namespace game
         Script* g_wheelSlot[coop::kVoiceSlots] = {};
         Script* g_wheelFrame = nullptr;
 
-        // A Vault Girl picture is used when its file is there (loose, under Data\\Textures); looked for once a session.
+        // A picture is used when its file is there (loose, under Data\Textures); looked for once a session.
         bool Installed(const char* texture)
         {
             static std::string s_textures;
@@ -51,33 +51,35 @@ namespace game
             return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
         }
 
+        const char* FirstInstalled(const char* const (&paths)[2])
+        {
+            for (const char* path : paths)
+                if (path && Installed(path))
+                    return path;
+            return nullptr;
+        }
+
         const char* IconFor(int slot, bool female)
         {
-            static int s_girl[coop::kVoiceSlots];
+            static const char* s_boy[coop::kVoiceSlots];
+            static const char* s_girl[coop::kVoiceSlots];
             static bool s_looked = false;
+            if (slot < 0 || slot >= coop::kVoiceSlots)
+                slot = 0;
             if (!s_looked)
             {
                 s_looked = true;
-                int found = 0;
                 for (int i = 0; i < coop::kVoiceSlots; ++i)
                 {
-                    s_girl[i] = -1;
-                    for (int k = 0; k < 2 && s_girl[i] < 0; ++k)
-                        if (const char* path = coop::kVaultGirlIcons[i].paths[k]; path && Installed(path))
-                            s_girl[i] = k;
-                    if (s_girl[i] >= 0)
-                    {
-                        ++found;
-                        LOG_INFO("Voice lines: Vault Girl picture for %s: %s", coop::kVoicePhrases[i].name,
-                            coop::kVaultGirlIcons[i].paths[s_girl[i]]);
-                    }
+                    const char* boy = FirstInstalled(coop::kPhraseIcons[i].boy);
+                    const char* girl = FirstInstalled(coop::kPhraseIcons[i].girl);
+                    s_boy[i] = boy ? boy : coop::kVoiceIcons[i];
+                    s_girl[i] = girl ? girl : s_boy[i];
+                    LOG_INFO("Voice lines: %s shows %s (Vault Boy) and %s (Vault Girl)", coop::kVoicePhrases[i].name,
+                        s_boy[i], s_girl[i]);
                 }
-                LOG_INFO("Voice lines: %d of %d phrases have a Vault Girl picture installed (the rest show Vault Boy)",
-                    found, coop::kVoiceSlots);
             }
-            if (!female || slot < 0 || slot >= coop::kVoiceSlots || s_girl[slot] < 0)
-                return coop::kVoiceIcons[slot < 0 || slot >= coop::kVoiceSlots ? 0 : slot];
-            return coop::kVaultGirlIcons[slot].paths[s_girl[slot]];
+            return female ? s_girl[slot] : s_boy[slot];
         }
 
         // Head-and-shoulders pictures (the message pop-up faces) are drawn smaller than whole-body poses.
