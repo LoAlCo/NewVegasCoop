@@ -1257,7 +1257,7 @@ namespace net
     {
         uint8_t stage, reason;
         uint32_t count, price;
-        if (!r.U8(stage) || stage > static_cast<uint8_t>(TradeStage::ItemBack) || !r.U8(m.other) || !r.U32(m.id) ||
+        if (!r.U8(stage) || stage > static_cast<uint8_t>(TradeStage::Caps) || !r.U8(m.other) || !r.U32(m.id) ||
             !r.U32(m.listing) || !r.U32(count) || !r.U32(price) || !r.U8(reason) ||
             reason > static_cast<uint8_t>(TradeReason::Closed))
             return false;
@@ -1269,7 +1269,8 @@ namespace net
         m.itemType = 0;
         if (m.count < 0 || m.count > kMaxItemCount || m.price < 0 || m.price > kMaxItemCount)
             return false;
-        bool needsId = m.stage != TradeStage::Ask && m.stage != TradeStage::Answer && m.stage != TradeStage::Close;
+        bool needsId = m.stage != TradeStage::Ask && m.stage != TradeStage::Answer && m.stage != TradeStage::Close &&
+            m.stage != TradeStage::Caps;
         if (needsId && m.id == 0)
             return false;
         if (m.stage == TradeStage::Buy && (m.listing == 0 || m.count < 1))
