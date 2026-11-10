@@ -103,7 +103,7 @@ namespace net
         Writer w(MsgType::Hello);
         w.U32(m.version);
         w.String(m.name, kMaxNameLength);
-        w.U8((m.hasMods ? 1 : 0) | (m.checkOnly ? 2 : 0));
+        w.U8((m.hasMods ? 1 : 0) | (m.checkOnly ? 2 : 0) | (m.hasDelirium ? 4 : 0));
         if (m.hasMods)
             w.Block(m.mods.data(), m.mods.size());
         return w.Take();
@@ -121,6 +121,7 @@ namespace net
         w.U8(static_cast<uint8_t>(m.mode.mode));
         w.U8(m.mode.friendlyFire ? 1 : 0);
         w.U32(static_cast<uint32_t>(m.hostXp));
+        w.U8(m.hasDelirium ? 1 : 0);
         return w.Take();
     }
 
@@ -180,6 +181,17 @@ namespace net
         w.U8(m.playerId);
         w.U32(m.targetRef);
         w.F32(m.damage);
+        bool where = m.hasWhere && IsGoodHitWhere(m.where);
+        w.U8(where ? 1 : 0);
+        if (where)
+        {
+            w.U8(static_cast<uint8_t>(m.where.part));
+            for (float v : m.where.impact)
+                w.F32(v);
+            for (float v : m.where.dir)
+                w.F32(v);
+            w.U8(m.where.fire ? 1 : 0);
+        }
         return w.Take();
     }
 
@@ -218,10 +230,11 @@ namespace net
     bool Decode(Reader& r, Hello& m)
     {
         uint8_t flags;
-        if (!r.U32(m.version) || !r.String(m.name, kMaxNameLength) || m.name.empty() || !r.U8(flags) || flags > 3)
+        if (!r.U32(m.version) || !r.String(m.name, kMaxNameLength) || m.name.empty() || !r.U8(flags) || flags > 7)
             return false;
         m.hasMods = (flags & 1) != 0;
         m.checkOnly = (flags & 2) != 0;
+        m.hasDelirium = (flags & 4) != 0;
         if (m.hasMods && !r.Block(m.mods.data(), m.mods.size()))
             return false;
         return r.AtEnd();
@@ -245,6 +258,10 @@ namespace net
         if (!r.U32(xp) || xp > static_cast<uint32_t>(kMaxXp))
             return false;
         m.hostXp = static_cast<int32_t>(xp);
+        uint8_t delirium = 0;
+        if (!r.U8(delirium) || delirium > 1)
+            return false;
+        m.hasDelirium = delirium == 1;
         return r.AtEnd();
     }
 
@@ -285,9 +302,143 @@ namespace net
         return r.AtEnd();
     }
 
+    namespace
+    {
+        bool UnitOrNone(const float v[3])
+        {
+            float length = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            return length == 0 || (length > 0.9f && length < 1.1f);
+        }
+
+        bool ReadFloats(Reader& r, float* out, size_t n)
+        {
+            for (size_t i = 0; i < n; ++i)
+                if (!r.F32(out[i]))
+                    return false;
+            return true;
+        }
+
+        void WriteFloats(Writer& w, const float* v, size_t n)
+        {
+            for (size_t i = 0; i < n; ++i)
+                w.F32(v[i]);
+        }
+    }
+
+    bool IsGoodHitWhere(const HitWhere& w)
+    {
+        for (float v : w.impact)
+            if (!std::isfinite(v) || std::fabs(v) >= 1e7f)
+                return false;
+        for (float v : w.dir)
+            if (!std::isfinite(v))
+                return false;
+        return w.part >= kMinBodyPart && w.part <= kMaxBodyPart && UnitOrNone(w.dir);
+    }
+
     bool Decode(Reader& r, Hit& m)
     {
-        return r.U8(m.playerId) && r.U32(m.targetRef) && r.F32(m.damage) && r.AtEnd();
+        uint8_t where = 0;
+        if (!r.U8(m.playerId) || !r.U32(m.targetRef) || !r.F32(m.damage) || !r.U8(where) || where > 1)
+            return false;
+        m.hasWhere = where == 1;
+        m.where = HitWhere{};
+        if (m.hasWhere)
+        {
+            uint8_t part = 0, fire = 0;
+            if (!r.U8(part) || !ReadFloats(r, m.where.impact, 3) || !ReadFloats(r, m.where.dir, 3) || !r.U8(fire) ||
+                fire > 1)
+                return false;
+            m.where.part = static_cast<int8_t>(part);
+            m.where.fire = fire == 1;
+            if (!IsGoodHitWhere(m.where))
+                return false;
+        }
+        return r.AtEnd();
+    }
+
+    Bytes Encode(const DeliriumStart& m)
+    {
+        Writer w(MsgType::DeliriumStart);
+        w.U32(m.ref);
+        w.U8(static_cast<uint8_t>(m.part));
+        WriteFloats(w, m.impactLocal, 3);
+        WriteFloats(w, m.dir, 3);
+        w.F32(m.health);
+        WriteFloats(w, m.carried, 2);
+        w.U32(m.seed);
+        w.U8(m.flags);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, DeliriumStart& m)
+    {
+        uint8_t part = 0;
+        if (!r.U32(m.ref) || !IsSharedRef(m.ref) || !r.U8(part) || !ReadFloats(r, m.impactLocal, 3) ||
+            !ReadFloats(r, m.dir, 3) || !r.F32(m.health) || !ReadFloats(r, m.carried, 2) || !r.U32(m.seed) ||
+            !r.U8(m.flags) || (m.flags & ~kKnownDeliriumFlags) != 0)
+            return false;
+        m.part = static_cast<int8_t>(part);
+        if (m.part < kMinBodyPart || m.part > kMaxBodyPart || !UnitOrNone(m.dir) ||
+            std::fabs(m.health) > kMaxDeliriumHealth)
+            return false;
+        for (float v : m.impactLocal)
+            if (std::fabs(v) > kMaxDeliriumImpact)
+                return false;
+        for (float v : m.carried)
+            if (std::fabs(v) > kMaxDeliriumSpeed)
+                return false;
+        return r.AtEnd();
+    }
+
+    Bytes Encode(const DeliriumResult& m)
+    {
+        Writer w(MsgType::DeliriumResult);
+        w.U32(m.ref);
+        w.U8(m.outcome);
+        WriteFloats(w, m.pos, 3);
+        w.F32(m.heading);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, DeliriumResult& m)
+    {
+        return r.U32(m.ref) && IsSharedRef(m.ref) && r.U8(m.outcome) && m.outcome >= kDeliriumFell &&
+            m.outcome <= kDeliriumEnded && ReadFloats(r, m.pos, 3) && r.F32(m.heading) &&
+            std::fabs(m.heading) <= 720 && r.AtEnd();
+    }
+
+    Bytes Encode(const DeliriumRoots& m)
+    {
+        Writer w(MsgType::DeliriumRoots);
+        w.U32(m.timeMs);
+        size_t count = m.roots.size() < kMaxDeliriumRoots ? m.roots.size() : kMaxDeliriumRoots;
+        w.U8(static_cast<uint8_t>(count));
+        for (size_t i = 0; i < count; ++i)
+        {
+            w.U32(m.roots[i].ref);
+            WriteFloats(w, m.roots[i].root, 7);
+        }
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, DeliriumRoots& m)
+    {
+        uint8_t count = 0;
+        if (!r.U32(m.timeMs) || !r.U8(count) || count == 0 || count > kMaxDeliriumRoots)
+            return false;
+        m.roots.resize(count);
+        for (DeliriumRoot& root : m.roots)
+        {
+            if (!r.U32(root.ref) || !IsSharedRef(root.ref) || !ReadFloats(r, root.root, 7))
+                return false;
+            for (int i = 3; i < 6; ++i)
+                if (std::fabs(root.root[i]) > kMaxDeliriumSpeed)
+                    return false;
+            if (std::fabs(root.root[6]) > 720)
+                return false;
+        }
+        return r.AtEnd();
     }
 
     bool Decode(Reader& r, PlayerHealth& m)

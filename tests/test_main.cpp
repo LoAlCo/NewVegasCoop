@@ -28,6 +28,7 @@
 #include "coop/holds.h"
 #include "coop/far_area.h"
 #include "coop/party_perks.h"
+#include "coop/delirium_sync.h"
 #include "dev/inspect_text.h"
 #include "dev/lab_channel.h"
 #include "dll_names.h"
@@ -6501,4 +6502,323 @@ TEST(friends_face_gets_its_skin_tone_on_each_head_the_game_builds)
     CHECK(!wrap.Check(0x1000, true, 0xFFFFFFFFu));
     CHECK(!wrap.Check(0x2000, true, 0xFFFFFFFFu));
     CHECK(wrap.Check(0x2000, true, 1));
+}
+
+TEST(hello_and_welcome_say_who_has_delirium)
+{
+    Hello in{kProtocolVersion, "Courier"};
+    in.hasDelirium = true;
+    Bytes b = Encode(in);
+    Reader r(b);
+    MsgType t;
+    Hello out;
+    CHECK(r.Type(t) && t == MsgType::Hello && Decode(r, out) && out.hasDelirium && !out.hasMods && !out.checkOnly);
+    Bytes plain = Encode(Hello{kProtocolVersion, "Courier"});
+    Reader r2(plain);
+    Hello out2;
+    CHECK(r2.Type(t) && Decode(r2, out2) && !out2.hasDelirium);
+    Writer w(MsgType::Hello);
+    w.U32(kProtocolVersion);
+    w.String("Courier", kMaxNameLength);
+    w.U8(8);
+    Bytes bad = w.Take();
+    Reader r3(bad);
+    Hello out3;
+    CHECK(r3.Type(t) && !Decode(r3, out3));
+
+    Welcome win{2, "Host", {}, {}, 100, true};
+    Bytes wb = Encode(win);
+    Reader r4(wb);
+    Welcome wout;
+    CHECK(r4.Type(t) && t == MsgType::Welcome && Decode(r4, wout) && wout.hasDelirium && wout.hostXp == 100);
+    Bytes wplain = Encode(Welcome{2, "Host"});
+    Reader r5(wplain);
+    Welcome wout2;
+    wout2.hasDelirium = true;
+    CHECK(r5.Type(t) && Decode(r5, wout2) && !wout2.hasDelirium);
+    wplain.back() = 2;
+    Reader r6(wplain);
+    CHECK(r6.Type(t) && !Decode(r6, wout2));
+}
+
+TEST(hit_carries_where_delirium_saw_it)
+{
+    Hit in{3, 0x1234, 25.5f, true, {5, {100, 200, 300}, {0, 1, 0}, true}};
+    Bytes b = Encode(in);
+    Reader r(b);
+    MsgType t;
+    Hit out;
+    CHECK(r.Type(t) && t == MsgType::Hit && Decode(r, out));
+    CHECK(out.hasWhere && out.where.part == 5 && out.where.impact[2] == 300 && out.where.dir[1] == 1 &&
+        out.where.fire && out.damage == 25.5f);
+
+    Bytes none = Encode(Hit{3, 0x1234, 10});
+    Reader r2(none);
+    Hit out2;
+    CHECK(r2.Type(t) && Decode(r2, out2) && !out2.hasWhere && out2.where.part == -1);
+
+    Hit badPart = in;
+    badPart.where.part = 15;
+    Bytes b3 = Encode(badPart);
+    Reader r3(b3);
+    Hit out3;
+    CHECK(r3.Type(t) && Decode(r3, out3) && !out3.hasWhere);
+    Hit badDir = in;
+    badDir.where.dir[0] = 3;
+    CHECK(!IsGoodHitWhere(badDir.where));
+    Writer w(MsgType::Hit);
+    w.U8(3);
+    w.U32(0x1234);
+    w.F32(10);
+    w.U8(1);
+    w.U8(20);
+    for (int i = 0; i < 6; ++i)
+        w.F32(0);
+    w.U8(0);
+    Bytes forged = w.Take();
+    Reader r4(forged);
+    Hit out4;
+    CHECK(r4.Type(t) && !Decode(r4, out4));
+    HitWhere unknown;
+    CHECK(IsGoodHitWhere(unknown));
+}
+
+TEST(delirium_messages_round_trip_and_are_checked)
+{
+    MsgType t;
+    DeliriumStart s;
+    s.ref = 0x0011AABB;
+    s.part = 1;
+    s.impactLocal[2] = 60;
+    s.dir[0] = 1;
+    s.health = 40;
+    s.carried[1] = -120;
+    s.seed = 0xDEADBEEF;
+    s.flags = kDeliriumFire | kDeliriumAgain;
+    Bytes b = Encode(s);
+    Reader r(b);
+    DeliriumStart so;
+    CHECK(r.Type(t) && t == MsgType::DeliriumStart && Decode(r, so));
+    CHECK(so.ref == s.ref && so.part == 1 && so.impactLocal[2] == 60 && so.dir[0] == 1 && so.health == 40 &&
+        so.carried[1] == -120 && so.seed == 0xDEADBEEF && so.flags == (kDeliriumFire | kDeliriumAgain));
+    auto rejects = [&](DeliriumStart bad) {
+        Bytes x = Encode(bad);
+        Reader rx(x);
+        DeliriumStart o;
+        return rx.Type(t) && !Decode(rx, o);
+    };
+    DeliriumStart bad = s;
+    bad.ref = 0;
+    CHECK(rejects(bad));
+    bad = s;
+    bad.ref = 0x14;
+    CHECK(rejects(bad));
+    bad = s;
+    bad.flags = 0x08;
+    CHECK(rejects(bad));
+    bad = s;
+    bad.part = 15;
+    CHECK(rejects(bad));
+    bad = s;
+    bad.dir[1] = 1;
+    CHECK(rejects(bad));
+    bad = s;
+    bad.impactLocal[0] = 5000;
+    CHECK(rejects(bad));
+    bad = s;
+    bad.carried[0] = 1e6f;
+    CHECK(rejects(bad));
+
+    DeliriumResult o{0x0011AABB, kDeliriumRecovered, {1, 2, 3}, 90};
+    Bytes ob = Encode(o);
+    Reader orr(ob);
+    DeliriumResult oo;
+    CHECK(orr.Type(t) && t == MsgType::DeliriumResult && Decode(orr, oo) && oo.outcome == kDeliriumRecovered &&
+        oo.pos[1] == 2 && oo.heading == 90);
+    for (uint8_t outcome : {uint8_t(0), uint8_t(5)})
+    {
+        DeliriumResult x = o;
+        x.outcome = outcome;
+        Bytes xb = Encode(x);
+        Reader xr(xb);
+        DeliriumResult xo;
+        CHECK(xr.Type(t) && !Decode(xr, xo));
+    }
+
+    DeliriumRoots roots;
+    roots.timeMs = 777;
+    for (uint32_t i = 0; i < kMaxDeliriumRoots + 3; ++i)
+        roots.roots.push_back({0x1000 + i, {1, 2, 3, 4, 5, 6, 180}});
+    Bytes rb = Encode(roots);
+    Reader rr(rb);
+    DeliriumRoots ro;
+    CHECK(rr.Type(t) && t == MsgType::DeliriumRoots && Decode(rr, ro) && ro.timeMs == 777 &&
+        ro.roots.size() == kMaxDeliriumRoots && ro.roots[0].ref == 0x1000 && ro.roots[0].root[6] == 180);
+    DeliriumRoots empty;
+    Bytes eb = Encode(empty);
+    Reader er(eb);
+    CHECK(er.Type(t) && !Decode(er, ro));
+    DeliriumRoots fast;
+    fast.roots.push_back({0x1000, {0, 0, 0, 1e6f, 0, 0, 0}});
+    Bytes fb = Encode(fast);
+    Reader fr(fb);
+    CHECK(fr.Type(t) && !Decode(fr, ro));
+}
+
+TEST(delirium_reactions_turn_into_messages_and_back)
+{
+    DeliriumReaction r{};
+    r.refId = 0x00123456;
+    r.part = 3;
+    r.impactLocal[0] = 10;
+    r.dir[2] = -1;
+    r.health = 55;
+    r.carried[0] = 80;
+    r.seed = 42;
+    r.fire = 1;
+    r.death = 1;
+    net::DeliriumStart m = coop::ToMessage(r, 0x00123456);
+    CHECK(m.ref == 0x00123456 && m.part == 3 && m.flags == (kDeliriumFire | kDeliriumDeath) && m.seed == 42);
+    DeliriumReaction back = coop::ToReaction(m, 0xFF000801);
+    CHECK(back.refId == 0xFF000801 && back.part == 3 && back.impactLocal[0] == 10 && back.dir[2] == -1 &&
+        back.health == 55 && back.carried[0] == 80 && back.seed == 42 && back.fire == 1 && back.again == 0 &&
+        back.death == 1);
+    r.part = 40;
+    CHECK(coop::ToMessage(r, 1).part == -1);
+
+    DeliriumEvent ev{};
+    ev.kind = DeliriumOutcomeEvent;
+    ev.refId = 0x00123456;
+    ev.outcome = DeliriumFell;
+    ev.pos[0] = 5;
+    ev.heading = 270;
+    net::DeliriumResult om = coop::ToMessage(ev, 0x00123456);
+    CHECK(om.outcome == kDeliriumFell && om.pos[0] == 5 && om.heading == 270);
+    ev.outcome = 99;
+    CHECK(coop::ToMessage(ev, 1).outcome == kDeliriumEnded);
+
+    DeliriumHit h{};
+    h.part = 1;
+    h.impact[0] = 100;
+    h.dir[0] = 3;
+    h.dir[1] = 4;
+    h.fire = 1;
+    net::HitWhere where;
+    CHECK(coop::ToHitWhere(h, where) && where.part == 1 && std::fabs(where.dir[0] - 0.6f) < 1e-5f &&
+        std::fabs(where.dir[1] - 0.8f) < 1e-5f && where.fire && where.impact[0] == 100);
+    DeliriumHit zero{};
+    CHECK(coop::ToHitWhere(zero, where) && where.part == 0 && where.dir[0] == 0);
+    DeliriumHit nan{};
+    nan.impact[1] = std::nanf("");
+    CHECK(!coop::ToHitWhere(nan, where));
+
+    DeliriumHit given = coop::ToDeliriumHit(0x1234, 30, true, &where);
+    CHECK(given.refId == 0x1234 && given.damage == 30 && given.died == 1 && given.part == 0);
+    DeliriumHit blind = coop::ToDeliriumHit(0x1234, 30, false, nullptr);
+    CHECK(blind.part == -1 && blind.dir[0] == 0 && blind.died == 0 && blind.fire == 0);
+}
+
+TEST(delirium_roots_go_out_while_reacting)
+{
+    coop::DeliriumRootClock clock;
+    CHECK(!clock.Due(1000));
+    clock.Started(0x10);
+    clock.Started(0x20);
+    CHECK(clock.Due(1000) && !clock.Due(1000 + coop::kDeliriumRootEveryMs - 1) &&
+        clock.Due(1000 + coop::kDeliriumRootEveryMs));
+    std::set<uint32_t> asked;
+    net::DeliriumRoots m = clock.Collect(1050, [&](uint32_t ref, float out[7]) {
+        asked.insert(ref);
+        if (ref == 0x20)
+            return false;
+        for (int i = 0; i < 7; ++i)
+            out[i] = static_cast<float>(i);
+        out[3] = 1e6f;
+        out[6] = 725;
+        return true;
+    });
+    CHECK(asked.size() == 2 && m.timeMs == 1050 && m.roots.size() == 1 && m.roots[0].ref == 0x10);
+    CHECK(m.roots[0].root[3] == net::kMaxDeliriumSpeed && std::fabs(m.roots[0].root[6] - 5) < 1e-3f);
+    CHECK(clock.Reacting().size() == 1 && clock.Reacting().count(0x10));
+    Bytes b = Encode(m);
+    Reader r(b);
+    MsgType t;
+    net::DeliriumRoots back;
+    CHECK(r.Type(t) && Decode(r, back) && back.roots.size() == 1);
+    clock.Stopped(0x10);
+    CHECK(clock.Reacting().empty() && !clock.Due(5000));
+}
+
+TEST(delirium_reactions_reach_only_friends_with_delirium)
+{
+    coop::Coop host, a, b;
+    host.SetHasDelirium(true);
+    a.SetHasDelirium(true);
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(!host.OthersHaveDelirium());
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(b.Join("127.0.0.1", kTestPort, "B"));
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        return a.GetFriendState() == coop::FriendState::Joined && b.GetFriendState() == coop::FriendState::Joined;
+    }));
+    CHECK(host.OthersHaveDelirium() && a.OthersHaveDelirium() && b.OthersHaveDelirium());
+
+    DeliriumStart s;
+    s.ref = 0x0011AABB;
+    s.seed = 7;
+    host.ShareDelirium(s);
+    host.ShareDelirium(DeliriumResult{0x0011AABB, kDeliriumFell, {1, 2, 3}, 45});
+    s.seed = 8;
+    host.ShareDelirium(s);
+    DeliriumRoots roots;
+    roots.timeMs = 100;
+    roots.roots.push_back({0x0011AABB, {1, 2, 3, 0, 0, 0, 90}});
+    host.ShareDelirium(roots);
+    std::vector<coop::DeliriumHeard> heard;
+    std::map<uint32_t, DeliriumRoot> heardRoots;
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        for (auto& h : a.TakeDelirium())
+            heard.push_back(h);
+        for (auto& [ref, root] : a.TakeDeliriumRoots())
+            heardRoots[ref] = root;
+        return heard.size() == 3 && !heardRoots.empty();
+    }));
+    CHECK(heard.size() == 3 && heard[0].start && heard[0].reaction.seed == 7 && !heard[1].start &&
+        heard[1].outcome.outcome == kDeliriumFell && heard[2].start && heard[2].reaction.seed == 8);
+    CHECK(heardRoots.size() == 1 && heardRoots[0x0011AABB].root[6] == 90);
+    RunUntil({&host, &a, &b}, [] { return false; }, 200);
+    CHECK(b.TakeDelirium().empty() && b.TakeDeliriumRoots().empty());
+
+    roots.timeMs = 50;
+    host.ShareDelirium(roots);
+    RunUntil({&host, &a, &b}, [] { return false; }, 200);
+    CHECK(a.TakeDeliriumRoots().empty());
+
+    a.ReportHit(0x77, 12.5f, nullptr);
+    HitWhere where{2, {1, 2, 3}, {0, 0, 1}, false};
+    a.ReportHit(0x78, 20, &where);
+    std::vector<coop::HitReport> hits;
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        for (auto& h : host.TakeHits())
+            hits.push_back(h);
+        return hits.size() == 2;
+    }));
+    CHECK(hits.size() == 2 && !hits[0].hasWhere && hits[1].hasWhere && hits[1].where.part == 2 &&
+        hits[1].where.dir[2] == 1 && hits[1].targetRef == 0x78);
+    b.Stop();
+    a.Stop();
+    host.Stop();
+}
+
+TEST(delirium_is_off_when_the_host_lacks_it)
+{
+    coop::Coop host, a;
+    a.SetHasDelirium(true);
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "A"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    CHECK(!a.OthersHaveDelirium() && host.OthersHaveDelirium());
+    a.Stop();
+    CHECK(!a.OthersHaveDelirium());
+    host.Stop();
 }

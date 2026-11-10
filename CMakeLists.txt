@@ -102,6 +102,7 @@ add_library(NVCoop SHARED
     src/game/inspector.cpp
     src/game/mirror.cpp
     src/game/puppet.cpp
+    src/game/delirium.cpp
     src/exports.def
 )
 target_include_directories(NVCoop PRIVATE ${XNVSE} ${XNVSE}/nvse ${XNVSE}/nvse/nvse)

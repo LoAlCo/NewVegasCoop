@@ -106,6 +106,7 @@ namespace coop
         bool fighting = false;
         uint32_t playerHitsSince = 0, playerHits = 0;
         uint32_t lastAsk = 0;
+        bool hasDelirium = false;
     };
 
     struct RemotePlayer
@@ -140,7 +141,18 @@ namespace coop
         uint8_t playerId = 0;
         uint32_t targetRef = 0;
         float damage = 0;
+        bool hasWhere = false;
+        net::HitWhere where;
     };
+
+    // One FNV Delirium event from the NPC's owner, in the order it came.
+    struct DeliriumHeard
+    {
+        bool start = false;
+        net::DeliriumStart reaction;
+        net::DeliriumResult outcome;
+    };
+    constexpr size_t kMaxQueuedDelirium = 64;
 
     struct AttackReport
     {
@@ -266,6 +278,10 @@ namespace coop
         std::vector<ChatHeard> m_chat;
         std::vector<VoiceHeard> m_voice;
         std::vector<net::NpcPile> m_piles;
+        bool m_hostHasDelirium = false;
+        std::vector<DeliriumHeard> m_deliriumHeard;
+        std::map<uint32_t, net::DeliriumRoot> m_deliriumRoots;
+        uint32_t m_deliriumRootsTime = 0;
         std::vector<MineFrom> m_mines;
         bool m_myLooksSent = false;
         std::map<uint8_t, net::PlayerLooks> m_looks;
@@ -365,7 +381,15 @@ namespace coop
 
         void SetMyPose(const Pose& pose) { m_myPose = pose; m_hasPose = true; }
         void SetMyGear(std::vector<uint32_t> items);
-        void ReportHit(uint32_t targetRef, float damage);
+        void ReportHit(uint32_t targetRef, float damage, const net::HitWhere* where = nullptr);
+        // FNV Delirium: whether this game has it (said in Hello / Welcome), and the owner's reactions to the others.
+        void SetHasDelirium(bool on) { m_haveDelirium = on; }
+        bool OthersHaveDelirium() const;
+        void ShareDelirium(const net::DeliriumStart& m);
+        void ShareDelirium(const net::DeliriumResult& m);
+        void ShareDelirium(const net::DeliriumRoots& m);
+        std::vector<DeliriumHeard> TakeDelirium() { return std::move(m_deliriumHeard); }
+        std::map<uint32_t, net::DeliriumRoot> TakeDeliriumRoots() { return std::move(m_deliriumRoots); }
         void ReportPile(uint32_t hostRef, uint8_t kind) const;
         std::vector<net::NpcPile> TakePiles() { return std::move(m_piles); }
         void ReportMine(uint32_t ref, uint8_t state);
@@ -605,6 +629,8 @@ namespace coop
         std::string m_currentSave;
         std::vector<std::string> m_questMods;
         bool m_autoApprove = true;
+        bool m_haveDelirium = false;
+        void SendToDelirium(const net::Bytes& data, bool reliable);
         uint32_t m_nextAskId = 1;
         std::set<std::string> m_approved;
         std::string m_modReport;

@@ -2,6 +2,8 @@
 
 #include "game/npcs.h"
 
+#include "game/delirium.h"
+
 #include "coop/copy_kill.h"
 #include "coop/levelled_roll.h"
 
@@ -603,6 +605,10 @@ namespace game
             }
             if (npc.down)
                 continue;
+            // FNV Delirium runs the host's hit reaction on our copy: its body is Delirium's until that ends.
+            bool reacting = delirium::IsReacting(RefId(actor));
+            if (IsKnockedOut(actor) && reacting)
+                continue;
             if (IsKnockedOut(actor))
             {
                 auto due = m_nextRevive.find(ref);
@@ -643,7 +649,7 @@ namespace game
             if (!GetPose(actor, current) || current.space != pose.space ||
                 std::hypot(current.x - pose.x, current.y - pose.y) > coop::kTeleportDistance)
             {
-                if (coop::IsDue(now, e.nextBringAt))
+                if (!reacting && coop::IsDue(now, e.nextBringAt))
                 {
                     e.nextBringAt = now + kBringEveryMs;
                     BringToPlayer(actor);
@@ -654,7 +660,7 @@ namespace game
             }
             if (!Is3DLoaded(actor))
                 continue;
-            if (coop::IsDue(now, e.nextSitCheck))
+            if (!reacting && coop::IsDue(now, e.nextSitCheck))
             {
                 e.nextSitCheck = now + kSitCheckEveryMs;
                 uint8_t flags;
@@ -676,7 +682,24 @@ namespace game
                     continue;
                 }
             }
-            e.puppet.Update(actor, pose, now);
+            if (reacting)
+            {
+                if (!e.letGo)
+                {
+                    e.letGo = true;
+                    e.puppet.Release(actor);
+                    LOG_DEBUG("NPCs: our copy of %08X reacts to a hit (FNV Delirium); not steered until it ends", ref);
+                }
+            }
+            else
+            {
+                if (e.letGo)
+                {
+                    e.letGo = false;
+                    LOG_DEBUG("NPCs: our copy of %08X is done reacting; steered again", ref);
+                }
+                e.puppet.Update(actor, pose, now);
+            }
 
             if (npc.health != e.hostHealth)
             {
@@ -763,7 +786,7 @@ namespace game
                     LOG_DEBUG("NPCs: %08X now holds %08X", ref, npc.weapon);
                 }
             }
-            if (npc.idle != e.idle)
+            if (npc.idle != e.idle && !reacting)
             {
                 e.idle = npc.idle;
                 if (npc.idle && !(pose.flags & coop::Pose::kWeaponOut) && PlayIdle(actor, npc.idle))

@@ -116,7 +116,8 @@ namespace coop
                     m_friendState = FriendState::WaitingForWelcome;
                     m_hostMods.clear();
                     m_hostModsDone = m_modsDiffer = false;
-                    m_net->Send(ev.peer, Encode(Hello{kProtocolVersion, m_myName, !m_mods.empty(), m_modsPrint, m_checkOnly}));
+                    m_net->Send(ev.peer, Encode(Hello{kProtocolVersion, m_myName, !m_mods.empty(), m_modsPrint, m_checkOnly,
+                        m_haveDelirium}));
                     LOG_INFO("Connected to host, saying hello");
                 }
                 break;
@@ -423,6 +424,8 @@ namespace coop
             }
 
             player.name = hello.name;
+            player.hasDelirium = hello.hasDelirium;
+            LOG_INFO("%s %s FNV Delirium", hello.name.c_str(), hello.hasDelirium ? "has" : "doesn't have");
             if (!m_autoApprove && !m_approved.count(hello.name + "@" + player.from))
             {
                 player.awaitingApproval = true;
@@ -913,7 +916,7 @@ namespace coop
                 return;
             if (m_hits.size() >= kMaxQueuedHits)
                 return LOG_WARN("Too many hits from %s at once, dropped one", player.name.c_str());
-            m_hits.push_back({player.id, hit.targetRef, hit.damage});
+            m_hits.push_back({player.id, hit.targetRef, hit.damage, hit.hasWhere, hit.where});
             return;
         }
 
@@ -1027,6 +1030,8 @@ namespace coop
             m_myModAnimsSent = m_myModAnims.empty();
             m_questMods = welcome.questMods;
             m_mode = welcome.mode;
+            m_hostHasDelirium = welcome.hasDelirium;
+            LOG_INFO("The host %s FNV Delirium", welcome.hasDelirium ? "has" : "doesn't have");
             LOG_INFO("The host's settings: %s", Describe(m_mode).c_str());
             for (const std::string& mod : m_questMods)
                 LOG_INFO("Quests: the host's game runs %s's quests too", mod.c_str());
@@ -1127,6 +1132,29 @@ namespace coop
                 it->second.motion.Add(m.timeMs, Pose{m.space, m.x, m.y, m.z, m.heading, m.flags, m.moves, m.pitch,
                     m.runSpeed},
                     GetTickCount());
+        }
+        else if (type == MsgType::DeliriumStart || type == MsgType::DeliriumResult)
+        {
+            DeliriumHeard heard;
+            heard.start = type == MsgType::DeliriumStart;
+            bool ok = heard.start ? Decode(r, heard.reaction) : Decode(r, heard.outcome);
+            if (!ok || !InGame())
+                return;
+            if (m_deliriumHeard.size() >= kMaxQueuedDelirium)
+                return LOG_WARN("Delirium: too many reactions from the host at once; dropped one");
+            m_deliriumHeard.push_back(heard);
+        }
+        else if (type == MsgType::DeliriumRoots)
+        {
+            DeliriumRoots m;
+            if (!Decode(r, m) || !InGame())
+                return;
+            if (m_deliriumRootsTime && static_cast<int32_t>(m.timeMs - m_deliriumRootsTime) < 0)
+                return;
+            m_deliriumRootsTime = m.timeMs;
+            for (const DeliriumRoot& root : m.roots)
+                if (m_deliriumRoots.size() < kMaxDeliriumRoots * 2 || m_deliriumRoots.count(root.ref))
+                    m_deliriumRoots[root.ref] = root;
         }
         else if (type == MsgType::NpcStates)
         {
@@ -1525,10 +1553,37 @@ namespace coop
             m_net->Send(1, Encode(net::NpcPile{hostRef, kind}), true);
     }
 
-    void Coop::ReportHit(uint32_t targetRef, float damage)
+    void Coop::ReportHit(uint32_t targetRef, float damage, const net::HitWhere* where)
     {
         if (m_role == Role::Friend && InGame())
-            m_net->Send(1, Encode(Hit{m_myId, targetRef, damage}), true);
+            m_net->Send(1, Encode(Hit{m_myId, targetRef, damage, where != nullptr, where ? *where : net::HitWhere{}}),
+                true);
+    }
+
+    bool Coop::OthersHaveDelirium() const
+    {
+        if (m_role == Role::Friend)
+            return InGame() && m_hostHasDelirium;
+        return std::any_of(m_players.begin(), m_players.end(),
+            [](const auto& e) { return e.second.joined && e.second.hasDelirium; });
+    }
+
+    void Coop::SendToDelirium(const Bytes& data, bool reliable)
+    {
+        if (m_role != Role::Host)
+            return;
+        for (auto& [peer, p] : m_players)
+            if (p.joined && p.hasDelirium)
+                m_net->Send(peer, data, reliable);
+    }
+
+    void Coop::ShareDelirium(const net::DeliriumStart& m) { SendToDelirium(Encode(m), true); }
+    void Coop::ShareDelirium(const net::DeliriumResult& m) { SendToDelirium(Encode(m), true); }
+
+    void Coop::ShareDelirium(const net::DeliriumRoots& m)
+    {
+        if (!m.roots.empty())
+            SendToDelirium(Encode(m), false);
     }
 
     void Coop::Attack(uint8_t shots, bool release, bool reload)
@@ -2169,7 +2224,7 @@ namespace coop
         ++m_joins;
         if (m_welcomed.size() < 16)
             m_welcomed.push_back(player.id);
-        m_net->Send(peer, Encode(Welcome{player.id, m_myName, m_questMods, m_mode, m_myXp}));
+        m_net->Send(peer, Encode(Welcome{player.id, m_myName, m_questMods, m_mode, m_myXp, m_haveDelirium}));
         LOG_INFO("%s joined as player %u", player.name.c_str(), player.id);
 
         m_net->Send(peer, Encode(PlayerJoined{kHostPlayerId, m_myName}));
