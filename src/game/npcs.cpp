@@ -3,6 +3,7 @@
 #include "game/npcs.h"
 
 #include "game/delirium.h"
+#include "coop/delirium_sync.h"
 
 #include "coop/copy_kill.h"
 #include "coop/levelled_roll.h"
@@ -696,7 +697,11 @@ namespace game
                 if (e.letGo)
                 {
                     e.letGo = false;
-                    LOG_DEBUG("NPCs: our copy of %08X is done reacting; steered again", ref);
+                    e.puppet.BlendUntil(now + coop::kBlendAfterReactionMs);
+                    coop::Pose here;
+                    float off = GetPose(actor, here) ? std::hypot(here.x - pose.x, here.y - pose.y) : -1;
+                    LOG_DEBUG("NPCs: our copy of %08X is done reacting, %.0f units from the host's; steered again (slid "
+                        "over, not snapped)", ref, off);
                 }
                 e.puppet.Update(actor, pose, now);
             }

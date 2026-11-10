@@ -21,6 +21,8 @@ namespace game
         void Update(TESObjectREFR* actor, const coop::Pose& want, uint32_t now, const coop::Pose* latest = nullptr);
         void SetGear(TESObjectREFR* actor, const std::vector<uint32_t>& gear);
         void Attack(TESObjectREFR* actor, uint8_t shots, bool release = false, bool reload = false);
+        // Until then, a copy far from where it should be is slid there instead of snapped (after a hit reaction).
+        void BlendUntil(uint32_t until) { m_blendUntil = until; m_blendFrameAt = 0; }
 
     private:
         void UpdateWeaponOut(TESObjectREFR* actor, bool want, uint32_t now);
@@ -47,5 +49,6 @@ namespace game
         int m_speedMult = 100;
         uint32_t m_speedSetAt = 0;
         float m_ownRunSpeed = 0;
+        uint32_t m_blendUntil = 0, m_blendFrameAt = 0, m_blends = 0;
     };
 }

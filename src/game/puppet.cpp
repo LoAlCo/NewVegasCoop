@@ -3,6 +3,7 @@
 #include "game/puppet.h"
 
 #include "coop/clock.h"
+#include "coop/delirium_sync.h"
 #include "dev/inspect_text.h"
 #include "game/game.h"
 #include "game/mover.h"
@@ -19,6 +20,7 @@ namespace game
         constexpr uint32_t kWeaponCheckEveryMs = 250;
         constexpr uint32_t kDrawTakesMs = 800;
         constexpr float kPutBackDistance = 200;
+        constexpr float kBlendCloseEnough = 60;
         constexpr float kTurnAtLeast = 0.01f;
         constexpr uint32_t kPutBackPauseMs = 300;
         constexpr int kSpeedMultMin = 75, kSpeedMultMax = 135, kSpeedMultStep = 5;
@@ -162,12 +164,26 @@ namespace game
         m_errorSum += error;
         m_errorMax = error > m_errorMax ? error : m_errorMax;
         ++m_frames;
-        if (error > kPutBackDistance && now - m_putBackAt >= kPutBackPauseMs)
+        bool blending = m_blendUntil && static_cast<int32_t>(m_blendUntil - now) > 0;
+        if (!blending)
+            m_blendUntil = 0;
+        coop::Pose step;
+        if (blending && m_blendFrameAt && want.space == at.space &&
+            coop::BlendStep(at, want, static_cast<float>(now - m_blendFrameAt) / 1000.0f, kBlendCloseEnough, step))
+        {
+            Move(actor, step);
+            ++m_blends;
+            m_putBackAt = now;
+        }
+        else if (error > kPutBackDistance && now - m_putBackAt >= kPutBackPauseMs &&
+            !(blending && error <= coop::kBlendFarthest))
         {
             m_putBackAt = now;
             Move(actor, want);
             ++m_snaps;
         }
+        if (blending)
+            m_blendFrameAt = now;
         LogStats(now);
     }
 
@@ -267,6 +283,9 @@ namespace game
         LOG_INFO("%s: off by %.0f on average (most %.0f) units; put back %u times; jumped %u times; legs took %u ms "
             "on average (most %u) for %u changes", m_who.c_str(), m_errorSum / m_frames, m_errorMax, m_snaps, m_jumps,
             m_lagCount ? m_lagSum / m_lagCount : 0, m_lagMax, m_lagCount);
+        if (m_blends)
+            LOG_INFO("%s: slid toward its spot in %u frames after hit reactions", m_who.c_str(), m_blends);
+        m_blends = 0;
         LOG_INFO("%s: %u ms behind their newest position on average (most %u) while moving; gait changed %u times; "
             "speed set %u times (now %d%%)", m_who.c_str(), m_behindCount ? m_behindSum / m_behindCount : 0, m_behindMax,
             m_gaitChanges, m_speedChanges, m_speedMult);
