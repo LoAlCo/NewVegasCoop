@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- New: trading. Use the Co-op Teleporter, choose Trade, and pick a friend within about 20 metres. Once they say yes,
+  you both get a trade window (the shop screen): your own items on the left, what your friend has put up on the right.
+  Mark items on the left and press Accept to put them up, free or at a price you type. Mark items on the right and
+  press Accept to buy them. You only ever see what your friend has put up, and listings last while the window is
+  open. Quest items, keys, notes and worn gear can't be put up. Mod Configuration Menu: Trade With Friends.
 - New: send caps to a friend. Use the Co-op Teleporter, choose Send caps, pick who and type how many. They arrive straight
   in the friend's inventory, with a notice for both of you. If the friend can't take them, you get them back. Everyone's
   game saves a few seconds after a gift so it can't be lost. The Mod Configuration Menu has a switch for each: Gifts

@@ -23,6 +23,7 @@ struct Config
     bool desyncNotices = true;
     bool shotPaths = true;
     bool gifts = true;
+    bool trading = true;
     bool giftSave = true;
     bool visitorCompanions = true;
     bool companionsBoth = true;

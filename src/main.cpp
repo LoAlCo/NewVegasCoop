@@ -42,6 +42,7 @@
 #include "game/doors.h"
 #include "game/objects.h"
 #include "game/terminals.h"
+#include "game/trade_window.h"
 #include "game/activations.h"
 #include "game/mines.h"
 #include "game/items.h"
@@ -2468,6 +2469,7 @@ namespace
         UpdatePartyPerks(now);
         Teleporter(now);
         UpdateGifts(now);
+        UpdateTrade(now);
         ShareFurnitureAnim(now);
         UpdateDowned(now, me, s_health, s_maxHealth, healthFresh);
         UpdateReviveBar(now);
@@ -2544,6 +2546,7 @@ namespace
             if (!game::InstallLoadCheck(&MayLoad))
                 LOG_WARN("Saves: couldn't hook loading (another plugin changed it?); friends' loads won't wait for the host");
             game::ListenForHits();
+            game::InstallTradeWindow();
             if (!game::WatchExplosions())
                 LOG_WARN("Explosions: couldn't watch them; they won't line up on others' screens");
             if (!game::WatchMyShots())
@@ -2590,8 +2593,10 @@ namespace
                     g_coop.Stop();
             }
             g_coop.ForgetGifts();
+            g_coop.ForgetTrades();
             g_giftSaveTimer.Forget();
             StopGiftMenus();
+            StopTrade();
             if (coop::IsGiftSave(g_checkingSave))
                 g_checkingSave.clear();
             g_loadingSave = msg->type == NVSEMessagingInterface::kMessage_PreLoadGame;
@@ -2702,7 +2707,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
         return false;
 
     Log::Open("");
-    LOG_INFO("NVCoop %s, Combined v36 test build, starting (xNVSE %08X, game %08X)",
+    LOG_INFO("NVCoop %s, Combined v37 test build, starting (xNVSE %08X, game %08X)",
         NVCOOP_VERSION_STRING, nvse->nvseVersion, nvse->runtimeVersion);
 
     if (nvse->runtimeVersion != RUNTIME_VERSION_1_4_0_525)

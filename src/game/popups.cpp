@@ -41,7 +41,7 @@ namespace game
 {
     namespace
     {
-        constexpr int kQuestions = 21;
+        constexpr int kQuestions = 24;
         struct Question
         {
             bool open = false;

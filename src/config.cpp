@@ -88,6 +88,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bDesyncNotices", desyncNotices);
         Write(path, "bShotPaths", shotPaths);
         Write(path, "bGifts", gifts);
+        Write(path, "bTrading", trading);
         Write(path, "bGiftSave", giftSave);
         Write(path, "bVisitorCompanions", visitorCompanions);
         Write(path, "bCompanionsBoth", companionsBoth);
@@ -169,6 +170,7 @@ void Config::LoadPlayer(const std::string& path)
     desyncNotices = flag("bDesyncNotices", desyncNotices);
     shotPaths = flag("bShotPaths", shotPaths);
     gifts = flag("bGifts", gifts);
+    trading = flag("bTrading", trading);
     giftSave = flag("bGiftSave", giftSave);
     visitorCompanions = flag("bVisitorCompanions", visitorCompanions);
     companionsBoth = flag("bCompanionsBoth", companionsBoth);
