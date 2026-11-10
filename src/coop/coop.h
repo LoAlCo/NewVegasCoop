@@ -14,6 +14,7 @@
 #include "coop/game_mode.h"
 #include "coop/heal_ally.h"
 #include "coop/gifts.h"
+#include "coop/trade.h"
 #include "coop/doors.h"
 #include "coop/saves.h"
 #include "coop/smoothing.h"
@@ -102,6 +103,7 @@ namespace coop
         uint32_t explosionsSince = 0, explosions = 0;
         uint32_t itemMovesSince = 0, itemMoves = 0;
         uint32_t giftsSince = 0, gifts = 0;
+        uint32_t tradesSince = 0, trades = 0;
         net::DesyncReport desyncs;
         ChatLimiter chatLimit;
         VoiceLimiter voiceLimit;
@@ -492,6 +494,42 @@ namespace coop
         void RefundPendingGifts(net::GiveReason reason);
         // A save is loading, which undoes everything on the way: nothing to put back, and late answers count for nothing.
         void ForgetGifts();
+
+        // Trading (coop_trade.cpp). What the game must do arrives as events: it opens and closes the window, checks
+        // and takes items out, and adds or gives back what each event says.
+        struct TradeEvent
+        {
+            enum class Kind { Asked, Opened, Refused, Closed, Listed, Unlisted, SellRequest, Delivered, CapsBack, Paid,
+                ItemBack };
+            Kind kind = Kind::Closed;
+            uint8_t player = 0;
+            uint32_t id = 0;
+            uint32_t listing = 0;
+            net::ItemCount item;
+            uint8_t itemType = 0;
+            int32_t caps = 0;
+            net::TradeReason reason = net::TradeReason::Ok;
+        };
+        static constexpr uint8_t kNoTrade = 0xFF;
+        bool AskTrade(uint8_t to);
+        void AnswerTrade(uint8_t from, bool yes, net::TradeReason no = net::TradeReason::No);
+        void CloseTrade(net::TradeReason reason);
+        uint8_t TradePartner() const { return m_tradePartner; }
+        uint8_t TradeAsking() const { return m_tradeAsking; }
+        const Stall& MyStall() const { return m_myStall; }
+        const Stall& PartnerStall() const { return m_partnerStall; }
+        const Listing* ListItem(const net::ItemCount& item, uint8_t itemType, int32_t price);
+        void UnlistItem(uint32_t listing);
+        // `caps` must already be out of the buyer's inventory. 0 means it wasn't sent: give them back.
+        uint32_t BuyListing(uint32_t listing, int32_t count, int32_t caps);
+        // The seller's answer to a SellRequest: on `ok`, `item` is already out of its inventory.
+        void SaleTakenOut(uint32_t purchase, uint32_t listing, bool ok, net::TradeReason why, const net::ItemCount& item,
+            uint8_t itemType, int32_t caps);
+        // The buyer's answer to Delivered: Ok once the item is in, anything else gives its caps back.
+        void PurchaseReceived(uint32_t purchase, net::TradeReason reason);
+        std::vector<TradeEvent> TakeTradeEvents() { return std::move(m_tradeEvents); }
+        // A save is loading: everything on its way is undone by the load, so nothing is given back.
+        void ForgetTrades();
         std::vector<uint32_t> TakeTravelMarkers() { return std::move(m_travelMarkers); }
         void ShareProgressFor(uint8_t playerId, int32_t xp, int32_t karma);
         void SetMyConversation(bool talking, uint32_t npc);
@@ -592,6 +630,13 @@ namespace coop
         void SendGiftResult(uint8_t sender, uint32_t senderGift, uint8_t receiver, net::GiveReason reason);
         void HeardGiftResult(uint32_t senderGift, net::GiveReason reason);
         void HeardGiftDelivery(uint32_t id, uint8_t from, const net::ItemCount& item, uint8_t itemType);
+        void HostTrade(uint8_t from, const net::Trade& m);
+        void ClientTrade(const net::Trade& m);
+        void SendTradeToHost(const net::Trade& m);
+        void SendTradeTo(uint8_t player, const net::Trade& m);
+        void TradePlayerLeft(uint8_t player);
+        void TradeLostHost();
+        void EndTradeHere(net::TradeReason reason, bool tell);
         void SendTalk(net::PeerId to);
         void ExpectLoads(uint8_t except, uint32_t now);
         void UpdateFreeze(uint32_t now);
@@ -639,5 +684,13 @@ namespace coop
         ReceiverQueue m_giftSeen;
         std::vector<GiftDelivery> m_giftInbox;
         std::vector<GiftOutcome> m_giftOutcomes;
+        struct PendingBuy { uint8_t seller = 0; uint32_t listing = 0; net::ItemCount item; int32_t caps = 0; };
+        struct PendingSale { uint8_t buyer = 0; net::ItemCount item; int32_t caps = 0; };
+        PendingBook<PendingBuy> m_buys;
+        PendingBook<PendingSale> m_sales;
+        TradeLedger m_tradeLedger;
+        Stall m_myStall, m_partnerStall;
+        uint8_t m_tradePartner = kNoTrade, m_tradeAsking = kNoTrade, m_tradeAsker = kNoTrade;
+        std::vector<TradeEvent> m_tradeEvents;
     };
 }

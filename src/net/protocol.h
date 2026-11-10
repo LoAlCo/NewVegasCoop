@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 79;
+    constexpr uint32_t kProtocolVersion = 80;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -99,6 +99,7 @@ namespace net
         HealRefused = 78,
         QuestCommand = 79,
         Give = 88,
+        Trade = 90,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -657,6 +658,27 @@ namespace net
     };
     Bytes Encode(const Give& m);
     bool Decode(Reader& r, Give& m);
+    // A trade between two players, always through the host. `other` is the player the message is about: the one
+    // asked, answered or traded with when going to the host, and the one it came from when coming from it.
+    // Ask, Answer and Close open and end the trade window. List and Unlist put an item up and take it down.
+    // A purchase: Buy (buyer's id to the host, the host's to the seller), Sold or Refuse back, Got from the buyer,
+    // then Paid or ItemBack to the seller.
+    enum class TradeStage : uint8_t { Ask, Answer, Close, List, Unlist, Buy, Sold, Refuse, Got, Paid, ItemBack };
+    enum class TradeReason : uint8_t { Ok, No, Busy, Far, TurnedOff, PlayerLeft, NotHeld, PriceChanged, BadItem, Closed };
+    struct Trade
+    {
+        TradeStage stage = TradeStage::Ask;
+        uint8_t other = 0;
+        uint32_t id = 0;
+        uint32_t listing = 0;
+        int32_t count = 0;
+        int32_t price = 0;
+        ItemCount item;
+        uint8_t itemType = 0;
+        TradeReason reason = TradeReason::Ok;
+    };
+    Bytes Encode(const Trade& m);
+    bool Decode(Reader& r, Trade& m);
     struct Drag
     {
         uint8_t dragger = 0, target = 0;

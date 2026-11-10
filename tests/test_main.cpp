@@ -6862,3 +6862,316 @@ TEST(friend_gift_reaches_other_friend)
     }, 300);
     CHECK(ended.empty());
 }
+
+TEST(trade_round_trip_and_limits)
+{
+    net::Trade list;
+    list.stage = net::TradeStage::List;
+    list.other = 2;
+    list.id = 5;
+    list.price = 120;
+    list.item.item = 0x000E3982u;
+    list.item.count = 1;
+    list.item.health = 73;
+    list.item.mods = 5;
+    list.itemType = 40;
+    Bytes b = Encode(list);
+    Reader r(b);
+    MsgType t;
+    net::Trade m;
+    CHECK(r.Type(t) && t == MsgType::Trade && Decode(r, m));
+    CHECK(m.stage == net::TradeStage::List && m.id == 5 && m.price == 120 && m.item == list.item && m.itemType == 40);
+
+    net::Trade buy;
+    buy.stage = net::TradeStage::Buy;
+    buy.id = 9;
+    buy.listing = 5;
+    buy.count = 1;
+    buy.price = 120;
+    Bytes bb = Encode(buy);
+    Reader rb(bb);
+    CHECK(rb.Type(t) && Decode(rb, m) && m.listing == 5 && m.count == 1 && m.item.item == 0);
+    buy.listing = 0;
+    Bytes noListing = Encode(buy);
+    Reader rn(noListing);
+    CHECK(rn.Type(t) && !Decode(rn, m));
+    buy.listing = 5;
+    buy.price = -1;
+    Bytes negative = Encode(buy);
+    Reader rneg(negative);
+    CHECK(rneg.Type(t) && !Decode(rneg, m));
+
+    list.item.item = 0xFF000010u;
+    Bytes made = Encode(list);
+    Reader rm(made);
+    CHECK(rm.Type(t) && !Decode(rm, m));
+
+    net::Trade close;
+    close.stage = net::TradeStage::Close;
+    close.reason = net::TradeReason::Far;
+    Bytes full = Encode(close);
+    for (size_t size = 1; size < full.size(); ++size)
+    {
+        Bytes part(full.begin(), full.begin() + size);
+        Reader rp(part);
+        CHECK(!rp.Type(t) || !Decode(rp, m));
+    }
+    full.back() = static_cast<uint8_t>(net::TradeReason::Closed) + 1;
+    Reader rbad(full);
+    CHECK(rbad.Type(t) && !Decode(rbad, m));
+}
+
+TEST(trade_cost_and_stall)
+{
+    CHECK(coop::TradeCost(0, 5) == 0 && coop::TradeCost(12, 3) == 36);
+    CHECK(coop::TradeCost(1000000, 2) == -1 && coop::TradeCost(-1, 1) == -1 && coop::TradeCost(1, 0) == -1);
+
+    coop::Stall stall;
+    net::ItemCount rifle;
+    rifle.item = 0x000E3982u;
+    rifle.count = 1;
+    rifle.health = 73;
+    const coop::Listing* a = stall.Put(rifle, 40, 100);
+    CHECK(a && a->id == 1);
+    rifle.count = 2;
+    const coop::Listing* again = stall.Put(rifle, 40, 80);
+    CHECK(again && again->id == 1 && again->item.count == 3 && again->price == 80 && stall.All().size() == 1);
+    net::ItemCount other = rifle;
+    other.health = 50;
+    CHECK(stall.Put(other, 40, 0)->id == 2);
+    int32_t left = 0;
+    CHECK(!stall.Take(1, 4, left));
+    CHECK(stall.Take(1, 2, left) && left == 1 && stall.Find(1));
+    CHECK(stall.Take(1, 1, left) && left == 0 && !stall.Find(1));
+    CHECK(stall.FindKind(other) && stall.FindKind(other)->id == 2);
+    CHECK(!stall.Put(other, 40, -5));
+}
+
+TEST(trade_ledger_asks_pairs_and_purchases)
+{
+    coop::TradeLedger l;
+    l.Ask(1, 2, 1000);
+    CHECK(l.Busy(1) && l.Busy(2) && !l.Busy(3));
+    CHECK(!l.TakeAsk(1, 3, 1000));
+    CHECK(l.TakeAsk(1, 2, 1000) && !l.Busy(1));
+    l.Ask(1, 2, 1000);
+    CHECK(!l.TakeAsk(1, 2, 1000 + coop::kTradeAskMs + 6000));
+    l.Open(1, 2);
+    CHECK(l.Together(1, 2) && l.Together(2, 1) && !l.Together(1, 3));
+    uint32_t p = l.OpenPurchase(1, 7, 2);
+    CHECK(p && l.FindByBuyer(1, 7) == p && !l.FindByBuyer(2, 7));
+    auto gone = l.PlayerLeft(2);
+    CHECK(gone.size() == 1 && gone[0].first == p && !l.FindPurchase(p));
+    CHECK(l.Close(1) == 2 && !l.Together(2, 1) && l.Close(2) == coop::Coop::kNoTrade);
+}
+
+namespace
+{
+    std::vector<coop::Coop::TradeEvent> TradeEventsOf(std::vector<coop::Coop*> sides, coop::Coop& who,
+        coop::Coop::TradeEvent::Kind kind, int maxMs = 3000)
+    {
+        std::vector<coop::Coop::TradeEvent> found;
+        RunUntil(sides, [&] {
+            for (const auto& e : who.TakeTradeEvents())
+                if (e.kind == kind)
+                    found.push_back(e);
+            return !found.empty();
+        }, maxMs);
+        return found;
+    }
+
+    void Settle(std::vector<coop::Coop*> sides, int ms = 400)
+    {
+        RunUntil(sides, [] { return false; }, ms);
+    }
+}
+
+TEST(friends_trade_through_the_host)
+{
+    using Kind = coop::Coop::TradeEvent::Kind;
+    coop::Coop host, a, b;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(b.Join("127.0.0.1", kTestPort, "Bob"));
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        return a.GetFriendState() == coop::FriendState::Joined && b.GetFriendState() == coop::FriendState::Joined &&
+            a.Remotes().count(b.MyPlayerId()) && b.Remotes().count(a.MyPlayerId());
+    }));
+    std::vector<coop::Coop*> all{&host, &a, &b};
+    coop::Pose here{0x3C, 100, 100, 0};
+    coop::Pose closeBy{0x3C, 600, 100, 0};
+    coop::Pose farAway{0x3C, 100 + coop::kTradeDistance * 2, 100, 0};
+    host.SetMyPose(here);
+    a.SetMyPose(here);
+    b.SetMyPose(farAway);
+    Settle(all);
+
+    // Too far apart: the host says no.
+    CHECK(a.AskTrade(b.MyPlayerId()));
+    auto refused = TradeEventsOf(all, a, Kind::Refused);
+    CHECK(refused.size() == 1 && refused[0].reason == net::TradeReason::Far);
+    b.SetMyPose(closeBy);
+    Settle(all);
+
+    // Asking and saying yes opens it on both sides.
+    CHECK(a.AskTrade(b.MyPlayerId()));
+    auto asked = TradeEventsOf(all, b, Kind::Asked);
+    CHECK(asked.size() == 1 && asked[0].player == a.MyPlayerId());
+    b.AnswerTrade(a.MyPlayerId(), true);
+    CHECK(b.TradePartner() == a.MyPlayerId());
+    CHECK(TradeEventsOf(all, a, Kind::Opened).size() == 1 && a.TradePartner() == b.MyPlayerId());
+
+    // Bob puts up two rifles at 50 each; Ann sees them.
+    net::ItemCount rifle;
+    rifle.item = 0x000E3982u;
+    rifle.count = 2;
+    rifle.health = 73;
+    rifle.mods = 1;
+    const coop::Listing* l = b.ListItem(rifle, 40, 50);
+    CHECK(l != nullptr);
+    uint32_t listing = l->id;
+    auto listed = TradeEventsOf(all, a, Kind::Listed);
+    CHECK(listed.size() == 1 && listed[0].item == rifle && listed[0].caps == 50 && a.PartnerStall().Find(listing));
+
+    // Ann buys one. The wrong caps are refused on her side; the right amount goes through.
+    CHECK(a.BuyListing(listing, 1, 49) == 0);
+    uint32_t purchase = a.BuyListing(listing, 1, 50);
+    CHECK(purchase != 0);
+    auto request = TradeEventsOf(all, b, Kind::SellRequest);
+    CHECK(request.size() == 1 && request[0].caps == 50 && request[0].item.count == 1 && request[0].listing == listing);
+    net::ItemCount one = rifle;
+    one.count = 1;
+    b.SaleTakenOut(request[0].id, listing, true, net::TradeReason::Ok, one, 40, 50);
+    auto delivered = TradeEventsOf(all, a, Kind::Delivered);
+    CHECK(delivered.size() == 1 && delivered[0].item == one && delivered[0].id == purchase);
+    a.PurchaseReceived(purchase, net::TradeReason::Ok);
+    auto paid = TradeEventsOf(all, b, Kind::Paid);
+    CHECK(paid.size() == 1 && paid[0].caps == 50 && paid[0].player == a.MyPlayerId());
+    Settle(all, 200);
+    CHECK(a.PartnerStall().Find(listing) && a.PartnerStall().Find(listing)->item.count == 1);
+
+    // The seller no longer has it: Ann's caps come back.
+    uint32_t second = a.BuyListing(listing, 1, 50);
+    request = TradeEventsOf(all, b, Kind::SellRequest);
+    CHECK(request.size() == 1);
+    b.SaleTakenOut(request[0].id, listing, false, net::TradeReason::NotHeld, {}, 0, 0);
+    auto back = TradeEventsOf(all, a, Kind::CapsBack);
+    CHECK(back.size() == 1 && back[0].caps == 50 && back[0].id == second && back[0].reason == net::TradeReason::NotHeld);
+
+    // Ann's game can't take what arrives: Bob gets the item back and Ann her caps.
+    uint32_t third = a.BuyListing(listing, 1, 50);
+    request = TradeEventsOf(all, b, Kind::SellRequest);
+    CHECK(request.size() == 1);
+    b.SaleTakenOut(request[0].id, listing, true, net::TradeReason::Ok, one, 40, 50);
+    CHECK(TradeEventsOf(all, a, Kind::Delivered).size() == 1);
+    a.PurchaseReceived(third, net::TradeReason::BadItem);
+    auto refund = a.TakeTradeEvents();
+    CHECK(refund.size() == 1 && refund[0].kind == Kind::CapsBack && refund[0].caps == 50);
+    auto itemBack = TradeEventsOf(all, b, Kind::ItemBack);
+    CHECK(itemBack.size() == 1 && itemBack[0].item == one);
+
+    // Closing ends it for both.
+    a.CloseTrade(net::TradeReason::Closed);
+    CHECK(TradeEventsOf(all, b, Kind::Closed).size() == 1);
+    CHECK(b.TradePartner() == coop::Coop::kNoTrade && a.TradePartner() == coop::Coop::kNoTrade);
+
+    // The buyer leaves after the seller took the item out: the seller gets it back.
+    CHECK(b.AskTrade(a.MyPlayerId()));
+    CHECK(TradeEventsOf(all, a, Kind::Asked).size() == 1);
+    a.AnswerTrade(b.MyPlayerId(), true);
+    CHECK(TradeEventsOf(all, b, Kind::Opened).size() == 1);
+    l = b.ListItem(one, 40, 0);
+    listing = l->id;
+    CHECK(TradeEventsOf(all, a, Kind::Listed).size() == 1);
+    CHECK(a.BuyListing(listing, 1, 0) != 0);
+    request = TradeEventsOf(all, b, Kind::SellRequest);
+    CHECK(request.size() == 1 && request[0].caps == 0);
+    a.Stop();
+    RunUntil({&host, &b}, [&] { return host.Players().size() == 1; }, 8000);
+    b.SaleTakenOut(request[0].id, listing, true, net::TradeReason::Ok, one, 40, 0);
+    std::vector<coop::Coop::TradeEvent> bEvents;
+    RunUntil({&host, &b}, [&] {
+        for (const auto& e : b.TakeTradeEvents())
+            bEvents.push_back(e);
+        for (const auto& e : bEvents)
+            if (e.kind == Kind::ItemBack)
+                return true;
+        return false;
+    });
+    bool gotBack = false, wasClosed = false;
+    for (const auto& e : bEvents)
+    {
+        gotBack |= e.kind == Kind::ItemBack && e.item == one;
+        wasClosed |= e.kind == Kind::Closed;
+    }
+    CHECK(gotBack && wasClosed);
+
+    // The host going away gives back caps on their way.
+    CHECK(a.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(RunUntil({&host, &a, &b}, [&] {
+        return a.GetFriendState() == coop::FriendState::Joined && b.Remotes().count(a.MyPlayerId());
+    }));
+    a.SetMyPose(here);
+    Settle(all);
+    CHECK(a.AskTrade(b.MyPlayerId()));
+    CHECK(TradeEventsOf(all, b, Kind::Asked).size() == 1);
+    b.AnswerTrade(a.MyPlayerId(), true);
+    CHECK(TradeEventsOf(all, a, Kind::Opened).size() == 1);
+    l = b.ListItem(one, 40, 7);
+    listing = l->id;
+    CHECK(TradeEventsOf(all, a, Kind::Listed).size() == 1);
+    CHECK(a.BuyListing(listing, 1, 7) != 0);
+    CHECK(TradeEventsOf(all, b, Kind::SellRequest).size() == 1);
+    host.Stop();
+    auto lost = TradeEventsOf({&a}, a, Kind::CapsBack, 8000);
+    CHECK(lost.size() == 1 && lost[0].caps == 7);
+}
+
+TEST(host_trades_with_a_friend)
+{
+    using Kind = coop::Coop::TradeEvent::Kind;
+    coop::Coop host, a;
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(RunUntil({&host, &a}, [&] { return a.GetFriendState() == coop::FriendState::Joined; }));
+    std::vector<coop::Coop*> all{&host, &a};
+    coop::Pose here{0x3C, 100, 100, 0};
+    host.SetMyPose(here);
+    a.SetMyPose(here);
+    Settle(all);
+    CHECK(host.AskTrade(a.MyPlayerId()));
+    CHECK(TradeEventsOf(all, a, Kind::Asked).size() == 1);
+    a.AnswerTrade(coop::kHostPlayerId, true);
+    CHECK(TradeEventsOf(all, host, Kind::Opened).size() == 1);
+    net::ItemCount stims;
+    stims.item = 0x00015169u;
+    stims.count = 10;
+    const coop::Listing* l = host.ListItem(stims, 47, 0);
+    CHECK(l && TradeEventsOf(all, a, Kind::Listed).size() == 1);
+    uint32_t purchase = a.BuyListing(l->id, 4, 0);
+    auto request = TradeEventsOf(all, host, Kind::SellRequest);
+    CHECK(request.size() == 1 && request[0].item.count == 4);
+    net::ItemCount four = stims;
+    four.count = 4;
+    host.SaleTakenOut(request[0].id, request[0].listing, true, net::TradeReason::Ok, four, 47, 0);
+    auto delivered = TradeEventsOf(all, a, Kind::Delivered);
+    CHECK(delivered.size() == 1 && delivered[0].id == purchase);
+    a.PurchaseReceived(purchase, net::TradeReason::Ok);
+    CHECK(TradeEventsOf(all, host, Kind::Paid).size() == 1);
+    CHECK(host.MyStall().All().size() == 1 && host.MyStall().All()[0].item.count == 6);
+    host.CloseTrade(net::TradeReason::Closed);
+    CHECK(TradeEventsOf(all, a, Kind::Closed).size() == 1);
+
+    // A save loading drops everything, with nothing given back.
+    CHECK(a.AskTrade(coop::kHostPlayerId));
+    CHECK(TradeEventsOf(all, host, Kind::Asked).size() == 1);
+    host.AnswerTrade(a.MyPlayerId(), true);
+    CHECK(TradeEventsOf(all, a, Kind::Opened).size() == 1);
+    l = host.ListItem(stims, 47, 3);
+    CHECK(TradeEventsOf(all, a, Kind::Listed).size() == 1);
+    CHECK(a.BuyListing(l->id, 1, 3) != 0);
+    a.ForgetTrades();
+    host.ForgetTrades();
+    Settle(all, 300);
+    CHECK(a.TakeTradeEvents().empty());
+}

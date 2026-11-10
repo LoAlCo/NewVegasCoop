@@ -80,6 +80,8 @@ namespace coop
         if (m_role != Role::None)
             LOG_INFO("Leaving co-op");
         RefundPendingGifts(GiveReason::PlayerLeft);
+        TradeLostHost();
+        m_tradeLedger.Clear();
         m_giftLedger.Clear();
         m_giftInbox.clear();
         m_giftSeen.Reset();
@@ -151,6 +153,7 @@ namespace coop
                     m_giftInbox.clear();
                     m_giftSeen.Reset();
                     RefundPendingGifts(GiveReason::PlayerLeft);
+                    TradeLostHost();
                 }
                 break;
 
@@ -518,6 +521,14 @@ namespace coop
                 else
                     SendGiftResult(player.id, m.id, m.other, GiveReason::Busy);
             }
+            return;
+        }
+
+        if (type == MsgType::Trade)
+        {
+            Trade m;
+            if (Decode(r, m) && WithinLimit(player.tradesSince, player.trades, kMaxTradeMessagesPerSecond))
+                HostTrade(player.id, m);
             return;
         }
 
@@ -1240,6 +1251,12 @@ namespace coop
                 HeardGiftDelivery(m.id, m.other, m.item, m.itemType);
             else if (m.stage == GiveStage::Result)
                 HeardGiftResult(m.id, m.reason);
+        }
+        else if (type == MsgType::Trade)
+        {
+            Trade m;
+            if (Decode(r, m))
+                ClientTrade(m);
         }
         else if (type == MsgType::TravelMarkers)
         {
@@ -2413,6 +2430,7 @@ namespace coop
         m_players.erase(it);
         if (wasJoined)
         {
+            TradePlayerLeft(id);
             m_giftLedger.SenderLeft(id);
             for (const HostLedger::Gift& gift : m_giftLedger.ReceiverLeft(id))
                 if (gift.senderHere)

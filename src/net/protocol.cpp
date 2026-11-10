@@ -1158,6 +1158,55 @@ namespace net
         return w.Take();
     }
 
+    namespace
+    {
+        bool TradeCarriesItem(TradeStage stage) { return stage == TradeStage::List || stage == TradeStage::Sold; }
+    }
+
+    Bytes Encode(const Trade& m)
+    {
+        Writer w(MsgType::Trade);
+        w.U8(static_cast<uint8_t>(m.stage));
+        w.U8(m.other);
+        w.U32(m.id);
+        w.U32(m.listing);
+        w.U32(static_cast<uint32_t>(m.count));
+        w.U32(static_cast<uint32_t>(m.price));
+        w.U8(static_cast<uint8_t>(m.reason));
+        if (TradeCarriesItem(m.stage))
+        {
+            WriteItem(w, m.item);
+            w.U8(m.itemType);
+        }
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, Trade& m)
+    {
+        uint8_t stage, reason;
+        uint32_t count, price;
+        if (!r.U8(stage) || stage > static_cast<uint8_t>(TradeStage::ItemBack) || !r.U8(m.other) || !r.U32(m.id) ||
+            !r.U32(m.listing) || !r.U32(count) || !r.U32(price) || !r.U8(reason) ||
+            reason > static_cast<uint8_t>(TradeReason::Closed))
+            return false;
+        m.stage = static_cast<TradeStage>(stage);
+        m.count = static_cast<int32_t>(count);
+        m.price = static_cast<int32_t>(price);
+        m.reason = static_cast<TradeReason>(reason);
+        m.item = ItemCount{};
+        m.itemType = 0;
+        if (m.count < 0 || m.count > kMaxItemCount || m.price < 0 || m.price > kMaxItemCount)
+            return false;
+        bool needsId = m.stage != TradeStage::Ask && m.stage != TradeStage::Answer && m.stage != TradeStage::Close;
+        if (needsId && m.id == 0)
+            return false;
+        if (m.stage == TradeStage::Buy && (m.listing == 0 || m.count < 1))
+            return false;
+        if (TradeCarriesItem(m.stage))
+            return ReadItem(r, m.item, false) && !IsMadeWhilePlaying(m.item.item) && r.U8(m.itemType) && r.AtEnd();
+        return r.AtEnd();
+    }
+
     bool Decode(Reader& r, Give& m)
     {
         uint8_t stage;

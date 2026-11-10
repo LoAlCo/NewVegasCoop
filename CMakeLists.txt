@@ -32,6 +32,7 @@ add_library(nvcoop_core STATIC
     src/net/session.cpp
     src/net/steam_session.cpp
     src/coop/coop.cpp
+    src/coop/coop_trade.cpp
     src/coop/containers.cpp
     src/coop/doors.cpp
     src/coop/objects.cpp
