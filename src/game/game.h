@@ -191,6 +191,11 @@ namespace game
     void SetPlayerEssential(bool on);
     void SetEssential(TESObjectREFR* ref, bool on);
     void KnockOut(TESObjectREFR* ref);
+    // Makes a standing NPC visibly fall and stay down until WakeUp: an essential one through the game's own essential
+    // fall (health below 0), any other unconscious with a tiny push to ragdoll it.
+    enum class KnockedHow { Not, Essential, Unconscious };
+    KnockedHow KnockDown(TESObjectREFR* ref);
+    bool IsEssential(const TESObjectREFR* ref);
     void KillPlayer();
     void Kill(TESObjectREFR* ref, uint16_t limbs = 0);
     void Unprotect(TESObjectREFR* ref);

@@ -64,7 +64,8 @@ namespace game
         void LetGoOfHold(const coop::Holds::Released& held, bool nowOurCopy);
         void ReleaseHolds();
         void MatchHealth(TESObjectREFR* actor, const coop::RemoteNpc& npc, Entry& e, uint32_t now, bool down);
-        std::set<uint32_t> m_putDown;
+        struct PutDown { uint32_t tries = 0; uint32_t nextTry = 0; };
+        std::map<uint32_t, PutDown> m_putDown;
         uint32_t m_knockedDown = 0, m_healthFixes = 0;
         struct Held
         {

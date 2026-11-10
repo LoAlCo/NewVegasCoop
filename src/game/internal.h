@@ -136,6 +136,7 @@ namespace game
     extern Script* g_madeGet;
     extern Script* g_resurrect;
     extern Script* g_unconscious;
+    extern Script* g_knockDown;
     extern Script* g_ghost;
     extern Script* g_controls;
     extern Script* g_controlPressed;
