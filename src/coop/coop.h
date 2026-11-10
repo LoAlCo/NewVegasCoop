@@ -10,6 +10,7 @@
 #include "coop/party_perks.h"
 #include "coop/chat.h"
 #include "coop/voice.h"
+#include "coop/voice_lines.h"
 #include "coop/desync.h"
 #include "coop/game_mode.h"
 #include "coop/heal_ally.h"
@@ -103,6 +104,7 @@ namespace coop
         net::DesyncReport desyncs;
         ChatLimiter chatLimit;
         VoiceLimiter voiceLimit;
+        VoiceLineLimiter voiceLineLimit{kVoiceLineGapMs / 2};
         bool fighting = false;
         uint32_t playerHitsSince = 0, playerHits = 0;
         uint32_t lastAsk = 0;
@@ -265,6 +267,7 @@ namespace coop
         std::map<uint32_t, uint32_t> m_radioStartedAt;
         std::vector<ChatHeard> m_chat;
         std::vector<VoiceHeard> m_voice;
+        std::vector<net::VoiceLine> m_voiceLines;
         std::vector<net::NpcPile> m_piles;
         std::vector<MineFrom> m_mines;
         bool m_myLooksSent = false;
@@ -389,6 +392,9 @@ namespace coop
         std::vector<ChatHeard> TakeChat() { return std::move(m_chat); }
         void SendVoice(const net::Bytes& data);
         std::vector<VoiceHeard> TakeVoice() { return std::move(m_voice); }
+        // Says a voice wheel line to everyone (false if not in a game or the line isn't a known one).
+        bool SendVoiceLine(uint8_t phrase, uint8_t line, uint32_t voice);
+        std::vector<net::VoiceLine> TakeVoiceLines() { return std::move(m_voiceLines); }
         void SetMyLooks(const net::PlayerLooks& looks);
         const std::map<uint8_t, net::PlayerLooks>& Looks() const { return m_looks; }
         uint32_t LooksChanges() const { return m_looksChanges; }

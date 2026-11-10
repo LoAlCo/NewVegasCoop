@@ -321,6 +321,11 @@ namespace game
     bool QuantityPromptOpen();
     bool SetFieldOfView(int degrees);
     bool ReadMyLooks(net::PlayerLooks& out);
+    // The voice line wheel: shown with one phrase picked (0 = the middle), in the HUD colour or its own.
+    struct VoiceWheelLook { bool hudColor = true; float red = 255, green = 255, blue = 255; };
+    void ShowVoiceWheel(bool show, int chosen, const VoiceWheelLook& look);
+    // While the wheel is open: how far the view turned since last time (radians, x right, y up), then turns it back.
+    bool WheelPointer(bool open, float& dx, float& dy);
     bool ApplyLooks(TESObjectREFR* standIn, const net::PlayerLooks& looks, bool* headRemade = nullptr);
     bool RemakeFace(TESObjectREFR* standIn);
     const void* FaceNode(TESObjectREFR* standIn);
@@ -414,6 +419,8 @@ namespace game
     bool WatchSpeedChanges();
     struct Sound { uint32_t id = 0xFFFFFFFF; uint8_t assumeSuccess = 0; uint32_t state = 0; };
     bool SayLine(TESObjectREFR* speaker, uint32_t topic, uint32_t info, int response, Sound& sound);
+    // Says one line (response 1) in the given voice type, then gives the speaker back its own voice.
+    bool SayInVoice(TESObjectREFR* speaker, uint32_t voice, uint32_t topic, uint32_t info, Sound& sound);
     void StopSound(Sound& sound);
     bool StopSpeaking(const TESObjectREFR* speaker);
     bool IsPlaying(Sound& sound);

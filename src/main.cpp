@@ -1289,6 +1289,9 @@ namespace
             g_config.chatKey, g_config.chatSpeech, g_config.chatSpeechVolume, g_config.voice, g_config.voiceVariant,
             g_config.voicePitch, g_config.voiceSpeed, g_config.voiceEffect, g_config.voiceChat, g_config.voiceChatKey,
             g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.desyncNotices);
+        LOG_INFO("Settings: voice lines %d, key %d, voice %d, HUD colour %d (%d %d %d)", g_config.voiceLines,
+            g_config.voiceLineKey, g_config.voiceLineVoice + 1, g_config.voiceLineHudColor, g_config.voiceLineRed,
+            g_config.voiceLineGreen, g_config.voiceLineBlue);
     }
 
     double QpcMs(const LARGE_INTEGER& from, const LARGE_INTEGER& to)
@@ -2363,6 +2366,7 @@ namespace
         UpdateChat();
         g_partClock.Done(kPartChat);
         UpdateVoice();
+        UpdateVoiceLines(now);
         g_partClock.Done(kPartVoice);
         for (const game::RadioLineStart& p : game::TakeRadioLineStarts())
             if (g_coop.GetRole() == coop::Role::Host)

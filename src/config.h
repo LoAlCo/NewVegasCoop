@@ -58,6 +58,13 @@ struct Config
     int voiceChatKey = 48;
     int voiceChatMode = 0;
     int voiceChatVolume = 100;
+    bool voiceLines = true;
+    int voiceLineKey = 45;
+    int voiceLineVoice = 0;
+    bool voiceLineHudColor = true;
+    int voiceLineRed = 255;
+    int voiceLineGreen = 255;
+    int voiceLineBlue = 255;
     bool mouths = true;
     bool skipDlcPopups = true;
     bool farCells = true;

@@ -120,6 +120,7 @@ extern std::vector<std::pair<uint8_t, bool>> g_teleportChoices;
 
 void UpdateChat();
 void UpdateVoice();
+void UpdateVoiceLines(uint32_t now);
 extern bool g_labTalking;
 extern std::vector<std::string> g_labChat;
 
