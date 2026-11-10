@@ -415,6 +415,18 @@
 							"default": 1
 						}
 					]
+				},
+				"35": {
+					"title": "Trade With Friends",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Lets you trade items with a friend within about 20 metres through the Co-op Teleporter: each of you puts items up, free or at a price, and the other buys them. Off: no Trade button, and requests to you are turned down",
+					"vars": [
+						{
+							"configINI": "Settings:bTrading",
+							"default": 1
+						}
+					]
 				}
 			}
 		},

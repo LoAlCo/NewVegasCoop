@@ -120,6 +120,9 @@ extern bool g_teleportAsked;
 extern std::vector<std::pair<uint8_t, bool>> g_teleportChoices;
 void UpdateGifts(uint32_t now);
 void StopGiftMenus();
+void TradeMenuPicked(TESObjectREFR* me);
+void UpdateTrade(uint32_t now);
+void StopTrade();
 extern coop::GiftSaveTimer g_giftSaveTimer;
 
 void UpdateChat();

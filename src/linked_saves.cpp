@@ -229,6 +229,7 @@
             game::Notify(("No save matching the host's here (" + g_expectedLoad + "): keeping your character").c_str());
             g_expectedLoad.clear();
             g_coop.RefundPendingGifts(net::GiveReason::PlayerLeft);
+            g_coop.RefundPendingTrades();
             if (g_reportLoad)
             {
                 g_reportLoad = false;

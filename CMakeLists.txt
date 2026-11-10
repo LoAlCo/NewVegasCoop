@@ -60,6 +60,7 @@ add_library(NVCoop SHARED
     src/main.cpp
     src/linked_saves.cpp
     src/teleporter.cpp
+    src/trade.cpp
     src/downed.cpp
     src/chat_voice.cpp
     src/quick_start.cpp
@@ -89,6 +90,7 @@ add_library(NVCoop SHARED
     src/game/doors.cpp
     src/game/objects.cpp
     src/game/terminals.cpp
+    src/game/trade_window.cpp
     src/game/activations.cpp
     src/game/mines.cpp
     src/game/companions.cpp

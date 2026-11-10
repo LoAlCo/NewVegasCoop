@@ -21,6 +21,7 @@ struct Config
     bool borderless = true;
     bool desyncNotices = true;
     bool gifts = true;
+    bool trading = true;
     bool giftSave = true;
     int fieldOfView = 0;
     bool friendMarkers = true;

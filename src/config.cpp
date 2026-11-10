@@ -81,6 +81,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bSyncRadio", syncRadio);
         Write(path, "bDesyncNotices", desyncNotices);
         Write(path, "bGifts", gifts);
+        Write(path, "bTrading", trading);
         Write(path, "bGiftSave", giftSave);
         Write(path, "iFieldOfView", fieldOfView);
         Write(path, "bFriendMarkers", friendMarkers);
@@ -139,6 +140,7 @@ void Config::LoadPlayer(const std::string& path)
     syncRadio = flag("bSyncRadio", syncRadio);
     desyncNotices = flag("bDesyncNotices", desyncNotices);
     gifts = flag("bGifts", gifts);
+    trading = flag("bTrading", trading);
     giftSave = flag("bGiftSave", giftSave);
     fieldOfView = number("iFieldOfView", fieldOfView, 0, 120);
     friendMarkers = flag("bFriendMarkers", friendMarkers);

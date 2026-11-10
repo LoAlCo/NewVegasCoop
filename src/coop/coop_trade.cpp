@@ -179,6 +179,22 @@ namespace coop
 
     void Coop::TradeLostHost()
     {
+        RefundPendingTrades();
+        uint8_t partner = m_tradePartner;
+        EndTradeHere(TradeReason::PlayerLeft, false);
+        m_tradeAsker = kNoTrade;
+        if (partner != kNoTrade)
+        {
+            TradeEvent e;
+            e.kind = TradeEvent::Kind::Closed;
+            e.player = partner;
+            e.reason = TradeReason::PlayerLeft;
+            m_tradeEvents.push_back(e);
+        }
+    }
+
+    void Coop::RefundPendingTrades()
+    {
         for (const auto& [id, buy] : m_buys.TakeAll())
         {
             TradeEvent e;
@@ -198,17 +214,6 @@ namespace coop
             e.id = id;
             e.item = sale.item;
             e.caps = sale.caps;
-            e.reason = TradeReason::PlayerLeft;
-            m_tradeEvents.push_back(e);
-        }
-        uint8_t partner = m_tradePartner;
-        EndTradeHere(TradeReason::PlayerLeft, false);
-        m_tradeAsker = kNoTrade;
-        if (partner != kNoTrade)
-        {
-            TradeEvent e;
-            e.kind = TradeEvent::Kind::Closed;
-            e.player = partner;
             e.reason = TradeReason::PlayerLeft;
             m_tradeEvents.push_back(e);
         }

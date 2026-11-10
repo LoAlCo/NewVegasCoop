@@ -530,6 +530,8 @@ namespace coop
         std::vector<TradeEvent> TakeTradeEvents() { return std::move(m_tradeEvents); }
         // A save is loading: everything on its way is undone by the load, so nothing is given back.
         void ForgetTrades();
+        // Gives back everything on its way, as events (our character is kept through a host load).
+        void RefundPendingTrades();
         std::vector<uint32_t> TakeTravelMarkers() { return std::move(m_travelMarkers); }
         void ShareProgressFor(uint8_t playerId, int32_t xp, int32_t karma);
         void SetMyConversation(bool talking, uint32_t npc);

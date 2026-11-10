@@ -112,14 +112,30 @@
             "Co-op Teleporter", buttons, kTeleportQuestion);
     }
 
+    enum class CoopMenuAction { Teleport, SendCaps, Trade };
+    std::vector<CoopMenuAction> g_coopMenuActions;
+
     void AskCoopMenu()
     {
-        if (g_coop.Remotes().empty() || !g_config.gifts)
+        g_coopMenuActions = {CoopMenuAction::Teleport};
+        std::vector<std::string> buttons{"Teleport"};
+        if (g_config.gifts)
+        {
+            g_coopMenuActions.push_back(CoopMenuAction::SendCaps);
+            buttons.push_back("Send caps");
+        }
+        if (g_config.trading)
+        {
+            g_coopMenuActions.push_back(CoopMenuAction::Trade);
+            buttons.push_back("Trade");
+        }
+        if (g_coop.Remotes().empty() || g_coopMenuActions.size() == 1)
         {
             AskTeleportTargets();
             return;
         }
-        if (game::AskChoice("Co-op Teleporter", {"Teleport", "Send caps", "Cancel"}, kCoopMenuQuestion))
+        buttons.push_back("Cancel");
+        if (game::AskChoice("Co-op Teleporter", buttons, kCoopMenuQuestion))
             g_giftStep = GiftStep::Menu;
     }
 
@@ -257,9 +273,15 @@
             if (choice == -1)
                 return;
             g_giftStep = GiftStep::None;
-            if (choice == 0)
+            CoopMenuAction action = choice >= 0 && static_cast<size_t>(choice) < g_coopMenuActions.size() ?
+                g_coopMenuActions[choice] : CoopMenuAction::Teleport;
+            if (choice < 0 || static_cast<size_t>(choice) >= g_coopMenuActions.size())
+                return;
+            if (action == CoopMenuAction::Teleport)
                 AskTeleportTargets();
-            else if (choice == 1)
+            else if (action == CoopMenuAction::Trade)
+                TradeMenuPicked(me);
+            else if (action == CoopMenuAction::SendCaps)
             {
                 g_giftFriends.clear();
                 std::vector<std::string> buttons;
