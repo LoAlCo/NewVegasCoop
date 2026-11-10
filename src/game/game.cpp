@@ -3177,6 +3177,30 @@ namespace game
         ChangeHealth(ref, -(Health(ref) + 10));
     }
 
+    bool IsEssential(const TESObjectREFR* ref)
+    {
+        const TESForm* base = IsActor(ref) ? ref->baseForm : nullptr;
+        if (!base || (base->typeID != kFormType_TESNPC && base->typeID != kFormType_TESCreature))
+            return false;
+        return (static_cast<const TESActorBase*>(base)->baseData.flags & layout::kActorBaseEssential) != 0;
+    }
+
+    KnockedHow KnockDown(TESObjectREFR* ref)
+    {
+        if (!g_compiled || !IsActor(ref) || IsDead(ref))
+            return KnockedHow::Not;
+        if (IsEssential(ref))
+        {
+            KnockOut(ref);
+            return KnockedHow::Essential;
+        }
+        if (g_knockDown)
+            g_scripts->CallFunctionAlt(g_knockDown, ref, 0);
+        else
+            SetUnconscious(ref, true);
+        return KnockedHow::Unconscious;
+    }
+
     void SetGhost(TESObjectREFR* ref, bool on)
     {
         if (g_compiled && ref)

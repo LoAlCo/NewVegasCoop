@@ -38,6 +38,9 @@ namespace game
         constexpr uint32_t kSettleMs = 1500;
         constexpr uint32_t kWakeAfterMs = 2000;
         constexpr uint32_t kWakeEveryMs = 3000;
+        constexpr uint32_t kWakeSoonMs = 300;
+        constexpr uint32_t kKnockEveryMs = 3000;
+        constexpr uint32_t kMaxKnockTries = 3;
         constexpr uint32_t kWeaponCheckEveryMs = 2000;
         constexpr uint32_t kMaxWeaponGifts = 2;
         constexpr uint32_t kMaxGiftsPerCopy = 10;
@@ -499,7 +502,7 @@ namespace game
         for (auto it = m_switchedOff.begin(); it != m_switchedOff.end();)
             it = shared.count(it->first) ? std::next(it) : m_switchedOff.erase(it);
         for (auto it = m_putDown.begin(); it != m_putDown.end();)
-            it = shared.count(*it) ? std::next(it) : m_putDown.erase(it);
+            it = shared.count(it->first) ? std::next(it) : m_putDown.erase(it);
 
         const float showDistance = ShowDistance();
         for (auto& [ref, npc] : shared)
@@ -649,18 +652,32 @@ namespace game
             {
                 // Knocked out on the host (an essential NPC at 0 health, or a script): ours goes down too, once; the
                 // wake-up below brings it back when the host's gets up.
-                if (!reacting && !IsKnockedOut(actor) && m_putDown.insert(ref).second)
+                // Tried again if ours gets up on its own while the host's is still down (a few times).
+                PutDown& down = m_putDown[ref];
+                if (!reacting && !IsKnockedOut(actor) && down.tries < kMaxKnockTries && coop::IsDue(now, down.nextTry))
                 {
-                    SetUnconscious(actor, true);
+                    if (it != m_entries.end())
+                    {
+                        it->second.puppet.Release(actor);
+                        it->second.letGo = true;
+                    }
+                    KnockedHow how = KnockDown(actor);
+                    ++down.tries;
+                    down.nextTry = now + kKnockEveryMs;
                     ++m_knockedDown;
-                    LOG_INFO("NPCs: %s (%08X) is knocked out on the host; knocked ours out (life state %d)", Name(actor),
-                        ref, LifeState(actor));
+                    LOG_INFO("NPCs: %s (%08X) is knocked out on the host; knocked ours down (%s, try %u, life state %d)",
+                        Name(actor), ref, how == KnockedHow::Essential ? "essential: health below 0" :
+                        how == KnockedHow::Unconscious ? "unconscious, pushed over" : "couldn't", down.tries,
+                        LifeState(actor));
                 }
-                if (it != m_entries.end())
+                // Health is left alone while ours is down (raising it would stand an essential one up early).
+                if (it != m_entries.end() && !IsKnockedOut(actor))
                     MatchHealth(actor, npc, it->second, now, true);
                 continue;
             }
-            m_putDown.erase(ref);
+            bool wePutItDown = m_putDown.erase(ref) != 0;
+            if (wePutItDown && IsKnockedOut(actor))
+                m_nextRevive[ref] = now + kWakeSoonMs;
             if (IsKnockedOut(actor) && reacting)
                 continue;
             if (IsKnockedOut(actor))
@@ -673,6 +690,10 @@ namespace game
                     LOG_INFO("NPCs: %s (%08X) is knocked out here but up on the host; waking it", Name(actor), ref);
                     m_nextRevive[ref] = now + kWakeEveryMs;
                     ++m_deadHere;
+                    // An essential one went down with health below 0: up again with the host's health, or it falls
+                    // straight back down.
+                    if (Health(actor) < 1)
+                        ChangeHealth(actor, (npc.health > 1 ? npc.health : 1) - Health(actor));
                     WakeUp(actor);
                     if (it != m_entries.end())
                         it->second.hostHealth = -1;

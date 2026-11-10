@@ -119,6 +119,7 @@ namespace game
         Script* g_madeGet = nullptr;
         Script* g_resurrect = nullptr;
         Script* g_unconscious = nullptr;
+        Script* g_knockDown = nullptr;
         Script* g_ghost = nullptr;
         Script* g_controls = nullptr;
         Script* g_controlPressed = nullptr;
@@ -681,6 +682,13 @@ namespace game
             "int iOn\n"
             "Begin Function {iOn}\n"
             "  SetUnconscious iOn\n"
+            "End\n");
+        g_knockDown = Compile("knock down",
+            "ref rSelf\n"
+            "Begin Function {}\n"
+            "  set rSelf to GetSelf\n"
+            "  SetUnconscious 1\n"
+            "  PushActorAway rSelf 1\n"
             "End\n");
         g_controls = Compile("player controls",
             "int iOn\n"
