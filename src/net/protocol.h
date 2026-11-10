@@ -15,7 +15,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 127;
+    constexpr uint32_t kProtocolVersion = 128;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -107,6 +107,8 @@ namespace net
         BodyMove = 83,
         BodyLimbs = 84,
         Trade = 90,
+        ContainerAsk = 95,
+        ContainerOffer = 96,
         MineChange = 63,
         ModsMatch = 48,
         WeatherState = 80,
@@ -452,6 +454,11 @@ namespace net
     // The same contents, sent to everyone when a body's change, whoever is looking at it. Read like ContainerContents.
     Bytes EncodeBodyLoot(uint32_t ref, const std::vector<ItemCount>& items);
     bool Decode(Reader& r, ContainerContents& m);
+    // The host can't see a container a friend is looking at (its game hasn't that place loaded): the friend is asked
+    // for theirs, which becomes the one everyone's matched to. seen is the last change the friend had told the host.
+    Bytes EncodeContainerAsk(uint32_t ref);
+    bool DecodeContainerAsk(Reader& r, uint32_t& ref);
+    Bytes EncodeContainerOffer(const ContainerContents& m);
     constexpr size_t kMaxItemsPerMessage = 64;
     struct ItemState
     {

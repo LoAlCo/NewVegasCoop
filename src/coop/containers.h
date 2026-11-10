@@ -46,6 +46,51 @@ namespace coop
         std::map<uint32_t, std::vector<net::ItemCount>> m_seen;
     };
 
+    // Each game rolls a container's random loot itself as its cell loads, so a friend's copy holds different loot
+    // from the host's until it's matched. The host shares the containers near each friend ahead of time: a new one
+    // is read at once (a few per look, so walking into a full room costs little), the rest one at a time in turn to
+    // notice the host's game changing them. A container out of reach and back is shared again, since the friend's
+    // game may have rolled it afresh.
+    class ContainerShareWatch
+    {
+    public:
+        // The refs near a friend now. Returns the ones to read this look.
+        std::vector<uint32_t> ToRead(const std::vector<uint32_t>& inReach, size_t maxNew);
+        // What a read found. True if friends should be told: the first read of it, or a change since the last.
+        bool Read(uint32_t ref, const std::vector<net::ItemCount>& items);
+        size_t Size() const { return m_seen.size(); }
+
+    private:
+        std::map<uint32_t, std::vector<net::ItemCount>> m_seen;
+        std::vector<uint32_t> m_near;
+        uint32_t m_last = 0;
+    };
+
+    // The host's record of containers its game can't see, matched to the first friend to offer theirs. Kept until the
+    // host's game has the container (it's then set to the record) or the host quits.
+    class UnseenContainers
+    {
+    public:
+        // A friend's contents, as of their change seq. True if it became the record (the first offer wins).
+        bool Offered(uint32_t ref, uint8_t playerId, uint32_t seq, const std::vector<net::ItemCount>& items);
+        const std::vector<net::ItemCount>* Find(uint32_t ref) const;
+        // A friend's take (or put) on a recorded container. Returns what's given back (count 0: none). A change the
+        // offer already held is only acknowledged. False with no record: the caller waits a little for an offer.
+        bool Change(uint32_t ref, uint8_t playerId, uint32_t seq, const net::ItemCount& want, net::ItemCount& refund);
+        // The host's game has it now: the record leaves, to set the real one to.
+        bool Release(uint32_t ref, std::vector<net::ItemCount>& out);
+        size_t Size() const { return m_records.size(); }
+
+    private:
+        struct Record
+        {
+            std::vector<net::ItemCount> items;
+            uint8_t by = 0;
+            uint32_t seq = 0;
+        };
+        std::map<uint32_t, Record> m_records;
+    };
+
     class FriendContainer
     {
     public:
@@ -59,6 +104,15 @@ namespace coop
         void Closing(const std::vector<net::ItemCount>& local, std::vector<net::ContainerChange>& changes);
         void Settle(const std::vector<net::ItemCount>& local) { m_snapshot = local; }
         void Heard(const net::ContainerContents& m);
+        // What the host was last told of this container (changes since aren't sent yet), and the last change's seq.
+        bool Told(uint32_t ref, std::vector<net::ItemCount>& out) const
+        {
+            if (ref != m_ref || !m_hasSnapshot)
+                return false;
+            out = m_snapshot;
+            return true;
+        }
+        uint32_t Seq() const { return m_seq; }
         void Reset() { *this = FriendContainer(); }
 
     private:

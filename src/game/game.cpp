@@ -2570,6 +2570,11 @@ namespace game
         return ref->baseForm->typeID == kFormType_TESObjectCONT || (IsActor(ref) && IsDead(ref));
     }
 
+    bool IsContainer(TESObjectREFR* ref)
+    {
+        return ref && ref->baseForm && ref->baseForm->typeID == kFormType_TESObjectCONT;
+    }
+
     TESObjectREFR* TopEnableParent(TESObjectREFR* ref)
     {
         using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);

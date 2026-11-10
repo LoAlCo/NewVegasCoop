@@ -18,6 +18,17 @@ namespace game
     {
         constexpr uint32_t kLookMs = 250;
         constexpr uint32_t kHoldViewMs = 30000;
+        // Containers this near a friend get the host's loot sent ahead of time: a few seconds' walk, well short of
+        // what the game keeps loaded, so few are watched.
+        constexpr float kShareReach = 1500;
+        constexpr uint32_t kNearListMs = 1000;
+        constexpr size_t kMaxNewReads = 4;
+        // What the host sent for a container our game hasn't loaded yet is tried again for this long (one far from
+        // the host is shared with everyone as soon as a friend sets it, and may be a while's walk away).
+        constexpr uint32_t kKeepUnmatchedMs = 600000;
+        // A friend's change to a container the host can't see waits this long for their offer of its contents.
+        constexpr uint32_t kWaitForOfferMs = 5000;
+        constexpr size_t kMaxUnmatched = 256;
 
         bool Read(TESObjectREFR* ref, std::vector<net::ItemCount>& out, double& ms)
         {
@@ -55,6 +66,10 @@ namespace game
         {
             m_heldRef = 0;
             m_playerKnown = false;
+            m_shared = coop::ContainerShareWatch();
+            m_nearFriends.clear();
+            m_unmatched.clear();
+            m_waiting.clear();
             return;
         }
         if (QuantityPromptOpen())
@@ -67,7 +82,7 @@ namespace game
         m_waitedForPrompt = false;
         bool host = coop.GetRole() == coop::Role::Host;
         if (host)
-            HostApply(coop);
+            HostApply(coop, now);
         else
         {
             std::vector<net::ItemCount> refunds = coop.TakeItemRefunds();
@@ -132,15 +147,19 @@ namespace game
                 if (IsLootable(ref) && Read(ref, items, m_readMs))
                 {
                     ++m_reads;
+                    HostRelease(coop, ref, items);
                     coop.SetContainerContents(refId, items);
                 }
+                else
+                    coop.HostCantSee(refId);
             }
             HostWatchBodies(coop, npcs, now);
+            HostShareNearby(coop, now);
         }
         else
         {
             FriendLook(coop, npcs, now);
-            FriendMatchBodies(coop, npcs);
+            FriendMatchBodies(coop, npcs, now);
         }
 
         if (coop::IsDue(now, m_nextLog))
@@ -155,15 +174,38 @@ namespace game
         }
     }
 
-    void Containers::HostApply(coop::Coop& coop)
+    bool Containers::HostRelease(coop::Coop& coop, TESObjectREFR* ref, std::vector<net::ItemCount>& items)
     {
-        std::vector<coop::Coop::ItemChangeFrom> changes = coop.TakeContainerChanges();
+        std::vector<net::ItemCount> record;
+        if (!coop.Unseen().Size() || !coop.Unseen().Release(RefId(ref), record))
+            return false;
+        size_t changed = 0;
+        for (const net::ItemCount& f : coop::ItemDiff(items, record))
+            if (IsItem(f.item))
+            {
+                ChangeItem(ref, f);
+                ++changed;
+            }
+        Read(ref, items, m_readMs);
+        RefreshLootWindows();
+        LOG_INFO("Containers: %08X is loaded here now; set to what friends had (%zu kinds of items changed)", RefId(ref),
+            changed);
+        return true;
+    }
+
+    void Containers::HostApply(coop::Coop& coop, uint32_t now)
+    {
+        std::vector<Waiting> changes = std::move(m_waiting);
+        m_waiting.clear();
+        for (coop::Coop::ItemChangeFrom& c : coop.TakeContainerChanges())
+            changes.push_back({std::move(c), now});
         if (changes.empty())
             return;
         TESObjectREFR* mine = OpenContainer();
         bool changedMine = false;
-        for (const coop::Coop::ItemChangeFrom& c : changes)
+        for (const Waiting& w : changes)
         {
+            const coop::Coop::ItemChangeFrom& c = w.change;
             const net::ItemCount& want = c.change.change;
             TESObjectREFR* ref = LookupRef(c.change.ref);
             bool locker = IsGearLocker(c.change.ref);
@@ -171,6 +213,32 @@ namespace game
             if (locker)
                 LOG_INFO("Containers: %s's change to gear locker %08X refused (each game's copy holds its own "
                     "player's gear)", coop.NameOf(c.playerId).c_str(), c.change.ref);
+            if (!ok && !locker && IsItem(want.item))
+            {
+                // Our game can't see it: it's checked against the record of the friend who set it instead.
+                net::ItemCount back;
+                if (coop.Unseen().Change(c.change.ref, c.playerId, c.change.seq, want, back))
+                {
+                    ++m_changes;
+                    if (back.count)
+                        ++m_refunds;
+                    LOG_DEBUG("Containers: %s %s %d of %08X %s %08X (not loaded here: its record)%s",
+                        coop.NameOf(c.playerId).c_str(), want.count < 0 ? "took" : "put",
+                        want.count < 0 ? -want.count : want.count, want.item, want.count < 0 ? "from" : "into",
+                        c.change.ref, back.count ? " (some given back)" : "");
+                    coop.ContainerChangeDone(c.playerId, c.change.seq, back);
+                    if (const std::vector<net::ItemCount>* record = coop.Unseen().Find(c.change.ref))
+                        coop.ShareBodyLoot(c.change.ref, *record);
+                    continue;
+                }
+                if (now - w.since < kWaitForOfferMs)
+                {
+                    m_waiting.push_back(w);
+                    continue;
+                }
+                LOG_INFO("Containers: %08X isn't loaded here and nobody's told us what's in it; %s's change given "
+                    "back", c.change.ref, coop.NameOf(c.playerId).c_str());
+            }
             net::ItemCount refund = want;
             refund.count = 0;
             if (want.count < 0 && locker)
@@ -256,17 +324,85 @@ namespace game
             look(next->first, next->second);
     }
 
-    void Containers::FriendMatchBodies(coop::Coop& coop, const Npcs& npcs)
+    void Containers::HostShareNearby(coop::Coop& coop, uint32_t now)
     {
-        for (const auto& [hostRef, items] : coop.TakeBodyLoots())
+        if (coop::IsDue(now, m_nextNearList))
         {
+            m_nextNearList = now + kNearListMs;
+            m_nearFriends.clear();
+            coop::Pose me;
+            std::vector<coop::Pose> friends;
+            if (GetPose(Player(), me))
+                for (const auto& [id, remote] : coop.Remotes())
+                    if (coop::Pose p; remote.motion.Newest(p) && p.space == me.space)
+                        friends.push_back(p);
+            if (!friends.empty() || coop.Unseen().Size())
+            {
+                std::vector<TESObjectREFR*> boxes;
+                ContainersNear(boxes, LoadedReach());
+                for (TESObjectREFR* box : boxes)
+                {
+                    uint32_t id = RefId(box);
+                    // One a friend set while our game couldn't see it, here now: it's set to theirs.
+                    if (std::vector<net::ItemCount> items; coop.Unseen().Find(id) && Read(box, items, m_readMs))
+                    {
+                        ++m_reads;
+                        HostRelease(coop, box, items);
+                    }
+                    coop::Pose at;
+                    if (net::IsMadeWhilePlaying(id) || IsGearLocker(id) || !GetPose(box, at))
+                        continue;
+                    for (const coop::Pose& f : friends)
+                    {
+                        float dx = at.x - f.x, dy = at.y - f.y, dz = at.z - f.z;
+                        if (dx * dx + dy * dy + dz * dz < kShareReach * kShareReach)
+                        {
+                            m_nearFriends.push_back(id);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        for (uint32_t id : m_shared.ToRead(m_nearFriends, kMaxNewReads))
+        {
+            TESObjectREFR* box = LookupRef(id);
+            std::vector<net::ItemCount> items;
+            if (!IsLootable(box) || !Read(box, items, m_readMs))
+                continue;
+            ++m_reads;
+            if (m_shared.Read(id, items))
+            {
+                LOG_DEBUG("Containers: telling friends what's in %08X near them (%zu kinds of items)", id, items.size());
+                coop.ShareBodyLoot(id, items);
+            }
+        }
+    }
+
+    void Containers::FriendMatchBodies(coop::Coop& coop, const Npcs& npcs, uint32_t now)
+    {
+        for (auto& [hostRef, items] : coop.TakeBodyLoots())
+            if (m_unmatched.size() < kMaxUnmatched || m_unmatched.count(hostRef))
+                m_unmatched[hostRef] = {std::move(items), now + kKeepUnmatchedMs};
+        for (auto it = m_unmatched.begin(); it != m_unmatched.end();)
+        {
+            uint32_t hostRef = it->first;
             // The one being watched is matched by FriendRead, which knows what our player just took from it.
             if (hostRef == coop.ViewingContainer())
+            {
+                it = m_unmatched.erase(it);
                 continue;
+            }
             TESObjectREFR* body = npcs.OurRefOf(hostRef);
             std::vector<net::ItemCount> local;
             if (!body || !IsLootable(body) || !Read(body, local, m_readMs))
+            {
+                // Our game may not have loaded it yet: the host shares what's near us a moment before we get there.
+                it = coop::IsDue(now, it->second.until) ? m_unmatched.erase(it) : std::next(it);
                 continue;
+            }
+            std::vector<net::ItemCount> items = std::move(it->second.items);
+            it = m_unmatched.erase(it);
             size_t changed = 0;
             for (const net::ItemCount& f : coop::ItemDiff(local, items))
                 if (IsItem(f.item))
@@ -278,13 +414,21 @@ namespace game
                 continue;
             RefreshLootWindows();
             ++m_fixes;
-            LOG_DEBUG("Containers: body %08X matched to the host's without looking at it (%zu kinds of items changed)",
+            LOG_DEBUG("Containers: %08X matched to the host's without looking at it (%zu kinds of items changed)",
                 RefId(body), changed);
         }
     }
 
     void Containers::FriendLook(coop::Coop& coop, const Npcs& npcs, uint32_t now)
     {
+        for (uint32_t hostRef : coop.TakeContainerAsks())
+        {
+            // The host's game can't see it: ours becomes everyone's. Only a container; a body is the host's to say.
+            TESObjectREFR* ours = npcs.OurRefOf(hostRef);
+            std::vector<net::ItemCount> items;
+            if (IsContainer(ours) && Read(ours, items, m_readMs))
+                coop.OfferContainer(hostRef, items);
+        }
         TESObjectREFR* open = OpenContainer();
         TESObjectREFR* target = open ? open : CrosshairRef();
         uint32_t hostRef = target && IsLootable(target) ? npcs.HostRefOf(RefId(target)) : 0;

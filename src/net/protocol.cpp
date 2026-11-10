@@ -790,6 +790,25 @@ namespace net
         return w.Take();
     }
 
+    Bytes EncodeContainerAsk(uint32_t ref)
+    {
+        Writer w(MsgType::ContainerAsk);
+        w.U32(ref);
+        return w.Take();
+    }
+
+    bool DecodeContainerAsk(Reader& r, uint32_t& ref)
+    {
+        return r.U32(ref) && ref && IsContainerRef(ref) && r.AtEnd();
+    }
+
+    Bytes EncodeContainerOffer(const ContainerContents& m)
+    {
+        Bytes b = Encode(m);
+        b[0] = static_cast<uint8_t>(MsgType::ContainerOffer);
+        return b;
+    }
+
     bool Decode(Reader& r, ContainerContents& m)
     {
         uint16_t count;

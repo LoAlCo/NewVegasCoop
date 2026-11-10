@@ -1023,6 +1023,21 @@ namespace coop
                 LOG_DEBUG("%s %s container %08X", player.name.c_str(), ref ? "opened" : "closed", ref ? ref : view.ref);
                 view.ref = ref;
                 view.sent = false;
+                view.asked = false;
+            }
+            return;
+        }
+
+        if (type == MsgType::ContainerOffer)
+        {
+            ContainerContents m;
+            if (!Decode(r, m))
+                return;
+            if (m_unseen.Offered(m.ref, player.id, m.seen, m.items))
+            {
+                LOG_INFO("Container %08X isn't loaded here: %s's (%zu kinds of items) is now everyone's", m.ref,
+                    player.name.c_str(), m.items.size());
+                ShareBodyLoot(m.ref, m.items);
             }
             return;
         }
@@ -1540,6 +1555,12 @@ namespace coop
             ContainerContents m;
             if (Decode(r, m))
                 m_friendContainer.Heard(m);
+        }
+        else if (type == MsgType::ContainerAsk)
+        {
+            uint32_t ref;
+            if (DecodeContainerAsk(r, ref) && m_containerAsks.size() < kMaxQueuedItemChanges)
+                m_containerAsks.push_back(ref);
         }
         else if (type == MsgType::BodyLoot)
         {
@@ -3301,6 +3322,39 @@ namespace coop
             [&](const auto& p) { return p.second.id == playerId && p.second.joined; });
         if (peer != m_players.end())
             m_net->Send(peer->first, EncodeItemRefund(refund), true);
+    }
+
+    void Coop::HostCantSee(uint32_t ref)
+    {
+        if (m_role != Role::Host)
+            return;
+        if (const std::vector<ItemCount>* record = m_unseen.Find(ref))
+        {
+            SetContainerContents(ref, *record);
+            return;
+        }
+        for (auto& [id, view] : m_views)
+        {
+            if (view.ref != ref || view.asked)
+                continue;
+            auto peer = std::find_if(m_players.begin(), m_players.end(),
+                [&](const auto& p) { return p.second.id == id && p.second.joined; });
+            if (peer == m_players.end())
+                continue;
+            m_net->Send(peer->first, EncodeContainerAsk(ref), true);
+            view.asked = true;
+            LOG_DEBUG("Container %08X isn't loaded here; asked %s for theirs", ref, peer->second.name.c_str());
+        }
+    }
+
+    void Coop::OfferContainer(uint32_t ref, const std::vector<ItemCount>& local)
+    {
+        if (m_role != Role::Friend || !InGame())
+            return;
+        ContainerContents m{ref, m_friendContainer.Seq(), local};
+        m_friendContainer.Told(ref, m.items);
+        LOG_DEBUG("The host can't see container %08X; sent ours (%zu kinds of items)", ref, m.items.size());
+        m_net->Send(1, EncodeContainerOffer(m), true);
     }
 
     void Coop::ViewContainer(uint32_t hostRef, bool open)
