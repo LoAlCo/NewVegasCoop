@@ -6415,6 +6415,74 @@ TEST(a_container_out_of_reach_and_back_is_shared_again)
     CHECK(w.Read(7, full));
 }
 
+TEST(the_first_friend_to_offer_an_unseen_container_sets_it)
+{
+    coop::UnseenContainers u;
+    std::vector<net::ItemCount> mine{{100, 2, 50, 0}}, theirs{{300, 1, 80, 0}};
+    CHECK(u.Offered(7, 2, 10, mine));
+    CHECK(!u.Offered(7, 3, 4, theirs));
+    const std::vector<net::ItemCount>* record = u.Find(7);
+    CHECK(record && record->size() == 1 && (*record)[0].item == 100);
+    CHECK(!u.Find(8));
+}
+
+TEST(takes_from_an_unseen_container_are_checked_against_its_record)
+{
+    coop::UnseenContainers u;
+    std::vector<net::ItemCount> mine{{100, 2, 50, 0}};
+    u.Offered(7, 2, 10, mine);
+    net::ItemCount back;
+    // Another friend takes one, then asks for two more: only one is left, so one is given back.
+    CHECK(u.Change(7, 3, 1, {100, -1, 50, 0}, back) && back.count == 0);
+    CHECK(u.Change(7, 3, 2, {100, -2, 50, 0}, back) && back.count == -1);
+    CHECK(u.Find(7)->empty());
+    // Putting something in adds it.
+    CHECK(u.Change(7, 3, 3, {200, 1, 255, 0}, back) && back.count == 0);
+    CHECK(u.Find(7)->size() == 1 && (*u.Find(7))[0].item == 200);
+    // No record: the caller waits for an offer.
+    CHECK(!u.Change(8, 3, 4, {100, -1, 50, 0}, back));
+}
+
+TEST(a_take_the_offer_already_held_isnt_taken_twice)
+{
+    coop::UnseenContainers u;
+    std::vector<net::ItemCount> afterTaking{{100, 1, 50, 0}};
+    u.Offered(7, 2, 10, afterTaking);
+    net::ItemCount back;
+    // Their take (seq 10) reached the host before the offer, which already counts it.
+    CHECK(u.Change(7, 2, 10, {100, -1, 50, 0}, back) && back.count == 0);
+    CHECK((*u.Find(7))[0].count == 1);
+    // A later one is taken.
+    CHECK(u.Change(7, 2, 11, {100, -1, 50, 0}, back) && back.count == 0);
+    CHECK(u.Find(7)->empty());
+}
+
+TEST(an_unseen_container_released_to_the_host_is_forgotten)
+{
+    coop::UnseenContainers u;
+    std::vector<net::ItemCount> mine{{100, 2, 50, 0}}, out;
+    u.Offered(7, 2, 10, mine);
+    CHECK(u.Release(7, out) && out.size() == 1 && out[0].count == 2);
+    CHECK(u.Size() == 0 && !u.Release(7, out));
+    // Once released, a new offer can set it again.
+    CHECK(u.Offered(7, 3, 1, mine));
+}
+
+TEST(container_asks_and_offers_read_back)
+{
+    Bytes ask = net::EncodeContainerAsk(0x00146338);
+    Reader r(ask);
+    MsgType t;
+    uint32_t ref = 0;
+    CHECK(r.Type(t) && t == MsgType::ContainerAsk && net::DecodeContainerAsk(r, ref) && ref == 0x00146338);
+    std::vector<net::ItemCount> items{{100, 2, 50, 0}};
+    Bytes offer = net::EncodeContainerOffer(net::ContainerContents{0x00146338, 12, items});
+    Reader r2(offer);
+    net::ContainerContents m;
+    CHECK(r2.Type(t) && t == MsgType::ContainerOffer && Decode(r2, m));
+    CHECK(m.ref == 0x00146338 && m.seen == 12 && m.items.size() == 1 && m.items[0].count == 2);
+}
+
 TEST(body_loot_messages_read_back)
 {
     std::vector<net::ItemCount> items{{100, 2, 50, 0}, {200, 1, 80, 1}};

@@ -21,7 +21,8 @@ namespace game
         void Update(coop::Coop& coop, uint32_t now, const Npcs& npcs);
 
     private:
-        void HostApply(coop::Coop& coop);
+        void HostApply(coop::Coop& coop, uint32_t now);
+        bool HostRelease(coop::Coop& coop, TESObjectREFR* ref, std::vector<net::ItemCount>& items);
         void FriendLook(coop::Coop& coop, const Npcs& npcs, uint32_t now);
         void FriendRead(coop::Coop& coop, TESObjectREFR* ref);
         void HostWatchBodies(coop::Coop& coop, const Npcs& npcs, uint32_t now);
@@ -37,6 +38,12 @@ namespace game
             uint32_t until = 0;
         };
         std::map<uint32_t, Unmatched> m_unmatched;
+        struct Waiting
+        {
+            coop::Coop::ItemChangeFrom change;
+            uint32_t since = 0;
+        };
+        std::vector<Waiting> m_waiting;
         uint32_t m_lastBodyLook = 0;
         uint32_t m_nextLook = 0;
         uint32_t m_closedHeld = 0;

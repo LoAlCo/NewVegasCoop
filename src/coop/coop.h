@@ -178,6 +178,7 @@ namespace coop
             uint32_t ref = 0;
             uint32_t seen = 0;
             bool sent = false;
+            bool asked = false;
             uint32_t sentSeen = 0;
             std::vector<net::ItemCount> sentItems;
         };
@@ -244,6 +245,8 @@ namespace coop
         std::map<uint8_t, HostView> m_views;
         std::vector<ItemChangeFrom> m_itemChanges;
         FriendContainer m_friendContainer;
+        UnseenContainers m_unseen;
+        std::vector<uint32_t> m_containerAsks;
         std::vector<net::ItemCount> m_refunds;
         std::vector<net::ItemState> m_myItems;
         std::map<uint32_t, net::ItemState> m_sentItems;
@@ -443,6 +446,12 @@ namespace coop
             return out;
         }
         uint32_t ViewingContainer() const { return m_friendContainer.Viewing(); }
+        // Host: a friend is looking at a container our game can't see. They're sent its record, or asked for theirs.
+        void HostCantSee(uint32_t ref);
+        UnseenContainers& Unseen() { return m_unseen; }
+        // Friend: containers the host asked us for, and our answer.
+        std::vector<uint32_t> TakeContainerAsks() { return std::move(m_containerAsks); }
+        void OfferContainer(uint32_t ref, const std::vector<net::ItemCount>& local);
         void ViewContainer(uint32_t hostRef, bool open = true);
         std::vector<net::ItemCount> LookAtContainer(const std::vector<net::ItemCount>& local,
             const std::vector<net::ItemCount>& playerChange = {});

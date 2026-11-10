@@ -173,6 +173,67 @@ namespace coop
         return true;
     }
 
+    bool UnseenContainers::Offered(uint32_t ref, uint8_t playerId, uint32_t seq,
+        const std::vector<net::ItemCount>& items)
+    {
+        if (!ref || m_records.count(ref))
+            return false;
+        m_records[ref] = {items, playerId, seq};
+        return true;
+    }
+
+    const std::vector<net::ItemCount>* UnseenContainers::Find(uint32_t ref) const
+    {
+        auto it = m_records.find(ref);
+        return it == m_records.end() ? nullptr : &it->second.items;
+    }
+
+    bool UnseenContainers::Change(uint32_t ref, uint8_t playerId, uint32_t seq, const net::ItemCount& want,
+        net::ItemCount& refund)
+    {
+        refund = want;
+        refund.count = 0;
+        auto it = m_records.find(ref);
+        if (it == m_records.end())
+            return false;
+        Record& r = it->second;
+        if (playerId == r.by && static_cast<int32_t>(seq - r.seq) <= 0)
+            return true;
+        auto add = [&](const net::ItemCount& c) {
+            auto same = std::find_if(r.items.begin(), r.items.end(),
+                [&](const net::ItemCount& i) { return i.SameKind(c); });
+            if (same == r.items.end())
+            {
+                if (c.count > 0)
+                    r.items.push_back(c);
+                return;
+            }
+            same->count += c.count;
+            if (same->count <= 0)
+                r.items.erase(same);
+        };
+        if (want.count < 0)
+        {
+            ContainerTake plan = PlanContainerTake(r.items, want);
+            for (const net::ItemCount& remove : plan.removes)
+                add(remove);
+            refund.count = -plan.missing;
+        }
+        else
+            add(want);
+        return true;
+    }
+
+    bool UnseenContainers::Release(uint32_t ref, std::vector<net::ItemCount>& out)
+    {
+        auto it = m_records.find(ref);
+        if (it == m_records.end())
+            return false;
+        out = std::move(it->second.items);
+        m_records.erase(it);
+        return true;
+    }
+
     bool FriendContainer::View(uint32_t ref, bool open)
     {
         m_open = ref && open;

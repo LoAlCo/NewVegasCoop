@@ -360,6 +360,7 @@ namespace game
     void RefreshLootWindows();
     bool IsItem(uint32_t formId);
     bool IsLootable(TESObjectREFR* ref);
+    bool IsContainer(TESObjectREFR* ref);
 
     struct QuestInfo
     {
