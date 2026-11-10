@@ -64,6 +64,7 @@ add_library(NVCoop SHARED
     src/trade.cpp
     src/downed.cpp
     src/chat_voice.cpp
+    src/voice_lines.cpp
     src/quick_start.cpp
     src/crash.cpp
     src/dll_blocker.cpp
@@ -78,6 +79,7 @@ add_library(NVCoop SHARED
     src/game/hooks.cpp
     src/game/popups.cpp
     src/game/say_hooks.cpp
+    src/game/voice_wheel.cpp
     src/game/looks.cpp
     src/game/commands.cpp
     src/game/lockers.cpp

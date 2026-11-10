@@ -143,6 +143,7 @@ void UpdateVoice();
 extern coop::ChatHistory g_chatHistory;
 extern coop::EventFeed g_eventFeed;
 extern coop::PartyWatch g_partyWatch;
+void UpdateVoiceLines(uint32_t now);
 extern bool g_labTalking;
 extern std::vector<std::string> g_labChat;
 

@@ -15,7 +15,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 126;
+    constexpr uint32_t kProtocolVersion = 127;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -111,6 +111,7 @@ namespace net
         ModsMatch = 48,
         WeatherState = 80,
         PlayerEmote = 89,
+        VoiceLine = 91,
     };
 
     using Bytes = std::vector<uint8_t>;
@@ -978,6 +979,15 @@ namespace net
     bool Decode(Reader& r, ChatLine& m);
     Bytes Encode(const Ping& m);
     bool Decode(Reader& r, Ping& m);
+    // A line from the voice line wheel: which phrase (coop::kVoicePhrases), which of its lines and the voice it's said in.
+    struct VoiceLine
+    {
+        uint8_t player = 0;
+        uint8_t phrase = 0, line = 0;
+        uint32_t voice = 0;
+    };
+    Bytes Encode(const VoiceLine& m);
+    bool Decode(Reader& r, VoiceLine& m);
     Bytes Encode(const PlayerCommand& m);
     bool Decode(Reader& r, PlayerCommand& m);
     struct RadioPick

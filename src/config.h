@@ -85,6 +85,13 @@ struct Config
     int pingKey = 34;
     int pingSound = 1;
     int pingIcons = 1;
+    bool voiceLines = true;
+    int voiceLineKey = 45;
+    int voiceLineVoice = 0;
+    bool voiceLineHudColor = true;
+    int voiceLineRed = 255;
+    int voiceLineGreen = 255;
+    int voiceLineBlue = 255;
     bool mouths = true;
     bool skipDlcPopups = true;
     bool farCells = true;

@@ -835,6 +835,19 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::VoiceLine)
+        {
+            net::VoiceLine m;
+            if (!player.joined || !Decode(r, m) || m_voiceLines.size() >= 16)
+                return;
+            if (!player.voiceLineLimit.Allow(GetTickCount()))
+                return LOG_WARN("Voice lines: %s says them too fast; one dropped", player.name.c_str());
+            m.player = player.id;
+            SendToJoined(Encode(m), true, peer);
+            m_voiceLines.push_back(m);
+            return;
+        }
+
         if (type == MsgType::KilledByScript)
         {
             if (r.AtEnd() && !m_gameOverSent)
@@ -1657,6 +1670,12 @@ namespace coop
                     m_pings.push_back({NameOf(m.player), std::move(m)});
             }
         }
+        else if (type == MsgType::VoiceLine)
+        {
+            net::VoiceLine m;
+            if (Decode(r, m) && m.player != m_myId && m_voiceLines.size() < 16)
+                m_voiceLines.push_back(m);
+        }
         else if (type == MsgType::MineChange)
         {
             net::MineChange m;
@@ -1973,6 +1992,19 @@ namespace coop
             SendToJoined(data, true);
         else
             m_net->Send(1, data, true);
+    }
+
+    bool Coop::SendVoiceLine(uint8_t phrase, uint8_t line, uint32_t voice)
+    {
+        net::VoiceLine m{m_myId, phrase, line, voice};
+        if (!InGame() || !IsVoiceLine(phrase, line) || !IsWheelVoice(voice))
+            return false;
+        Bytes data = Encode(m);
+        if (m_role == Role::Host)
+            SendToJoined(data, true);
+        else
+            m_net->Send(1, data, true);
+        return true;
     }
 
     void Coop::SendVoice(const net::Bytes& data)

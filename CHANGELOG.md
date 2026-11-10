@@ -18,6 +18,10 @@
   If you aim at nothing, it says "Over here" where you stand. Ping a character and the icon sits over their head and
   follows them: a skull for enemies, a person for anyone else, including your friends. A body shows the loot icon.
   A ping on loot stays on it if it's knocked, thrown or carried away.
+- New: voice line wheel. Hold X (change it, turn it off, or pick a voice and the wheel's colour on the Mod Configuration
+  Menu's Voice Lines page), turn the view towards a phrase and let go: your character says it out loud in one of the
+  game's NPC voices (male or female, to match your character), with lip sync. Friends hear it from your character.
+  Phrases: Hey, Help, Look Out, Over Here, Enemy Spotted, Grenade, Retreat, Taunt and Thanks.
 
 ## 0.1.11
 - Everyone needs 0.1.11 to play together.

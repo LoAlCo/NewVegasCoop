@@ -3,6 +3,7 @@
 #include "net/protocol.h"
 
 #include "coop/party_perks.h"
+#include "coop/voice_lines.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1149,6 +1150,22 @@ namespace net
     {
         return r.U8(m.player) && r.String(m.path, kMaxAnimPath) && (m.path.empty() || IsEmotePath(m.path)) &&
             r.U32(m.song) && (!m.path.empty() || m.song == 0) && r.AtEnd();
+    }
+
+    Bytes Encode(const VoiceLine& m)
+    {
+        Writer w(MsgType::VoiceLine);
+        w.U8(m.player);
+        w.U8(m.phrase);
+        w.U8(m.line);
+        w.U32(m.voice);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, VoiceLine& m)
+    {
+        return r.U8(m.player) && r.U8(m.phrase) && r.U8(m.line) && r.U32(m.voice) && r.AtEnd() &&
+            coop::IsVoiceLine(m.phrase, m.line) && coop::IsWheelVoice(m.voice);
     }
 
     Bytes Encode(const PlayerModAnims& m)

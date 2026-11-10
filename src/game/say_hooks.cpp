@@ -433,6 +433,29 @@ namespace game
         return true;
     }
 
+    bool SayInVoice(TESObjectREFR* speaker, uint32_t voiceId, uint32_t topic, uint32_t info, Sound& sound)
+    {
+        // The voice file comes from the speaker's base: its actor data's voice type (+0x20 in it, +0x30 in an NPC).
+        constexpr uint32_t kNpcVoiceType = 0x30 + 0x20;
+        sound = Sound{};
+        TESForm* voice = LookupForm(voiceId);
+        TESForm* base = speaker ? speaker->baseForm : nullptr;
+        if (!voice || voice->typeID != kFormType_BGSVoiceType || !base || base->typeID != kFormType_TESNPC)
+            return false;
+        auto* slot = reinterpret_cast<TESForm**>(reinterpret_cast<uint8_t*>(base) + kNpcVoiceType);
+        TESForm* was = *slot;
+        if (was && was->typeID != kFormType_BGSVoiceType)
+        {
+            LOG_WARN("Voice lines: %08X's voice slot holds a %u form, not a voice; not saying anything", speaker->refID,
+                was->typeID);
+            return false;
+        }
+        *slot = voice;
+        bool said = SayLine(speaker, topic, info, 1, sound);
+        *slot = was;
+        return said;
+    }
+
     bool StopSpeaking(const TESObjectREFR* speaker)
     {
         Sound voice;

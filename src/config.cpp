@@ -3,6 +3,7 @@
 #include "config.h"
 #include "log.h"
 #include "net/session.h"
+#include "coop/voice_lines.h"
 #include <cstdlib>
 
 #include <cstdlib>
@@ -80,6 +81,13 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iPingKey", pingKey);
         Write(path, "iPingSound", pingSound);
         Write(path, "iPingIcons", pingIcons);
+        Write(path, "bVoiceLines", voiceLines);
+        Write(path, "iVoiceLineKey", voiceLineKey);
+        Write(path, "iVoiceLineVoice", voiceLineVoice);
+        Write(path, "bVoiceLineHudColor", voiceLineHudColor);
+        Write(path, "iVoiceLineRed", voiceLineRed);
+        Write(path, "iVoiceLineGreen", voiceLineGreen);
+        Write(path, "iVoiceLineBlue", voiceLineBlue);
         Write(path, "bMouths", mouths);
         Write(path, "bSkipDlcPopups", skipDlcPopups);
         Write(path, "bSyncRadio", syncRadio);
@@ -162,6 +170,13 @@ void Config::LoadPlayer(const std::string& path)
     pingKey = number("iPingKey", pingKey, 1, 255);
     pingSound = number("iPingSound", pingSound, 0, 5);
     pingIcons = number("iPingIcons", pingIcons, 0, 2);
+    voiceLines = flag("bVoiceLines", voiceLines);
+    voiceLineKey = number("iVoiceLineKey", voiceLineKey, 1, 255);
+    voiceLineVoice = number("iVoiceLineVoice", voiceLineVoice, 0, coop::kMostVoiceChoices - 1);
+    voiceLineHudColor = flag("bVoiceLineHudColor", voiceLineHudColor);
+    voiceLineRed = number("iVoiceLineRed", voiceLineRed, 0, 255);
+    voiceLineGreen = number("iVoiceLineGreen", voiceLineGreen, 0, 255);
+    voiceLineBlue = number("iVoiceLineBlue", voiceLineBlue, 0, 255);
     mouths = flag("bMouths", mouths);
     skipDlcPopups = flag("bSkipDlcPopups", skipDlcPopups);
     syncRadio = flag("bSyncRadio", syncRadio);

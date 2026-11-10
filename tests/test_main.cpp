@@ -15,6 +15,7 @@
 #include "coop/revive.h"
 #include "coop/voice.h"
 #include "coop/weather.h"
+#include "coop/voice_lines.h"
 #include "coop/progress.h"
 #include "coop/quests.h"
 #include "coop/sha256.h"
@@ -9897,4 +9898,141 @@ TEST(trade_shares_caps_and_listings_replace_not_add)
     host.CloseTrade(net::TradeReason::Closed);
     CHECK(TradeEventsOf(all, a, Kind::Closed).size() == 1);
     CHECK(a.PartnerCaps() == -1);
+}
+
+TEST(voice_line_table_has_lines_for_every_phrase)
+{
+    std::set<uint32_t> infos;
+    for (int i = 0; i < coop::kVoiceSlots; ++i)
+    {
+        const coop::VoicePhrase& p = coop::kVoicePhrases[i];
+        CHECK(p.count >= 1 && p.count <= 4 && p.name[0]);
+        for (int l = 0; l < p.count; ++l)
+        {
+            CHECK(p.lines[l].topic && p.lines[l].info && p.lines[l].text[0]);
+            CHECK(infos.insert(p.lines[l].info).second);
+        }
+        CHECK(coop::IsVoiceLine(static_cast<uint8_t>(i), 0));
+        CHECK(!coop::IsVoiceLine(static_cast<uint8_t>(i), p.count));
+    }
+    CHECK(!coop::IsVoiceLine(coop::kVoiceSlots, 0));
+    CHECK(coop::VoiceFor(false, 0) == 0x2D && coop::VoiceFor(true, 0) == 0x2E);
+    CHECK(coop::VoiceFor(false, 11) == 0x2D && coop::VoiceFor(true, 11) == 0x143779);
+    CHECK(coop::VoiceFor(false, -3) == 0x2D);
+    for (int c = 0; c < coop::kMostVoiceChoices; ++c)
+        CHECK(coop::IsWheelVoice(coop::VoiceFor(false, c)) && coop::IsWheelVoice(coop::VoiceFor(true, c)));
+    CHECK(!coop::IsWheelVoice(0) && !coop::IsWheelVoice(0x0002853B));
+}
+
+TEST(voice_wheel_points_at_the_slot_you_turn_towards)
+{
+    using coop::WheelSlot;
+    const float reach = coop::kWheelReach, inside = coop::kWheelDeadZone * 0.5f;
+    CHECK(WheelSlot(0, 0) == 0 && WheelSlot(inside, 0) == 0 && WheelSlot(0, -inside) == 0);
+    CHECK(WheelSlot(0, reach) == 1);
+    CHECK(WheelSlot(reach, reach) == 2);
+    CHECK(WheelSlot(reach, 0) == 3);
+    CHECK(WheelSlot(reach, -reach) == 4);
+    CHECK(WheelSlot(0, -reach) == 5);
+    CHECK(WheelSlot(-reach, -reach) == 6);
+    CHECK(WheelSlot(-reach, 0) == 7);
+    CHECK(WheelSlot(-reach, reach) == 8);
+    CHECK(WheelSlot(-0.01f, reach) == 1);
+    CHECK(WheelSlot(NAN, 1) == 0);
+    float x = 1, y = 1;
+    coop::ClampWheelPointer(x, y);
+    CHECK(std::fabs(std::sqrt(x * x + y * y) - coop::kWheelReach) < 1e-5f && std::fabs(x - y) < 1e-6f);
+    x = INFINITY;
+    coop::ClampWheelPointer(x, y);
+    CHECK(x == 0 && y == 0);
+    // Labels sit where pointing picks them: slot 1 on top (screen y up is negative), slot 3 on the right.
+    float px, py;
+    coop::WheelSlotPlace(1, px, py);
+    CHECK(std::fabs(px) < 1e-5f && std::fabs(py + 1) < 1e-5f);
+    coop::WheelSlotPlace(3, px, py);
+    CHECK(std::fabs(px - 1) < 1e-5f && std::fabs(py) < 1e-5f);
+    for (int s = 1; s < coop::kVoiceSlots; ++s)
+    {
+        coop::WheelSlotPlace(s, px, py);
+        CHECK(WheelSlot(px * reach, -py * reach) == s);
+    }
+    coop::WheelSlotPlace(0, px, py);
+    CHECK(px == 0 && py == 0);
+}
+
+TEST(voice_lines_are_spaced_out)
+{
+    coop::VoiceLineLimiter limit;
+    CHECK(limit.Allow(100));
+    CHECK(!limit.Allow(100 + coop::kVoiceLineGapMs - 1));
+    uint32_t t = 100;
+    int said = 1;
+    for (int i = 0; i < 10; ++i)
+    {
+        t += coop::kVoiceLineGapMs;
+        said += limit.Allow(t) ? 1 : 0;
+    }
+    CHECK(said < 11);
+    coop::VoiceLineLimiter fresh;
+    for (int i = 0; i < coop::kVoiceLinesPerWindow; ++i)
+        CHECK(fresh.Allow(1000 + i * coop::kVoiceLineGapMs));
+    CHECK(!fresh.Allow(1000 + coop::kVoiceLinesPerWindow * coop::kVoiceLineGapMs));
+    CHECK(fresh.Allow(1000 + coop::kVoiceLineWindowMs + coop::kVoiceLineGapMs * coop::kVoiceLinesPerWindow));
+    coop::VoiceLineLimiter host(coop::kVoiceLineGapMs / 2);
+    CHECK(host.Allow(0) && host.Allow(coop::kVoiceLineGapMs / 2) && !host.Allow(coop::kVoiceLineGapMs / 2 + 1));
+}
+
+TEST(voice_line_round_trip_and_relay)
+{
+    MsgType t;
+    net::VoiceLine m;
+    Bytes b = Encode(net::VoiceLine{3, 5, 2, 0x2E});
+    Reader r(b);
+    CHECK(r.Type(t) && t == MsgType::VoiceLine && Decode(r, m) && m.player == 3 && m.phrase == 5 && m.line == 2 &&
+        m.voice == 0x2E);
+    for (net::VoiceLine odd : {net::VoiceLine{3, coop::kVoiceSlots, 0, 0x2D}, net::VoiceLine{3, 3, 1, 0x2D},
+             net::VoiceLine{3, 0, 0, 0x14}, net::VoiceLine{3, 0, 0, 0}})
+    {
+        Bytes x = Encode(odd);
+        Reader rx(x);
+        CHECK(rx.Type(t) && !Decode(rx, m));
+    }
+    Bytes longer = Encode(net::VoiceLine{3, 1, 0, 0x2D});
+    longer.push_back(0);
+    Reader rl(longer);
+    CHECK(rl.Type(t) && !Decode(rl, m));
+
+    coop::Coop host, a, b2;
+    CHECK(!a.SendVoiceLine(1, 0, 0x2D));
+    CHECK(host.Host(kTestPort, "Host"));
+    CHECK(a.Join("127.0.0.1", kTestPort, "Ann"));
+    CHECK(b2.Join("127.0.0.1", kTestPort, "Bob"));
+    CHECK(RunUntil({&host, &a, &b2}, [&] {
+        return a.GetFriendState() == coop::FriendState::Joined && b2.GetFriendState() == coop::FriendState::Joined;
+    }));
+    CHECK(!a.SendVoiceLine(1, 9, 0x2D) && !a.SendVoiceLine(1, 0, 0x14));
+    CHECK(a.SendVoiceLine(7, 3, 0x0013C8D0));
+    std::vector<net::VoiceLine> atHost, atBob, atAnn;
+    CHECK(RunUntil({&host, &a, &b2}, [&] {
+        for (auto& x : host.TakeVoiceLines()) atHost.push_back(x);
+        for (auto& x : b2.TakeVoiceLines()) atBob.push_back(x);
+        for (auto& x : a.TakeVoiceLines()) atAnn.push_back(x);
+        return !atHost.empty() && !atBob.empty();
+    }));
+    CHECK(atHost.size() == 1 && atHost[0].phrase == 7 && atHost[0].line == 3 && atHost[0].voice == 0x0013C8D0);
+    CHECK(atBob.size() == 1 && atBob[0].player == atHost[0].player && atBob[0].phrase == 7);
+    CHECK(host.SendVoiceLine(0, 1, 0x2D));
+    CHECK(RunUntil({&host, &a, &b2}, [&] {
+        for (auto& x : a.TakeVoiceLines()) atAnn.push_back(x);
+        return !atAnn.empty();
+    }));
+    CHECK(atAnn.size() == 1 && atAnn[0].phrase == 0 && atAnn[0].line == 1 && atAnn[0].player != atHost[0].player);
+    for (int i = 0; i < 10; ++i)
+        b2.SendVoiceLine(1, 0, 0x2D);
+    size_t heard = 0;
+    RunUntil({&host, &a, &b2}, [&] { heard += host.TakeVoiceLines().size(); return false; }, 1000);
+    CHECK(heard == 1);
+    b2.Stop();
+    a.Stop();
+    host.Stop();
 }
