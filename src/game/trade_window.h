@@ -36,6 +36,8 @@ namespace game
     bool TradeWindowExists();
     // Puts the partner's new stall in the open window. False while picks are marked (they point at the chest's stacks).
     bool RefreshTradeWindow(const std::vector<StallEntry>& stall, int32_t caps);
+    // Our own listings: they go to the top of our side and show "price each (whole stack)".
+    void SetOurListings(const std::vector<StallEntry>& ours);
     // A line clicked since the last call (after the screen's "how many?"), as a real kind of item.
     bool TakeTradeClick(TradePick& pick);
     void CloseTradeWindow();
@@ -46,7 +48,9 @@ namespace game
     // The picks from an Accept pressed since the last call, matched to real stacks.
     bool TakeTradeAccept(std::vector<TradePick>& picks);
     std::string ItemName(uint32_t form);
-    // Why this kind of item can't be put up, or nullptr: quest items, keys, notes, the teleporter, worn gear, and items
-    // made while playing (their IDs differ between games).
+    // Why this kind of item can't be put up, or nullptr: quest items, the Co-op Teleporter, and items made while playing
+    // (their IDs differ between games, so the other game wouldn't have them).
     const char* WhyNotTradeable(const net::ItemCount& kind);
+    // Worn or held, like a vendor sale: it comes off before it's taken out.
+    void TakeOffForTrade(const net::ItemCount& kind);
 }

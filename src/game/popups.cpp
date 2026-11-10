@@ -160,6 +160,16 @@ namespace game
         return Ask(id, text, buttons);
     }
 
+    bool OurBoxShown()
+    {
+        if (!*reinterpret_cast<void* const*>(addr::kMessageMenu))
+            return false;
+        for (const Question& q : g_questions)
+            if (q.open && MessageShows(q.text))
+                return true;
+        return g_message[0] && MessageShows(g_message);
+    }
+
     bool QuestionOpen()
     {
         for (const Question& q : g_questions)

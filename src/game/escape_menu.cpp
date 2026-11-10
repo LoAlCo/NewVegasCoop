@@ -17,11 +17,14 @@ namespace game
         constexpr int kCalls = static_cast<int>(sizeof(addr::kMenuModeCalls) / sizeof(addr::kMenuModeCalls[0]));
         MenuModeFn g_before[kCalls] = {};
         bool g_live = false;
+        bool g_boxesLive = false;
 
         template <int I>
         bool __cdecl InMenuMode()
         {
             bool paused = g_before[I]();
+            if (paused && g_boxesLive)
+                return false;
             if (paused && g_live && reinterpret_cast<MenuModeFn>(addr::kPauseMenuUp)())
                 return false;
             return paused;
@@ -60,6 +63,13 @@ namespace game
         }
         LOG_INFO("Escape menu: %d of %d checks taken over (%d already Real Time Menus'), so co-op keeps the world "
             "running there", taken, kCalls, ours);
+    }
+
+    void CoopBoxesLive(bool live)
+    {
+        if (live != g_boxesLive)
+            LOG_DEBUG("Menus: %s", live ? "a co-op box is up; the world keeps running" : "no co-op box up");
+        g_boxesLive = live;
     }
 
     void EscapeMenuLive(bool live)
