@@ -36,9 +36,56 @@ namespace game
         Script* g_wheelSlot[coop::kVoiceSlots] = {};
         Script* g_wheelFrame = nullptr;
 
-        bool IsFace(int slot)
+        // A picture is used when its file is there (loose, under Data\Textures); looked for once a session.
+        bool Installed(const char* texture)
         {
-            return std::strstr(coop::kVoiceIcons[slot], "message icons") != nullptr;
+            static std::string s_textures;
+            if (s_textures.empty())
+            {
+                char exe[MAX_PATH] = {};
+                GetModuleFileNameA(nullptr, exe, MAX_PATH);
+                s_textures = exe;
+                s_textures = s_textures.substr(0, s_textures.find_last_of("\\/") + 1) + "Data\\Textures\\";
+            }
+            DWORD attributes = GetFileAttributesA((s_textures + texture).c_str());
+            return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+        }
+
+        const char* FirstInstalled(const char* const (&paths)[2])
+        {
+            for (const char* path : paths)
+                if (path && Installed(path))
+                    return path;
+            return nullptr;
+        }
+
+        const char* IconFor(int slot, bool female)
+        {
+            static const char* s_boy[coop::kVoiceSlots];
+            static const char* s_girl[coop::kVoiceSlots];
+            static bool s_looked = false;
+            if (slot < 0 || slot >= coop::kVoiceSlots)
+                slot = 0;
+            if (!s_looked)
+            {
+                s_looked = true;
+                for (int i = 0; i < coop::kVoiceSlots; ++i)
+                {
+                    const char* boy = FirstInstalled(coop::kPhraseIcons[i].boy);
+                    const char* girl = FirstInstalled(coop::kPhraseIcons[i].girl);
+                    s_boy[i] = boy ? boy : coop::kVoiceIcons[i];
+                    s_girl[i] = girl ? girl : s_boy[i];
+                    LOG_INFO("Voice lines: %s shows %s (Vault Boy) and %s (Vault Girl)", coop::kVoicePhrases[i].name,
+                        s_boy[i], s_girl[i]);
+                }
+            }
+            return female ? s_girl[slot] : s_boy[slot];
+        }
+
+        // Head-and-shoulders pictures (the message pop-up faces) are drawn smaller than whole-body poses.
+        bool IsFace(const char* icon)
+        {
+            return std::strstr(icon, "message icons") != nullptr;
         }
 
         std::string F(float v) { return std::to_string(static_cast<int>(std::lround(v))); }
@@ -90,18 +137,29 @@ namespace game
                 for (int i = 1; i < coop::kVoiceSlots; ++i)
                 {
                     std::string n = std::to_string(i);
-                    std::string icon = std::string(kTile) + "Icon" + n, slice = std::string(kTile) + "Slice" + n;
+                    std::string icon = std::string(kTile) + "Icon" + n, face = std::string(kTile) + "Face" + n,
+                        slice = std::string(kTile) + "Slice" + n;
                     g_wheelSlot[i] = Compile("voice wheel slot",
                         "float fAlpha\n"
                         "int iChosen\n"
+                        "string_var sIcon\n"
                         "float fBright\n"
                         "float fRed\n"
                         "float fGreen\n"
                         "float fBlue\n"
                         "int iShow\n"
-                        "Begin Function {fAlpha, iChosen, fBright, fRed, fGreen, fBlue, iShow}\n"
-                        "  SetUIFloat \"" + icon + "/alpha\" fAlpha\n" + Tint("Icon" + n) +
-                        "  SetUIFloat \"" + icon + "/visible\" iShow\n" + Tint("Slice" + n) +
+                        "int iFace\n"
+                        "int iBody\n"
+                        "int iHead\n"
+                        "Begin Function {fAlpha, iChosen, fBright, fRed, fGreen, fBlue, iShow, sIcon, iFace}\n"
+                        "  set iHead to iShow * iFace\n"
+                        "  set iBody to iShow - iHead\n"
+                        "  SetUIStringEx \"" + icon + "/filename\" \"%z\" sIcon\n"
+                        "  SetUIStringEx \"" + face + "/filename\" \"%z\" sIcon\n"
+                        "  SetUIFloat \"" + icon + "/alpha\" fAlpha\n"
+                        "  SetUIFloat \"" + face + "/alpha\" fAlpha\n" + Tint("Icon" + n) + Tint("Face" + n) +
+                        "  SetUIFloat \"" + icon + "/visible\" iBody\n"
+                        "  SetUIFloat \"" + face + "/visible\" iHead\n" + Tint("Slice" + n) +
                         "  SetUIFloat \"" + slice + "/visible\" iChosen\n"
                         "End\n");
                 }
@@ -142,9 +200,12 @@ namespace game
                 std::string slice = Image("Slice" + n, "interface\\companion_wheel\\hud_comp_slice" + n + ".dds", -kHalf,
                     -kHalf, kDial, 22, true);
                 inject(slice.substr(0, slice.size() - 8) + "<alpha>" + F(kSliceAlpha) + "</alpha></image>");
-                float size = IsFace(i) ? kFaceSize : kIconSize, inset = (kIconSize - size) / 2;
-                inject(Image("Icon" + n, coop::kVoiceIcons[i], kIconSpots[i][0] - kHalf + inset,
-                    kIconSpots[i][1] - kHalf + inset, size, 23, true));
+                // One spot sized for a whole-body pose and one for a face; the picture shown picks which.
+                constexpr float kInset = (kIconSize - kFaceSize) / 2;
+                inject(Image("Icon" + n, coop::kVoiceIcons[i], kIconSpots[i][0] - kHalf, kIconSpots[i][1] - kHalf,
+                    kIconSize, 23, true));
+                inject(Image("Face" + n, coop::kVoiceIcons[i], kIconSpots[i][0] - kHalf + kInset,
+                    kIconSpots[i][1] - kHalf + kInset, kFaceSize, 23, true));
             }
             inject(Image("MiddleIcon", coop::kVoiceIcons[0], -kMiddleIcon / 2, -kMiddleIcon / 2 - 18, kMiddleIcon, 23,
                 true));
@@ -221,7 +282,7 @@ namespace game
         static int s_chosen = -1;
         static VoiceWheelLook s_look;
         bool lookChanged = look.hudColor != s_look.hudColor || look.red != s_look.red || look.green != s_look.green ||
-            look.blue != s_look.blue;
+            look.blue != s_look.blue || look.female != s_look.female;
         if (show == s_shown && (!show || (chosen == s_chosen && !lookChanged)))
             return;
         if (!MakeWheel())
@@ -230,12 +291,15 @@ namespace game
             chosen = 0;
         float bright = look.hudColor ? 255.0f : -1.0f;
         for (int i = 1; i < coop::kVoiceSlots; ++i)
-            g_scripts->CallFunction(g_wheelSlot[i], Player(), nullptr, nullptr, 7,
+        {
+            const char* icon = IconFor(i, look.female);
+            g_scripts->CallFunction(g_wheelSlot[i], Player(), nullptr, nullptr, 9,
                 FloatArg(i == chosen ? kChosenIconAlpha : kIconAlpha), static_cast<uint32_t>(show && i == chosen ? 1 : 0),
                 FloatArg(bright), FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue),
-                static_cast<uint32_t>(show ? 1 : 0));
+                static_cast<uint32_t>(show ? 1 : 0), icon, static_cast<uint32_t>(IsFace(icon) ? 1 : 0));
+        }
         g_scripts->CallFunction(g_wheelFrame, Player(), nullptr, nullptr, 7, static_cast<uint32_t>(show ? 1 : 0),
-            coop::kVoicePhrases[chosen].name, coop::kVoiceIcons[chosen], FloatArg(bright), FloatArg(look.red),
+            coop::kVoicePhrases[chosen].name, IconFor(chosen, look.female), FloatArg(bright), FloatArg(look.red),
             FloatArg(look.green), FloatArg(look.blue));
         s_shown = show;
         s_chosen = chosen;

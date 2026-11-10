@@ -184,8 +184,7 @@ namespace coop
         }
     }
 
-    // The Vault Boy shown for each phrase on the wheel: the game's own pictures, by path (nothing of ours is shipped).
-    // The game has no Vault Girl versions of these, so female characters get the same ones.
+    // The game's own Vault Boy for each phrase, by path: shown only when the wheel's own pictures below are missing.
     constexpr const char* kVoiceIcons[kVoiceSlots] = {
         "interface\\companion_wheel\\comp_talk_on.dds",
         "interface\\icons\\message icons\\glow_message_vaultboy_in_pain.dds",
@@ -196,6 +195,39 @@ namespace coop
         "interface\\icons\\pipboyimages\\perks\\perk_run_n_gun.dds",
         "interface\\icons\\pipboyimages\\perks\\perk_terrifying_presence.dds",
         "interface\\icons\\stats\\special_charisma.dds",
+    };
+
+    // The wheel's own pictures (Data\Textures\interface\nvcoop\voicewheel, shipped with the mod), looked for in order:
+    // a female character takes the first Vault Girl one installed, then the Vault Boy ones; a male character the Vault
+    // Boy ones; and if none is there, the game's picture above. Look Out and Retreat have no drawing yet, so they show
+    // a TEMP card; dropping vaultboy_/vaultgirl_lookout.dds or _retreat.dds in replaces it. Pop-Up Message Icons'
+    // smiling Vault Girl is a last choice for Hey (its other long-haired faces are Vault Boy in costume).
+    constexpr const char* kVoiceIconTemp = "interface\\nvcoop\\voicewheel\\temp.dds";
+    struct PhraseIcons
+    {
+        const char* boy[2];
+        const char* girl[2];
+    };
+    constexpr PhraseIcons kPhraseIcons[kVoiceSlots] = {
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_hey.dds", nullptr},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_hey.dds",
+                "interface\\icons\\pipboyimages\\itsmejesushchrist\\message icons\\glow_vaultgirl.dds"}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_help.dds", nullptr},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_help.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_lookout.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_lookout.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_overhere.dds", nullptr},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_overhere.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_enemyspotted.dds", nullptr},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_enemyspotted.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_grenade.dds", nullptr},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_grenade.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_retreat.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_retreat.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_taunt.dds", nullptr},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_taunt.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_thanks.dds", nullptr},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_thanks.dds", nullptr}},
     };
 
     // Lines a player may say: one every so often, and a short burst at most, so the wheel can't be spammed.

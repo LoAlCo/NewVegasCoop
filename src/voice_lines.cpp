@@ -24,6 +24,7 @@
 namespace
 {
     bool g_wheelOpen = false;
+    bool g_wheelFemale = false;
     float g_pointerX = 0, g_pointerY = 0;
     int g_chosen = 0;
     coop::VoiceLineLimiter g_myLimit;
@@ -269,6 +270,12 @@ void UpdateVoiceLines(uint32_t now)
     look.red = static_cast<float>(g_config.voiceLineRed);
     look.green = static_cast<float>(g_config.voiceLineGreen);
     look.blue = static_cast<float>(g_config.voiceLineBlue);
+    if (held && !g_wheelOpen)
+    {
+        net::PlayerLooks mine;
+        g_wheelFemale = game::ReadMyLooks(mine) && mine.female;
+    }
+    look.female = g_wheelFemale;
     if (held)
     {
         if (!g_wheelOpen)
