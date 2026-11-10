@@ -5,8 +5,10 @@
   you both get a trade window (the shop screen): your own items on the left, what your friend has put up and their
   caps on the right. Click an item of yours, choose how many and type a price (Enter alone for free) and it is up
   straight away; click it again to change it or take it down. Click one of theirs and confirm to buy it. Both windows
-  update as things change. Quest items, keys, notes and worn gear can't be put up. Mod Configuration Menu: Trade With
-  Friends.
+  update as things change. Your listings sit at the top of your side and both sides show the price each and the
+  whole stack's, as "2 (10)". Everything but quest items can be put up; worn gear comes off when it sells. Co-op's
+  boxes (the teleporter menu, Send caps, the trade questions and price box, and "how many?" in the trade window) no
+  longer pause the world. Mod Configuration Menu: Trade With Friends.
 - New: send caps to a friend. Use the Co-op Teleporter, choose Send caps, pick who and type how many. They arrive straight
   in the friend's inventory, with a notice for both of you. If the friend can't take them, you get them back. Everyone's
   game saves a few seconds after a gift so it can't be lost. The Mod Configuration Menu has a switch for each: Gifts

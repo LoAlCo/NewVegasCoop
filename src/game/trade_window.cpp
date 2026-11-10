@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <string>
 #include <windows.h>
 
 namespace game
@@ -24,6 +25,10 @@ namespace game
         constexpr uintptr_t kBarterAccept = 0x0072FD10;    // thiscall on the menu
         constexpr uintptr_t kBarterClick = 0x0072F6F0;     // cdecl (count): a line clicked, after "how many?"
         constexpr uintptr_t kSelectedStack = 0x011D8FA8;   // the stack on the clicked line
+        constexpr uintptr_t kDrawLine = 0x0072F210;        // cdecl (line tile, stack): a list line's text
+        constexpr uintptr_t kSortLines = 0x0072F070;       // cdecl int (item, item): the lists' order
+        constexpr uintptr_t kHideMine = 0x0072E570;        // cdecl bool (stack): hides a stack on the player's side
+        constexpr uintptr_t kPriceTrait = 0x011D8FB0;      // the id of the trait holding a line's price text
         constexpr uintptr_t kBarterRebuild = 0x00730690;   // cdecl (bool now)
         constexpr uintptr_t kListHasTile = 0x007242F0;     // thiscall (list, tile)
         constexpr uintptr_t kStackCondition = 0x004BCDB0;  // thiscall float (stack, as percent)
@@ -39,6 +44,7 @@ namespace game
         TESObjectREFR* g_chest = nullptr;
         std::vector<StallEntry> g_stall;
         int32_t g_stallCaps = 0;
+        std::vector<StallEntry> g_ours;
 
         struct RawPick
         {
@@ -149,6 +155,72 @@ namespace game
                 if (p.form && p.count > 0)
                     g_picks.push_back(p);
             }
+        }
+
+        int ClosestIn(const RawPick& p, const std::vector<StallEntry>& in)
+        {
+            return Closest(p, in.size(), [&](size_t k) -> const net::ItemCount& { return in[k].item; });
+        }
+
+        std::string PriceText(const StallEntry& e)
+        {
+            if (e.price == 0)
+                return "free";
+            int64_t total = int64_t(e.price) * e.item.count;
+            return std::to_string(e.price) + " (" + std::to_string(total) + ")";
+        }
+
+        // Draws a line as the game does, then our stall's lines show "each (whole stack)".
+        void __cdecl TradeDrawLine(void* line, void* stack)
+        {
+            reinterpret_cast<void(__cdecl*)(void*, void*)>(kDrawLine)(line, stack);
+            if (!OursOpen() || !line || !stack)
+                return;
+            auto* menu = static_cast<uint8_t*>(BarterMenu());
+            using HasTile = bool(__thiscall*)(void*, void*);
+            bool merchantLine = reinterpret_cast<HasTile>(kListHasTile)(menu + kMerchantTiles, line);
+            const std::vector<StallEntry>& in = merchantLine ? g_stall : g_ours;
+            RawPick p = ReadStack(stack);
+            int i = p.form ? ClosestIn(p, in) : -1;
+            if (i < 0 || (!merchantLine && Distance(p, in[i].item) >= 1000))
+                return;
+            using SetString = void(__thiscall*)(void*, uint32_t, const char*, bool);
+            reinterpret_cast<SetString>(addr::kTileSetString)(line, *reinterpret_cast<const uint32_t*>(kPriceTrait),
+                PriceText(in[i]).c_str(), true);
+        }
+
+        bool Listed(const void* item)
+        {
+            const void* stack = item ? *reinterpret_cast<const void* const*>(static_cast<const uint8_t*>(item) + 4) :
+                nullptr;
+            if (!stack)
+                return false;
+            RawPick p = ReadStack(stack);
+            int i = p.form ? ClosestIn(p, g_ours) : -1;
+            return i >= 0 && Distance(p, g_ours[i].item) < 1000;
+        }
+
+        // Our listed stacks first, then the game's own order.
+        int __cdecl TradeSortLines(void* a, void* b)
+        {
+            using Original = int(__cdecl*)(void*, void*);
+            if (OursOpen() && !g_ours.empty())
+            {
+                bool la = Listed(a), lb = Listed(b);
+                if (la != lb)
+                    return la ? -1 : 1;
+            }
+            return reinterpret_cast<Original>(kSortLines)(a, b);
+        }
+
+        // In the trade window everything shows except quest items, caps and unplayable gear: keys too.
+        bool __cdecl TradeHideMine(void* stack)
+        {
+            bool hide = reinterpret_cast<bool(__cdecl*)(void*)>(kHideMine)(stack);
+            if (!hide || !OursOpen() || !stack)
+                return hide;
+            auto* form = *reinterpret_cast<TESForm* const*>(static_cast<uint8_t*>(stack) + 8);
+            return !(form && form->typeID == kFormType_TESKey && !form->IsQuestItem());
         }
 
         void __cdecl TradeClick(int count)
@@ -291,6 +363,13 @@ namespace game
         int accepts = RedirectCalls(kBarterAccept, reinterpret_cast<const void*>(&TradeAccept));
         int clicks = RedirectCalls(kBarterClick, reinterpret_cast<const void*>(&TradeClick));
         int prompts = RedirectPushes(kBarterClick, reinterpret_cast<const void*>(&TradeClick));
+        // Nice to have: without these, prices show plainly, in the game's order, with keys hidden.
+        int lines = RedirectPushes(kDrawLine, reinterpret_cast<const void*>(&TradeDrawLine));
+        int sorts = RedirectPushes(kSortLines, reinterpret_cast<const void*>(&TradeSortLines));
+        int filters = RedirectCalls(kHideMine, reinterpret_cast<const void*>(&TradeHideMine)) +
+            RedirectPushes(kHideMine, reinterpret_cast<const void*>(&TradeHideMine));
+        LOG_INFO("Trade: line text (%d), order (%d) and the player's filter (%d) go through the mod", lines, sorts,
+            filters);
         g_ready = prices > 0 && accepts > 0 && clicks > 0 && prompts > 0;
         if (g_ready)
             LOG_INFO("Trade: the barter screen's prices (%d calls), Accept (%d), clicks (%d) and \"how many?\" (%d) go "
@@ -406,24 +485,36 @@ namespace game
             return "it was made during play, so the other game doesn't have it";
         if (form->IsQuestItem())
             return "it's a quest item";
-        if (form->typeID == kFormType_TESKey || form->typeID == kFormType_BGSNote)
-            return form->typeID == kFormType_TESKey ? "keys stay with their owner" : "notes stay with their owner";
         if (form == TeleporterItem())
             return "it's the Co-op Teleporter";
+        return nullptr;
+    }
+
+    void TakeOffForTrade(const net::ItemCount& kind)
+    {
+        TESForm* form = LookupForm(kind.item);
+        if (!form || !g_pcUnequip || !Player())
+            return;
         for (const net::WornItem& w : WornGear(Player()))
             if (w.item == kind.item && (w.health == kind.health || kind.health == net::kNoCondition))
-                return "you're wearing it (take it off first)";
-        return nullptr;
+            {
+                LOG_INFO("Trade: taking off %08X before it goes", kind.item);
+                g_scripts->CallFunctionAlt(g_pcUnequip, Player(), 3, form, 0u, 1u);
+                return;
+            }
     }
 
     void ForgetTradeWindow()
     {
         g_chest = nullptr;
         g_stall.clear();
+        g_ours.clear();
         g_clicks.clear();
         g_picks.clear();
         g_accepted = false;
     }
+
+    void SetOurListings(const std::vector<StallEntry>& ours) { g_ours = ours; }
 
     bool TakeTradeClick(TradePick& pick)
     {

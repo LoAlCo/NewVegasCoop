@@ -159,6 +159,8 @@ namespace game
     int TakeChoice(int id);
     void DropQuestion(int id);
     bool QuestionOpen();
+    // A box co-op showed (a question or a message) is the message box on screen.
+    bool OurBoxShown();
     bool MessageShows(const std::string& text);
     std::string MessageText();
     bool SetMessageText(const std::string& text);

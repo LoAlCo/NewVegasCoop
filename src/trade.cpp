@@ -82,6 +82,14 @@ namespace
 
     int32_t PartnerCapsShown() { return g_coop.PartnerCaps() > 0 ? g_coop.PartnerCaps() : 0; }
 
+    std::vector<game::StallEntry> OurEntries()
+    {
+        std::vector<game::StallEntry> out;
+        for (const coop::Listing& l : g_coop.MyStall().All())
+            out.push_back({l.item, l.price});
+        return out;
+    }
+
     std::vector<game::StallEntry> PartnerEntries()
     {
         std::vector<game::StallEntry> out;
@@ -186,6 +194,7 @@ namespace
             g_coop.SaleTakenOut(e.id, e.listing, false, net::TradeReason::NotHeld, kind, e.itemType, e.caps);
             return;
         }
+        game::TakeOffForTrade(kind);
         net::ItemCount out = kind;
         out.count = -kind.count;
         game::ChangeItem(me, out);
@@ -383,6 +392,7 @@ namespace
             if (box == 0 && g_priceListed && l)
             {
                 g_coop.UnlistItem(l->id);
+                g_stallDirty = true;
                 game::Notify(("Co-op: took down " + game::ItemName(p.item.item)).c_str());
             }
             return;
@@ -398,6 +408,7 @@ namespace
         }
         if (parsed == coop::Amount::Zero)
             price = 0;
+        g_stallDirty = true;
         if (g_coop.ListItem(p.item, p.itemType, price))
             game::Notify(("Co-op: put up " + Many(p.item.count, game::ItemName(p.item.item)) + " (" + PriceWords(price) +
                 (price ? " each" : "") + ")").c_str());
@@ -461,6 +472,7 @@ namespace
                 continue;
             LOG_INFO("Trade: listing %u of %08X says %d but we hold %d; correcting it", l.id, l.item.item, l.item.count,
                 held);
+            g_stallDirty = true;
             if (held == 0)
                 g_coop.UnlistItem(l.id);
             else
@@ -636,6 +648,7 @@ void UpdateTrade(uint32_t now)
     else if (!g_toPrice.empty() && !g_buying)
         StartPricing();
 
+    game::SetOurListings(OurEntries());
     if (shown && g_stallDirty && game::RefreshTradeWindow(PartnerEntries(), PartnerCapsShown()))
         g_stallDirty = false;
 

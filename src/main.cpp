@@ -1968,6 +1968,8 @@ namespace
             game::FixRemoveAllItemsTakeOff();
         }
         game::EscapeMenuLive(g_coop.InGame());
+        game::CoopBoxesLive(g_coop.InGame() && g_worldLoaded && !g_loadingSave &&
+            (game::OurBoxShown() || game::TradeWindowShown()));
         if (g_coop.InGame() && g_worldLoaded && !g_loadingSave)
             game::KeepVatsFeel();
         if (g_config.borderless)
