@@ -104,6 +104,9 @@ files = {
     'README - New Vegas Co-op.txt': README.replace('\n', '\r\n').encode('utf-8'),
     'LICENSE.txt': open(os.path.join(ROOT, 'LICENSE'), 'rb').read(),
 }
+WHEEL = os.path.join(ROOT, 'data', 'textures', 'interface', 'nvcoop', 'voicewheel')
+for icon in sorted(f for f in (os.listdir(WHEEL) if os.path.isdir(WHEEL) else []) if f.lower().endswith('.dds')):
+    files['Textures/interface/nvcoop/voicewheel/' + icon] = open(os.path.join(WHEEL, icon), 'rb').read()
 with zipfile.ZipFile(ZIP, 'w', zipfile.ZIP_DEFLATED) as z:
     for name, data in files.items():
         z.writestr(name, data)
