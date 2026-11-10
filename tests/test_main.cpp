@@ -10390,3 +10390,25 @@ TEST(lines_said_by_themselves_are_rare)
     CHECK(never.Pick(AutoEvent::Greeting, 100000000, 0, gap, 0) == -1);
     CHECK(never.Pick(AutoEvent::Count, 1, 0, gap, greet) == -1);
 }
+
+TEST(delirium_copy_slides_back_after_a_reaction)
+{
+    coop::Pose at{1, 0, 0, 10, 1.5f};
+    coop::Pose want{1, 300, 400, 20, 0.2f};
+    coop::Pose step;
+    CHECK(coop::BlendStep(at, want, 0.1f, 60, step));
+    CHECK(std::fabs(step.x - 15) < 0.01f && std::fabs(step.y - 20) < 0.01f && step.heading == 1.5f && step.z > 10 &&
+        step.z < 20);
+    CHECK(coop::BlendStep(at, want, 5.0f, 60, step) && std::fabs(std::hypot(step.x, step.y) - 25) < 0.01f);
+    coop::Pose closeBy{1, 10, 10, 0, 0};
+    CHECK(!coop::BlendStep(at, closeBy, 0.1f, 60, step));
+    coop::Pose tooFar{1, 1000, 0, 0, 0};
+    CHECK(!coop::BlendStep(at, tooFar, 0.1f, 60, step));
+    coop::Pose elsewhere = want;
+    elsewhere.space = 2;
+    CHECK(!coop::BlendStep(at, elsewhere, 0.1f, 60, step));
+    coop::Pose close{1, 70, 0, 10, 0};
+    CHECK(coop::BlendStep(at, close, 1.0f, 60, step) && step.x == 25);
+    CHECK(!coop::BlendStep(at, want, 0, 60, step));
+    CHECK(coop::kDeliriumRootEveryMs < 50);
+}

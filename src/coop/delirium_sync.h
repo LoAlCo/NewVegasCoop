@@ -6,6 +6,7 @@
 // check it. The plugin side (finding the API, calling it) is in game/delirium.cpp.
 
 #include "coop/DeliriumApi.h"
+#include "coop/smoothing.h"
 #include "net/protocol.h"
 
 #include <cmath>
@@ -15,7 +16,30 @@
 
 namespace coop
 {
-    constexpr uint32_t kDeliriumRootEveryMs = 50;
+    // 30 a second while an NPC reacts (the NpcStates tick is 50 ms): the copy's fall stays closer to the owner's.
+    constexpr uint32_t kDeliriumRootEveryMs = 33;
+    // After a reaction, the copy is slid over to where the owner's stands instead of snapped there.
+    constexpr uint32_t kBlendAfterReactionMs = 2000;
+    constexpr float kBlendSpeed = 250;          // units a second
+    constexpr float kBlendFarthest = 800;       // farther than this: snapped as before
+
+    // One frame of sliding from at toward want (x, y; z and heading follow along). False: close enough already, or
+    // too far to slide.
+    inline bool BlendStep(const Pose& at, const Pose& want, float seconds, float closeEnough, Pose& out)
+    {
+        float dx = want.x - at.x, dy = want.y - at.y;
+        float gap = std::sqrt(dx * dx + dy * dy);
+        if (!(gap > closeEnough) || gap > kBlendFarthest || at.space != want.space || !(seconds > 0))
+            return false;
+        float step = kBlendSpeed * (seconds > 0.1f ? 0.1f : seconds);
+        float k = step >= gap ? 1.0f : step / gap;
+        out = at;
+        out.x = at.x + dx * k;
+        out.y = at.y + dy * k;
+        out.z = at.z + (want.z - at.z) * k;
+        out.heading = at.heading;
+        return true;
+    }
 
     inline net::DeliriumStart ToMessage(const DeliriumReaction& r, uint32_t sharedRef)
     {

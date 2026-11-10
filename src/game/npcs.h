@@ -94,6 +94,9 @@ namespace game
         void HoldUnshared(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
         void LetGoOfHold(const coop::Holds::Released& held, bool nowOurCopy);
         void ReleaseHolds();
+        void MatchHealth(TESObjectREFR* actor, const coop::RemoteNpc& npc, Entry& e, uint32_t now, bool down);
+        std::set<uint32_t> m_putDown;
+        uint32_t m_knockedDown = 0, m_healthFixes = 0;
         struct Held
         {
             Puppet puppet;
