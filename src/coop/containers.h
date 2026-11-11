@@ -32,18 +32,26 @@ namespace coop
     // kind they asked for first and then others of the same item. Only what truly isn't there is given back.
     ContainerTake PlanContainerTake(const std::vector<net::ItemCount>& have, const net::ItemCount& want);
 
-    // Notices a body's contents changing, so a friend's copy can match without looking at it. What it drops as it
-    // dies goes into its inventory for a while afterwards (settling), which isn't anyone looting it: only something
-    // leaving counts until then.
+    // Notices a body's contents changing, so a friend's copy can match without looking at it. Each game rolls what an
+    // NPC carries itself, so a new body is shared at once (friends loot them seconds after the kill). What it drops
+    // as it dies goes into its inventory for a while afterwards (settling), which isn't anyone looting it: until then
+    // only something leaving is shared, and whatever differs from what was shared goes once it has settled.
     class BodyLootWatch
     {
     public:
+        // True if friends should be told what's in it now.
         bool Look(uint32_t ref, const std::vector<net::ItemCount>& items, bool settling);
+        bool Knows(uint32_t ref) const { return m_seen.count(ref) != 0; }
         void KeepOnly(const std::vector<uint32_t>& refs);
         size_t Size() const { return m_seen.size(); }
 
     private:
-        std::map<uint32_t, std::vector<net::ItemCount>> m_seen;
+        struct Seen
+        {
+            std::vector<net::ItemCount> items;
+            std::vector<net::ItemCount> shared;
+        };
+        std::map<uint32_t, Seen> m_seen;
     };
 
     // Each game rolls a container's random loot itself as its cell loads, so a friend's copy holds different loot

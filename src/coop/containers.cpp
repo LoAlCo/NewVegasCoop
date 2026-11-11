@@ -105,15 +105,20 @@ namespace coop
         auto seen = m_seen.find(ref);
         if (seen == m_seen.end())
         {
-            m_seen[ref] = items;
-            return false;
+            m_seen[ref] = {items, items};
+            return true;
         }
-        std::vector<net::ItemCount> diff = ItemDiff(seen->second, items);
-        seen->second = items;
-        for (const net::ItemCount& d : diff)
-            if (!settling || d.count < 0)
-                return true;
-        return false;
+        Seen& s = seen->second;
+        std::vector<net::ItemCount> diff = ItemDiff(s.items, items);
+        s.items = items;
+        bool share = false;
+        if (settling)
+            share = std::any_of(diff.begin(), diff.end(), [](const net::ItemCount& d) { return d.count < 0; });
+        else
+            share = !ItemDiff(s.shared, items).empty();
+        if (share)
+            s.shared = items;
+        return share;
     }
 
     void BodyLootWatch::KeepOnly(const std::vector<uint32_t>& refs)

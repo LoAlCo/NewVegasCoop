@@ -7386,7 +7386,8 @@ TEST(a_body_looted_with_nobody_looking_is_noticed)
 {
     coop::BodyLootWatch w;
     std::vector<net::ItemCount> full{{100, 2, 50, 0}, {200, 1, 50, 0}}, less{{100, 2, 50, 0}};
-    CHECK(!w.Look(7, full, false));
+    // A new body is shared at once: each game rolled what it carried.
+    CHECK(w.Look(7, full, false));
     CHECK(!w.Look(7, full, false));
     CHECK(w.Look(7, less, false));
     CHECK(!w.Look(7, less, false));
@@ -7398,9 +7399,30 @@ TEST(what_a_body_drops_as_it_dies_is_not_loot_but_taking_from_it_is)
 {
     coop::BodyLootWatch w;
     std::vector<net::ItemCount> before{{100, 1, 50, 0}}, dropped{{100, 1, 50, 0}, {300, 1, 80, 0}};
-    CHECK(!w.Look(7, before, true));
+    CHECK(w.Look(7, before, true));
     CHECK(!w.Look(7, dropped, true));
     CHECK(w.Look(7, before, true));
+}
+
+TEST(what_a_body_dropped_is_shared_once_it_has_settled)
+{
+    coop::BodyLootWatch w;
+    std::vector<net::ItemCount> before{{100, 1, 50, 0}}, dropped{{100, 1, 50, 0}, {300, 1, 80, 0}};
+    CHECK(w.Look(7, before, true));
+    CHECK(!w.Look(7, dropped, true));
+    CHECK(!w.Look(7, dropped, true));
+    // Settled: what it holds now differs from what friends were told.
+    CHECK(w.Look(7, dropped, false));
+    CHECK(!w.Look(7, dropped, false));
+}
+
+TEST(a_body_that_settled_as_it_was_shared_isnt_shared_again)
+{
+    coop::BodyLootWatch w;
+    std::vector<net::ItemCount> before{{100, 1, 50, 0}};
+    CHECK(w.Look(7, before, true));
+    CHECK(!w.Look(7, before, false));
+    CHECK(w.Knows(7) && !w.Knows(8));
 }
 
 TEST(bodies_gone_from_the_list_are_forgotten)
@@ -7411,7 +7433,8 @@ TEST(bodies_gone_from_the_list_are_forgotten)
     w.Look(8, full, false);
     w.KeepOnly({8});
     CHECK(w.Size() == 1);
-    CHECK(!w.Look(7, {}, false));
+    // Seen afresh: shared again.
+    CHECK(w.Look(7, {}, false));
     CHECK(w.Look(8, {}, false));
 }
 
