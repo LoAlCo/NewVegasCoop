@@ -137,6 +137,8 @@ namespace game::addr
     constexpr uintptr_t kLevelUpCombatCalls[] = {0x0077C58C, 0x0077D6BE};
     constexpr uintptr_t kTakeOffItem = 0x004C0CF0;
     constexpr uintptr_t kRemoveAllTakeOffCall = 0x004CE913;
+    // FalloutNV.exe's import of XInputGetState (xinput1_3, by number: 2), the one place the game reads a controller
+    constexpr uintptr_t kXInputGetStateImport = 0x00FDF394;
 }
 
 namespace game::mover

@@ -144,6 +144,7 @@ namespace game
     extern Script* g_controlPressed;
     extern Script* g_menuMode;
     extern Script* g_keyPressed;
+    extern Script* g_keyDown;
     extern Script* g_chatHud;
     extern Script* g_chatShow;
     extern Script* g_onScreen;

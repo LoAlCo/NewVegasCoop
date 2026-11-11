@@ -71,7 +71,66 @@
 
 namespace
 {
-    void UpdateChatPanel(uint32_t now)
+    // Chat's scroll keys, read by any route (see game::IsKeyDown) so a controller remapper that presses them works too.
+    // DirectInput codes: Page Up, Page Down, Up, Down.
+    int ChatKeyScroll(uint32_t now, bool typing)
+    {
+        static coop::HoldRepeat s_keys[4];
+        constexpr int kKeys[4] = {0xC9, 0xD1, 0xC8, 0xD0};
+        constexpr int kLines[4] = {coop::ChatPadControl::kPage, -coop::ChatPadControl::kPage, 1, -1};
+        int scroll = 0;
+        for (int i = 0; i < 4; ++i)
+            if (s_keys[i].Update(typing && game::IsKeyDown(kKeys[i]), now))
+                scroll += kLines[i];
+        return scroll;
+    }
+
+    // A controller in chat (coop::ChatPadControl): adds what it sends to typed, and gives back how far it scrolled
+    int UpdateChatPad(uint32_t now, bool on, std::vector<std::string>& typed)
+    {
+        static coop::ChatPadControl s_control;
+        static size_t s_pick = 0;
+        static bool s_hiding = false;
+        bool typing = game::ChatTyping();
+        uint16_t openButton = on ? coop::ChatPadButton(g_config.chatPadButton) : 0;
+        bool inChat = on && g_config.chatPad;
+        coop::ChatPadInput pad;
+        if (openButton || (inChat && typing) || s_hiding)
+            game::ReadChatPad(pad);
+        coop::ChatPadActions act = s_control.Update(now, pad, typing, openButton, inChat);
+        const std::vector<std::string>& quick = g_config.quickMessages;
+        if (act.open && !game::InMenu() && game::OpenChat())
+        {
+            LOG_INFO("Chat: opened with the controller");
+            typing = true;
+        }
+        else if (act.close)
+            game::CancelChat();
+        else if (act.send)
+        {
+            if (!game::ChatDraftEmpty())
+                game::TypeChat('\r');
+            else if (!quick.empty())
+            {
+                typed.push_back(quick[s_pick % quick.size()]);
+                game::CancelChat();
+            }
+        }
+        if (!quick.empty())
+            s_pick = (s_pick + quick.size() + act.pick % static_cast<int>(quick.size())) % quick.size();
+        typing = game::ChatTyping();
+        bool padHere = inChat && typing && pad.connected;
+        game::SetChatHint(padHere ? coop::QuickMessageHint(quick, s_pick) : std::string());
+        // After chat closes the game goes on not seeing the controller until everything's let go, so the A that sent a
+        // message or the B that closed chat isn't then a press for the game too
+        s_hiding = (inChat && typing) || (s_hiding && pad.connected && pad.buttons != 0);
+        game::HidePadFromGame(s_hiding);
+        if (!typing)
+            s_pick = 0;
+        return act.scroll;
+    }
+
+    void UpdateChatPanel(uint32_t now, int scroll)
     {
         static bool s_wasTyping = false;
         bool inGame = g_coop.InGame();
@@ -93,7 +152,7 @@ namespace
             g_eventFeed.Clear();
 
         bool typing = game::ChatTyping();
-        int scroll = game::TakeChatScroll();
+        scroll += ChatKeyScroll(now, typing);
         if (typing != s_wasTyping)
         {
             g_chatHistory.ResetScroll();
@@ -135,11 +194,16 @@ namespace
         bool on = g_config.chat && g_coop.InGame() && g_worldLoaded;
         if (!on && game::ChatTyping())
             game::CancelChat();
-        bool key = on && !game::ChatTyping() && game::IsKeyPressed(g_config.chatKey);
+        bool key = on && !game::ChatTyping() && game::IsKeyDown(g_config.chatKey);
         if (s_keyWas && !key && on && !game::ChatTyping())
             game::OpenChat();
         s_keyWas = key;
+        uint32_t now = GetTickCount();
+        std::vector<std::string> padSent;
+        int padScroll = UpdateChatPad(now, on, padSent);
         std::vector<std::string> typed = game::UpdateChat();
+        for (std::string& t : padSent)
+            typed.push_back(std::move(t));
         for (std::string& t : g_labChat)
             typed.push_back(std::move(t));
         g_labChat.clear();
@@ -183,7 +247,7 @@ namespace
         game::UpdateChatAbove();
         static std::map<uint8_t, uint32_t> s_downedSince;
         static uint32_t s_lastMarks = 0;
-        uint32_t now = GetTickCount(), step = s_lastMarks ? now - s_lastMarks : 0;
+        uint32_t step = s_lastMarks ? now - s_lastMarks : 0;
         s_lastMarks = now;
         std::vector<game::FriendMark> friends;
         for (const auto& [id, remote] : g_coop.InGame() ? g_coop.Remotes() : std::map<uint8_t, coop::RemotePlayer>())
@@ -211,7 +275,7 @@ namespace
         if (!g_coop.InGame())
             s_downedSince.clear();
         game::ShowFriendMarkers(friends);
-        UpdateChatPanel(now);
+        UpdateChatPanel(now, padScroll);
     }
 
     bool g_labTalking = false;

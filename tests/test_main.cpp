@@ -21,6 +21,7 @@
 #include "coop/clock.h"
 #include "coop/steer.h"
 #include "coop/chat_history.h"
+#include "coop/chat_pad.h"
 #include "coop/talk_log.h"
 #include "config.h"
 #include "coop/item_stacks.h"
@@ -6618,6 +6619,142 @@ TEST(event_feed_drops_old_lines_and_waits_in_menus)
     feed.Add("wraps");
     CHECK(feed.Update(aboutToWrap + 1000, false).size() == 1);
     CHECK(feed.Update(aboutToWrap + 9000, false).empty());
+}
+
+TEST(chat_pad_buttons_and_quick_messages)
+{
+    CHECK(coop::ChatPadButton(0) == 0);
+    CHECK(coop::ChatPadButton(1) == coop::pad::kUp);
+    CHECK(coop::ChatPadButton(9) == coop::pad::kRightBumper);
+    CHECK(coop::ChatPadButton(10) == 0 && coop::ChatPadButton(-1) == 0);
+
+    auto standard = coop::QuickMessages("");
+    CHECK(standard.size() == 12 && standard.front() == "Follow me" && standard.back() == "Thanks");
+    CHECK(coop::QuickMessages("|  | ") == standard);
+    CHECK(coop::QuickMessages(coop::kDefaultQuickMessages) == standard);
+
+    // Spaces trimmed, empty ones dropped, and nothing the font would read as a tag
+    auto mine = coop::QuickMessages(" Go left | | <b>Hi</b> & {bye}|x");
+    CHECK(mine.size() == 3 && mine[0] == "Go left" && mine[1] == "bHi/b  bye" && mine[2] == "x");
+
+    std::string many;
+    for (int i = 0; i < 30; ++i)
+        many += "m" + std::to_string(i) + "|";
+    many += std::string(200, 'z');
+    auto capped = coop::QuickMessages(many);
+    CHECK(capped.size() == coop::kMostQuickMessages && capped.back() == "m19");
+    CHECK(coop::QuickMessages(std::string(200, 'z')).front().size() == coop::kQuickMessageChars);
+
+    std::string hint = coop::QuickMessageHint(standard, 14);  // past the end, it goes round
+    CHECK(hint.find("[Come here]") != std::string::npos);
+    CHECK(hint.find('<') == std::string::npos && hint.find('>') == std::string::npos);
+}
+
+TEST(hold_repeat_fires_on_press_then_while_held)
+{
+    coop::HoldRepeat r;
+    CHECK(r.Update(true, 0));
+    CHECK(!r.Update(true, 100));
+    CHECK(r.Update(true, 400));
+    CHECK(!r.Update(true, 450));
+    CHECK(r.Update(true, 490));
+    CHECK(!r.Update(false, 500));
+    CHECK(r.Update(true, 600));
+    CHECK(!r.Update(false, 0xFFFFFFF0u));
+    CHECK(r.Update(true, 0xFFFFFFF0u));
+    CHECK(r.Update(true, 0xFFFFFFF0u + 400));  // the tick count wrapping doesn't stop it
+}
+
+namespace
+{
+    coop::ChatPadInput Pad(uint16_t buttons, float ry = 0) { return {true, buttons, ry}; }
+}
+
+TEST(chat_pad_opens_sends_scrolls_and_closes)
+{
+    using namespace coop::pad;
+    coop::ChatPadControl c;
+    uint32_t t = 0;
+    auto step = [&](coop::ChatPadInput in, bool open, uint16_t button = kDown, bool controls = true)
+    {
+        t += 16;
+        return c.Update(t, in, open, button, controls);
+    };
+
+    CHECK(!step(Pad(0), false).open);
+    CHECK(!step(Pad(kA | kUp), false).send);  // closed, nothing but the chosen button does anything
+    CHECK(step(Pad(kDown), false).open);
+    // Still held as chat opens: that doesn't close it again
+    auto held = step(Pad(kDown), true);
+    CHECK(!held.close && held.scroll == 0);
+    CHECK(!step(Pad(0), true).close);
+
+    CHECK(step(Pad(kA), true).send);
+    CHECK(!step(Pad(kA), true).send);
+    step(Pad(0), true);
+
+    CHECK(step(Pad(kUp), true).scroll == 1);
+    int more = 0;
+    for (int i = 0; i < 40; ++i)
+        more += step(Pad(kUp), true).scroll;
+    CHECK(more >= 3);  // held, it keeps going
+    step(Pad(0), true);
+    CHECK(step(Pad(kLeftBumper), true).scroll == coop::ChatPadControl::kPage);
+    step(Pad(0), true);
+    CHECK(step(Pad(kRightBumper), true).scroll == -coop::ChatPadControl::kPage);
+    step(Pad(0), true);
+    CHECK(step(Pad(kRight), true).pick == 1);
+    step(Pad(0), true);
+    CHECK(step(Pad(kLeft), true).pick == -1);
+    step(Pad(0), true);
+
+    // The right stick reads back faster the further it's pushed, and not at all in its dead zone
+    int stick = 0;
+    for (int i = 0; i < 10; ++i)
+    {
+        t += 100;
+        stick += c.Update(t, Pad(0, 1.0f), true, kDown, true).scroll;
+    }
+    CHECK(stick >= 24 && stick <= 25);
+    int down = 0;
+    for (int i = 0; i < 10; ++i)
+    {
+        t += 100;
+        down += c.Update(t, Pad(0, -0.65f), true, kDown, true).scroll;
+    }
+    CHECK(down < -5 && down > -24);
+    for (int i = 0; i < 10; ++i)
+        CHECK(step(Pad(0, 0.2f), true).scroll == 0);
+
+    CHECK(step(Pad(kB), true).close);
+    step(Pad(0), false);
+
+    // The chosen button closes it too, and is all that works with the in-chat controls off
+    step(Pad(kDown), false);
+    step(Pad(0), true, kDown, false);
+    CHECK(!step(Pad(kA), true, kDown, false).send);
+    CHECK(!step(Pad(kB), true, kDown, false).close);
+    step(Pad(0), true, kDown, false);
+    CHECK(step(Pad(kDown), true, kDown, false).close);
+}
+
+TEST(chat_pad_ignores_what_was_held_when_chat_opened)
+{
+    using namespace coop::pad;
+    coop::ChatPadControl c;
+    // Opened from the keyboard while A was held for the game: A waits to be let go
+    CHECK(!c.Update(0, Pad(kA), false, 0, true).send);
+    CHECK(!c.Update(16, Pad(kA), true, 0, true).send);
+    CHECK(!c.Update(32, Pad(kA), true, 0, true).send);
+    c.Update(48, Pad(0), true, 0, true);
+    CHECK(c.Update(64, Pad(kA), true, 0, true).send);
+
+    // No controller: nothing, and no button set: it never opens
+    coop::ChatPadControl none;
+    CHECK(!none.Update(0, coop::ChatPadInput{false, kDown, 1.0f}, false, kDown, true).open);
+    CHECK(!none.Update(16, Pad(kDown), false, 0, true).open);
+    auto gone = none.Update(500, coop::ChatPadInput{false, kA, 1.0f}, true, kDown, true);
+    CHECK(!gone.send && gone.scroll == 0);
 }
 
 TEST(chat_popup_stays_long_enough_to_read)

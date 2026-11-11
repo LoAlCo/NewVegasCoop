@@ -121,6 +121,7 @@ namespace game
         Script* g_controlPressed = nullptr;
         Script* g_menuMode = nullptr;
         Script* g_keyPressed = nullptr;
+        Script* g_keyDown = nullptr;
         Script* g_chatHud = nullptr;
         Script* g_chatShow = nullptr;
         Script* g_onScreen = nullptr;
@@ -688,6 +689,17 @@ namespace game
             "Begin Function {iKey}\n"
             "  if MenuMode == 0\n"
             "    set iPressed to IsKeyPressed iKey\n"
+            "  endif\n"
+            "  SetFunctionValue iPressed\n"
+            "End\n");
+        // 7: down for the game, on the keyboard, or put in by a script or another mod (a controller remapper, say), even
+        // while a key is turned off for the game, as chat's keys are while it's open
+        g_keyDown = Compile("key down",
+            "int iKey\n"
+            "int iPressed\n"
+            "Begin Function {iKey}\n"
+            "  if MenuMode == 0\n"
+            "    set iPressed to IsKeyPressed iKey 7\n"
             "  endif\n"
             "  SetFunctionValue iPressed\n"
             "End\n");

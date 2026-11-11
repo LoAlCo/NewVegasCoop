@@ -71,6 +71,7 @@ add_library(NVCoop SHARED
     src/voice_out.cpp
     src/display.cpp
     src/game/game.cpp
+    src/game/chat_pad.cpp
     src/game/scripts.cpp
     src/game/hooks.cpp
     src/game/popups.cpp

@@ -40,6 +40,9 @@ struct Config
     bool eventFeed = true;
     bool chatHistory = true;
     bool chatPopup = true;
+    bool chatPad = true;
+    int chatPadButton = 0;
+    std::vector<std::string> quickMessages;
     int feedX = 98;
     int feedY = 45;
     int feedWidth = 500;
