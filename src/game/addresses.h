@@ -113,6 +113,12 @@ namespace game::addr
     constexpr uintptr_t kInputGlobals = 0x011F35CC;
     constexpr uintptr_t kMouseMovement = 0x00A239E0;
     constexpr uintptr_t kHudMainMenu = 0x011D96C0;
+    // input: the game's "a gamepad is in use" (what its own prompts follow), and its control bindings (xNVSE's
+    // OSInputGlobals: keyboard, mouse, joystick, gamepad rows of 28 controls from +0x1B94)
+    constexpr uintptr_t kIsGamepad = 0x004B71D0;
+    constexpr uintptr_t kInputGlobals = 0x011F35CC;
+    constexpr uint32_t kPadBinds = 0x1B94 + 3 * 28;
+    constexpr int kControlBinds = 28;
     constexpr uintptr_t kSettingGeneralSubtitles = 0x011D8928;
     constexpr uintptr_t kSettingDialogueSubtitles = 0x011D8934;
     constexpr uintptr_t kSettingExteriorCellBuffer = 0x011C3C90;

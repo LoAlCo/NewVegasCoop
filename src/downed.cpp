@@ -196,11 +196,16 @@
         return true;
     }
 
-    // Too Many Emotes: looking at a friend who's emoting shows "[E] Join Emote"; pressing E dances the same emote here,
-    // at the same point of it as their character, and follows it (intro, then loop) until they stop, we move, or E
-    // again. Only the animation: the song already plays from their character, and our own copy of the mod isn't told
-    // (so it doesn't start the song again, or make people nearby dance). Friends see us dancing it, with no song.
-    bool g_joinKeyWas = false;
+    // Too Many Emotes: looking at a friend who's emoting shows "[E] Join Emote" ("[A]" on a gamepad); pressing it dances
+    // the same emote here, at the same point of it as their character, and follows it (intro, then loop) until they
+    // stop, we move, or press it again. Only the animation: the song already plays from their character, and our own
+    // copy of the mod isn't told (so it doesn't start the song again, or make people nearby dance). Friends see us
+    // dancing it, with no song.
+    // A press is the keyboard's activate key, the pad's activate button, or the game activating their character (any
+    // button: a remapping mod such as Dynamic Controller Mod included); one press can show up as more than one.
+    bool g_joinKeyWas = false, g_joinPadWas = false;
+    uint32_t g_joinPressAt = 0;
+    constexpr uint32_t kJoinPressGapMs = 400;
     int g_joinedWith = -1;
     std::string g_joinedAnim;
     uint32_t g_joinedAt = 0, g_joinSyncAt = 0;
@@ -256,6 +261,11 @@
                     StopJoinedEmote("we moved");
                     return;
                 }
+        if (now - g_joinedAt >= kJoinStopAfterMs && game::PadMoving())
+        {
+            StopJoinedEmote("we moved (gamepad)");
+            return;
+        }
         const std::string& want = emote->second.path;
         if (want != g_joinedAnim)
         {
@@ -289,13 +299,22 @@
 
     bool UpdateJoinEmote(uint32_t now)
     {
-        bool key = game::IsControlPressed(game::layout::kControlActivate), pressed = key && !g_joinKeyWas;
+        bool key = game::IsControlPressed(game::layout::kControlActivate);
+        bool pad = game::PadButtonPressed(game::layout::kControlActivate);
+        TESObjectREFR* activated = game::TakeActivatedStandIn();
+        bool pressed = (key && !g_joinKeyWas) || (pad && !g_joinPadWas);
         g_joinKeyWas = key;
+        g_joinPadWas = pad;
         if (!g_config.emotes || !game::EmotesReady())
             return false;
         TESObjectREFR* aimed = game::CrosshairRef();
         if (!aimed)
             return false;
+        pressed = pressed || activated == aimed;
+        if (pressed && now - g_joinPressAt < kJoinPressGapMs)
+            pressed = false;
+        else if (pressed)
+            g_joinPressAt = now;
         for (auto& [id, emote] : g_coop.Emotes())
         {
             if (emote.path.empty() || g_standIns.Character(id) != aimed)
@@ -311,9 +330,16 @@
                 g_reviveHint = name + " is dancing too";
                 return true;
             }
-            g_reviveHint = with ? "[E] Stop dancing with " + name : "[E] Join Emote (" + name + ")";
+            std::string button = "E";
+            if (game::UsingGamepad())
+            {
+                button = game::PadButtonName(game::layout::kControlActivate);
+                if (button.empty())
+                    button = "Activate";
+            }
+            g_reviveHint = "[" + button + "] " + (with ? "Stop dancing with " + name : "Join Emote (" + name + ")");
             if (pressed && with)
-                StopJoinedEmote("E again");
+                StopJoinedEmote("activate again");
             else if (pressed)
             {
                 StopJoinedEmote("joined someone else");
