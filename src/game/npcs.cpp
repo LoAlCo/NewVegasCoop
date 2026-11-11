@@ -427,10 +427,10 @@ namespace game
                 ++it;
                 continue;
             }
-            if (TESObjectREFR* own = LookupRef(*it))
-                SetEnabled(own, true);
+            PutBackOriginal(*it);
             it = m_rerolled.erase(it);
         }
+        KeepOriginalsOff(now);
         auto stillHere = [&](uint32_t ref) {
             TESObjectREFR* a = Find(ref);
             coop::Pose at;
@@ -469,7 +469,7 @@ namespace game
                 LOG_INFO("NPCs: %s (%08X) is %08X here but %08X in the host's game (each game rolls its own); "
                     "switched ours off, making a copy of the host's", Name(actor), ref, RolledAs(actor), npc.rolled);
                 Release(ref);
-                SetEnabled(actor, false);
+                SwitchOffOriginal(actor);
                 m_rerolled.insert(ref);
                 m_killed.erase(ref);
                 m_nextRevive.erase(ref);
@@ -849,6 +849,65 @@ namespace game
         m_entries.erase(it);
     }
 
+    void Npcs::SwitchOffOriginal(TESObjectREFR* own)
+    {
+        if (TESObjectREFR* parent = TopEnableParent(own))
+        {
+            ForceEnabled(own, false);
+            LOG_INFO("NPCs: our %s (%08X) has enable parent %08X, which the game's Disable refuses; switched it off "
+                "past it", Name(own), RefId(own), RefId(parent));
+        }
+        else
+            SetEnabled(own, false);
+    }
+
+    void Npcs::PutBackOriginal(uint32_t ref)
+    {
+        coop::KeptOff::Gone gone = m_keptOff.Forget(ref);
+        TESObjectREFR* own = LookupRef(ref);
+        if (!own || !IsActor(own))
+            return;
+        if (gone.frozen)
+        {
+            SetGhost(own, gone.wasGhost);
+            SetCombatOff(own, false);
+        }
+        TESObjectREFR* parent = TopEnableParent(own);
+        if (!coop::RestoreOn(parent != nullptr, parent && IsEnabled(parent)))
+            return;
+        if (parent)
+            ForceEnabled(own, true);
+        else
+            SetEnabled(own, true);
+    }
+
+    void Npcs::KeepOriginalsOff(uint32_t now)
+    {
+        for (uint32_t ref : m_rerolled)
+        {
+            TESObjectREFR* own = LookupRef(ref);
+            if (!own || !IsActor(own))
+                continue;
+            switch (m_keptOff.Look(ref, now, IsEnabled(own)))
+            {
+            case coop::KeepOff::SwitchOff:
+                LOG_DEBUG("NPCs: our %08X came back on though the host's copy stands for it; switching it off again",
+                    ref);
+                SwitchOffOriginal(own);
+                break;
+            case coop::KeepOff::Freeze:
+                m_keptOff.NoteGhost(ref, IsGhost(own));
+                SetCombatOff(own, true);
+                SetGhost(own, true);
+                LOG_WARN("NPCs: our %s (%08X) won't stay switched off (the host's copy stands for it); made it "
+                    "harmless instead: it can't fight or be hit", Name(own), ref);
+                break;
+            case coop::KeepOff::Nothing:
+                break;
+            }
+        }
+    }
+
     bool Npcs::OursIsMade(uint32_t ref) const { return net::IsMadeWhilePlaying(ref) || m_rerolled.count(ref); }
 
     TESObjectREFR* Npcs::Find(uint32_t ref) const
@@ -964,9 +1023,9 @@ namespace game
         while (!m_entries.empty())
             Release(m_entries.begin()->first);
         for (uint32_t ref : m_rerolled)
-            if (TESObjectREFR* own = LookupRef(ref))
-                SetEnabled(own, true);
+            PutBackOriginal(ref);
         m_rerolled.clear();
+        m_keptOff.Clear();
         m_killed.clear();
         m_nextRevive.clear();
         m_switchedOff.clear();
@@ -979,6 +1038,7 @@ namespace game
         m_entries.clear();
         m_made.clear();
         m_rerolled.clear();
+        m_keptOff.Clear();
         m_killed.clear();
         m_nextRevive.clear();
         m_switchedOff.clear();

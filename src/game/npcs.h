@@ -7,6 +7,7 @@
 #include "coop/coop.h"
 #include "coop/given_rounds.h"
 #include "coop/holds.h"
+#include "coop/kept_off.h"
 #include "coop/shot_counter.h"
 #include "game/game.h"
 #include "game/puppet.h"
@@ -108,6 +109,10 @@ namespace game
         };
         std::map<uint32_t, Made> m_made;
         std::set<uint32_t> m_rerolled;
+        coop::KeptOff m_keptOff;
+        void SwitchOffOriginal(TESObjectREFR* own);
+        void PutBackOriginal(uint32_t ref);
+        void KeepOriginalsOff(uint32_t now);
         bool OursIsMade(uint32_t ref) const;
         static inline uint32_t s_labSteps = 15;
         uint32_t m_nextMakeAt = 0;
