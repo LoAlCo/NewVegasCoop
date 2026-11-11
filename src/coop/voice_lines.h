@@ -25,16 +25,15 @@ namespace coop
         uint8_t count = 0;
     };
 
-    // Slot 0 is the middle of the wheel; 1-8 go clockwise from the top. After the wheel's phrases come the ones a
-    // character says by itself (Say Lines By Themselves).
-    constexpr int kVoiceSlots = 9;
+    // The wheel's slots go all the way round, clockwise from the top (slot 0, Hey). After the wheel's phrases come the
+    // ones a character says by itself (Say Lines By Themselves).
+    constexpr int kVoiceSlots = 10;
     constexpr uint8_t kGrenadePhrase = 5;
-    enum AutoPhrase : uint8_t { kAutoFight = 9, kAutoAttack, kAutoHit, kAutoHurt, kAutoFightOver, kAutoGreet };
-    constexpr int kVoicePhraseCount = 15;
+    enum AutoPhrase : uint8_t { kAutoFight = kVoiceSlots, kAutoAttack, kAutoHit, kAutoHurt, kAutoFightOver, kAutoGreet };
+    constexpr int kVoicePhraseCount = kVoiceSlots + 6;
     constexpr VoicePhrase kVoicePhrases[kVoicePhraseCount] = {
         {"Hey", {{0xD2, 0x0017529D, "Hey.", "genericadult_hello_0017529d"},
-            {0xD2, 0x0017529A, "Hello.", "generic_hello_0017529a"},
-            {0xD4, 0x001751C5, "Later.", "genericadult_goodbye_001751c5"}}, 3},
+            {0xD2, 0x0017529A, "Hello.", "generic_hello_0017529a"}}, 2},
         {"Help", {{0xDE, 0x0017525B, "Help!", "genericadultcombat_flee_0017525b"},
             {0xEE, 0x001750E9, "Help me out!", "genericadu_normaltocombat_001750e9"}}, 2},
         {"Look Out", {{0xED, 0x00175210, "Look out!", "genericadu_avoidthreat_00175210"},
@@ -52,6 +51,8 @@ namespace coop
             {0xDC, 0x001751EA, "You like that?", "genericadultcombat_attack_001751ea"},
             {0xF6, 0x0017518B, "Teach you to mess with me.", "genericadu_combattonormal_0017518b"}}, 4},
         {"Thanks", {{0x116, 0x0017511B, "Thanks.", "genericadult_barterexit_0017511b"}}, 1},
+        {"Later", {{0xD4, 0x001751C5, "Later.", "genericadult_goodbye_001751c5"},
+            {0xD4, 0x0004E5E3, "Bye.", "genericadult_goodbye_0004e5e3"}}, 2},
         {"(fight starts)", {{0xEE, 0x001750E7, "Hey!", "genericadu_normaltocombat_001750e7"},
             {0xEE, 0x001750E8, "I've got one!", "genericadu_normaltocombat_001750e8"},
             {0xF3, 0x001751DA, "Found you!", "genericadu_alerttocombat_001751da"},
@@ -140,32 +141,27 @@ namespace coop
     constexpr float kWheelDeadZone = 40;
     constexpr float kWheelReach = 120;
 
-    // The wheel is laid out like the game's Companion Commands wheel: four 30-degree wedges on the right (30-150 degrees
-    // clockwise from the top) and four on the left (210-330), slots 1-8 clockwise from the upper right. Pointing into
-    // the gaps at the top and bottom picks the nearest wedge.
-    constexpr float kWedgeDegrees = 30;
+    // The wedges go all the way round like Fallout 76's emote wheel, each the same size, slot 0 centred at the top.
+    constexpr float kWedgeDegrees = 360.0f / kVoiceSlots;
 
-    // Which slot the pointer is on: 0 (middle) inside the dead zone, else 1-8.
+    // Which slot the pointer is on, or -1 inside the dead zone (letting go there says nothing).
     inline int WheelSlot(float x, float y)
     {
         if (!std::isfinite(x) || !std::isfinite(y) || x * x + y * y < kWheelDeadZone * kWheelDeadZone)
-            return 0;
+            return -1;
         float degrees = std::atan2(x, y) * 57.2957795f;
         if (degrees < 0)
             degrees += 360;
-        bool right = degrees < 180;
-        float from = right ? 30.0f : 210.0f;
-        int wedge = static_cast<int>(std::floor((degrees - from) / kWedgeDegrees));
-        wedge = wedge < 0 ? 0 : wedge > 3 ? 3 : wedge;
-        return (right ? 1 : 5) + wedge;
+        int slot = static_cast<int>(std::floor((degrees + kWedgeDegrees / 2) / kWedgeDegrees));
+        return slot % kVoiceSlots;
     }
 
-    // The middle of a slot's wedge, in degrees clockwise from the top (0 for the middle slot).
+    // The middle of a slot's wedge, in degrees clockwise from the top.
     inline float WheelSlotDegrees(int slot)
     {
-        if (slot < 1 || slot >= kVoiceSlots)
+        if (slot < 0 || slot >= kVoiceSlots)
             return 0;
-        return slot <= 4 ? 45.0f + (slot - 1) * kWedgeDegrees : 225.0f + (slot - 5) * kWedgeDegrees;
+        return slot * kWedgeDegrees;
     }
 
     // Keeps the pointer within reach, so turning far one way doesn't need turning as far back.
@@ -195,12 +191,13 @@ namespace coop
         "interface\\icons\\pipboyimages\\perks\\perk_run_n_gun.dds",
         "interface\\icons\\pipboyimages\\perks\\perk_terrifying_presence.dds",
         "interface\\icons\\stats\\special_charisma.dds",
+        "interface\\companion_wheel\\comp_stayfar_on.dds",
     };
 
     // The wheel's own pictures (Data\Textures\interface\nvcoop\voicewheel, shipped with the mod), looked for in order:
     // a female character takes the first Vault Girl one installed, then the Vault Boy ones; a male character the Vault
     // Boy ones; and if none is there, the game's picture above. Look Out and Retreat have no drawing yet, so they show
-    // a TEMP card; dropping vaultboy_/vaultgirl_lookout.dds or _retreat.dds in replaces it. Pop-Up Message Icons'
+    // a TEMP card (Later too); dropping vaultboy_/vaultgirl_<phrase>.dds in replaces it. Pop-Up Message Icons'
     // smiling Vault Girl is a last choice for Hey (its other long-haired faces are Vault Boy in costume).
     constexpr const char* kVoiceIconTemp = "interface\\nvcoop\\voicewheel\\temp.dds";
     struct PhraseIcons
@@ -228,6 +225,8 @@ namespace coop
             {"interface\\nvcoop\\voicewheel\\vaultgirl_taunt.dds", nullptr}},
         {{"interface\\nvcoop\\voicewheel\\vaultboy_thanks.dds", nullptr},
             {"interface\\nvcoop\\voicewheel\\vaultgirl_thanks.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_later.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_later.dds", nullptr}},
     };
 
     // Lines a player may say: one every so often, and a short burst at most, so the wheel can't be spammed.

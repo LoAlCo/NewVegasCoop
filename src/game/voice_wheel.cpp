@@ -18,18 +18,24 @@ namespace game
 {
     namespace
     {
-        // Drawn like the game's Companion Commands wheel, from its own pictures: the dark disc, the dial (rim, ticks,
-        // spokes, middle circle), a highlight per wedge and a Vault Boy per phrase. Sizes and places are on the HUD's
-        // 960-high scale, measured from the middle of the dial.
-        constexpr float kDial = 760, kHalf = kDial / 2;
-        constexpr float kIconSize = 180, kFaceSize = 140, kMiddleIcon = 96;
-        constexpr float kIconAlpha = 130, kChosenIconAlpha = 255, kSliceAlpha = 110, kMatteAlpha = 225;
-        // Top left of each wedge's picture, from the dial's top left (slots 1-8).
-        constexpr float kIconSpots[coop::kVoiceSlots][2] = {
-            {0, 0}, {467, 115}, {532, 230}, {532, 359}, {467, 465}, {112, 455}, {52, 359}, {52, 230}, {122, 115}};
+        // Laid out like Fallout 76's emote wheel, drawn in New Vegas HUD style: the companion wheel's dark disc, our
+        // dial (rim with ticks, a ring of wedges all the way round, the middle circle), a highlight per wedge and a
+        // Vault Boy or Vault Girl per phrase, with what you'll say written under the wheel. Sizes and places are on the
+        // HUD's 960-high scale, measured from the middle of the wheel (which sits a little above the screen's middle).
+        constexpr float kDial = 700, kHalf = kDial / 2, kRaise = 40;
+        constexpr float kIconRing = (165 + 328) / 2.0f, kIconSize = 150, kFaceSize = 118, kMiddleIcon = 260;
+        constexpr float kHighlight = 256;
+        constexpr float kIconAlpha = 140, kChosenIconAlpha = 255, kHighlightAlpha = 255, kMatteAlpha = 225;
         constexpr const char* kTitle = "Voice Lines";
-        constexpr const char* kHint = "Let go to say it";
+        constexpr const char* kPick = "Point at a phrase and let go to say it; let go here to say nothing";
         constexpr const char* kTile = "HUDMainMenu/NVCoopVW";
+
+        void Around(int slot, float r, float& x, float& y)
+        {
+            float a = coop::WheelSlotDegrees(slot) / 57.2957795f;
+            x = r * std::sin(a);
+            y = -r * std::cos(a);
+        }
 
         bool g_wheelMade = false;
         bool g_wheelTried = false;
@@ -90,11 +96,11 @@ namespace game
 
         std::string F(float v) { return std::to_string(static_cast<int>(std::lround(v))); }
 
-        // x and y measured from the middle of the screen.
+        // x and y measured from the middle of the wheel.
         std::string Place(float x, float y)
         {
             return "<x><copy src=\"screen()\" trait=\"width\"/><div>2</div><add>" + F(x) + "</add></x>"
-                "<y><copy src=\"screen()\" trait=\"height\"/><div>2</div><add>" + F(y) + "</add></y>";
+                "<y><copy src=\"screen()\" trait=\"height\"/><div>2</div><add>" + F(y - kRaise) + "</add></y>";
         }
 
         std::string Image(const std::string& name, const std::string& file, float x, float y, float size, int depth,
@@ -134,11 +140,11 @@ namespace game
             if (!g_wheelTried)
             {
                 g_wheelTried = true;
-                for (int i = 1; i < coop::kVoiceSlots; ++i)
+                for (int i = 0; i < coop::kVoiceSlots; ++i)
                 {
                     std::string n = std::to_string(i);
                     std::string icon = std::string(kTile) + "Icon" + n, face = std::string(kTile) + "Face" + n,
-                        slice = std::string(kTile) + "Slice" + n;
+                        wedge = std::string(kTile) + "Wedge" + n;
                     g_wheelSlot[i] = Compile("voice wheel slot",
                         "float fAlpha\n"
                         "int iChosen\n"
@@ -159,28 +165,32 @@ namespace game
                         "  SetUIFloat \"" + icon + "/alpha\" fAlpha\n"
                         "  SetUIFloat \"" + face + "/alpha\" fAlpha\n" + Tint("Icon" + n) + Tint("Face" + n) +
                         "  SetUIFloat \"" + icon + "/visible\" iBody\n"
-                        "  SetUIFloat \"" + face + "/visible\" iHead\n" + Tint("Slice" + n) +
-                        "  SetUIFloat \"" + slice + "/visible\" iChosen\n"
+                        "  SetUIFloat \"" + face + "/visible\" iHead\n" + Tint("Wedge" + n) +
+                        "  SetUIFloat \"" + wedge + "/visible\" iChosen\n"
                         "End\n");
                 }
                 std::string frame;
-                for (const char* t : {"Dial", "Title", "Hint", "MiddleIcon", "Name"})
+                for (const char* t : {"Dial", "Name", "Line"})
                     frame += Tint(t) + "  SetUIFloat \"" + std::string(kTile) + t + "/visible\" iShow\n";
                 g_wheelFrame = Compile("voice wheel frame",
                     "int iShow\n"
                     "string_var sName\n"
+                    "string_var sLine\n"
                     "string_var sIcon\n"
+                    "int iIcon\n"
                     "float fBright\n"
                     "float fRed\n"
                     "float fGreen\n"
                     "float fBlue\n"
-                    "Begin Function {iShow, sName, sIcon, fBright, fRed, fGreen, fBlue}\n"
+                    "Begin Function {iShow, sName, sLine, sIcon, iIcon, fBright, fRed, fGreen, fBlue}\n"
                     "  SetUIStringEx \"" + std::string(kTile) + "Name/string\" \"%z\" sName\n"
+                    "  SetUIStringEx \"" + std::string(kTile) + "Line/string\" \"%z\" sLine\n"
                     "  SetUIStringEx \"" + std::string(kTile) + "MiddleIcon/filename\" \"%z\" sIcon\n"
-                    "  SetUIFloat \"" + std::string(kTile) + "Matte/visible\" iShow\n" + frame +
+                    "  SetUIFloat \"" + std::string(kTile) + "Matte/visible\" iShow\n" + frame + Tint("MiddleIcon") +
+                    "  SetUIFloat \"" + std::string(kTile) + "MiddleIcon/visible\" iIcon\n"
                     "End\n");
             }
-            for (int i = 1; i < coop::kVoiceSlots; ++i)
+            for (int i = 0; i < coop::kVoiceSlots; ++i)
                 if (!g_wheelSlot[i])
                     return false;
             if (!g_wheelFrame)
@@ -189,31 +199,32 @@ namespace game
             auto inject = [&](const std::string& xml) {
                 g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
             };
-            constexpr float kMatteMore = 30;
-            std::string matte = Image("Matte", "interface\\companion_wheel\\hud_comp_bkg.dds", -kHalf - kMatteMore / 2,
-                -kHalf - kMatteMore / 2, kDial + kMatteMore, 20, false);
-            inject(matte.substr(0, matte.size() - 8) + "<alpha>" + F(kMatteAlpha) + "</alpha></image>");
-            inject(Image("Dial", "interface\\companion_wheel\\hud_comp_pie.dds", -kHalf, -kHalf, kDial, 21, true));
-            for (int i = 1; i < coop::kVoiceSlots; ++i)
+            auto withAlpha = [](std::string xml, float alpha) {
+                return xml.substr(0, xml.size() - 8) + "<alpha>" + F(alpha) + "</alpha></image>";
+            };
+            constexpr float kMatteMore = 60;
+            inject(withAlpha(Image("Matte", "interface\\companion_wheel\\hud_comp_bkg.dds", -kHalf - kMatteMore / 2,
+                -kHalf - kMatteMore / 2, kDial + kMatteMore, 20, false), kMatteAlpha));
+            inject(Image("Dial", "interface\\nvcoop\\voicewheel\\dial.dds", -kHalf, -kHalf, kDial, 21, true));
+            for (int i = 0; i < coop::kVoiceSlots; ++i)
             {
                 std::string n = std::to_string(i);
-                std::string slice = Image("Slice" + n, "interface\\companion_wheel\\hud_comp_slice" + n + ".dds", -kHalf,
-                    -kHalf, kDial, 22, true);
-                inject(slice.substr(0, slice.size() - 8) + "<alpha>" + F(kSliceAlpha) + "</alpha></image>");
+                float x, y;
+                Around(i, kIconRing, x, y);
+                inject(withAlpha(Image("Wedge" + n, "interface\\nvcoop\\voicewheel\\highlight" + n + ".dds",
+                    x - kHighlight / 2, y - kHighlight / 2, kHighlight, 22, true), kHighlightAlpha));
                 // One spot sized for a whole-body pose and one for a face; the picture shown picks which.
-                constexpr float kInset = (kIconSize - kFaceSize) / 2;
-                inject(Image("Icon" + n, coop::kVoiceIcons[i], kIconSpots[i][0] - kHalf, kIconSpots[i][1] - kHalf,
-                    kIconSize, 23, true));
-                inject(Image("Face" + n, coop::kVoiceIcons[i], kIconSpots[i][0] - kHalf + kInset,
-                    kIconSpots[i][1] - kHalf + kInset, kFaceSize, 23, true));
+                inject(Image("Icon" + n, coop::kVoiceIcons[i], x - kIconSize / 2, y - kIconSize / 2, kIconSize, 23,
+                    true));
+                inject(Image("Face" + n, coop::kVoiceIcons[i], x - kFaceSize / 2, y - kFaceSize / 2, kFaceSize, 23,
+                    true));
             }
-            inject(Image("MiddleIcon", coop::kVoiceIcons[0], -kMiddleIcon / 2, -kMiddleIcon / 2 - 18, kMiddleIcon, 23,
+            inject(Image("MiddleIcon", coop::kVoiceIcons[0], -kMiddleIcon / 2, -kMiddleIcon / 2, kMiddleIcon, 23,
                 true));
-            inject(Text("Name", " ", 28, 3, 140, 24));
-            inject(Text("Title", kTitle, 65 - kHalf - 14, 1, 300, 24));
-            inject(Text("Hint", kHint, 160 - kHalf - 12, 3, 240, 24));
+            inject(Text("Name", kTitle, kHalf + 18, 1, 600, 24));
+            inject(Text("Line", kPick, kHalf + 60, 3, 700, 24));
             g_wheelMade = true;
-            LOG_INFO("Voice lines: wheel added to the HUD (companion wheel style)");
+            LOG_INFO("Voice lines: wheel added to the HUD (full ring, %d phrases)", coop::kVoiceSlots);
             return true;
         }
 
@@ -276,21 +287,23 @@ namespace game
         }
     }
 
-    void ShowVoiceWheel(bool show, int chosen, const VoiceWheelLook& look)
+    void ShowVoiceWheel(bool show, int chosen, const char* line, const VoiceWheelLook& look)
     {
         static bool s_shown = false;
-        static int s_chosen = -1;
+        static int s_chosen = -2;
+        static std::string s_line;
         static VoiceWheelLook s_look;
+        if (chosen < 0 || chosen >= coop::kVoiceSlots)
+            chosen = -1;
+        std::string said = chosen >= 0 && line && *line ? std::string("\"") + line + "\"" : std::string(kPick);
         bool lookChanged = look.hudColor != s_look.hudColor || look.red != s_look.red || look.green != s_look.green ||
             look.blue != s_look.blue || look.female != s_look.female;
-        if (show == s_shown && (!show || (chosen == s_chosen && !lookChanged)))
+        if (show == s_shown && (!show || (chosen == s_chosen && said == s_line && !lookChanged)))
             return;
         if (!MakeWheel())
             return;
-        if (chosen < 0 || chosen >= coop::kVoiceSlots)
-            chosen = 0;
         float bright = look.hudColor ? 255.0f : -1.0f;
-        for (int i = 1; i < coop::kVoiceSlots; ++i)
+        for (int i = 0; i < coop::kVoiceSlots; ++i)
         {
             const char* icon = IconFor(i, look.female);
             g_scripts->CallFunction(g_wheelSlot[i], Player(), nullptr, nullptr, 9,
@@ -298,11 +311,13 @@ namespace game
                 FloatArg(bright), FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue),
                 static_cast<uint32_t>(show ? 1 : 0), icon, static_cast<uint32_t>(IsFace(icon) ? 1 : 0));
         }
-        g_scripts->CallFunction(g_wheelFrame, Player(), nullptr, nullptr, 7, static_cast<uint32_t>(show ? 1 : 0),
-            coop::kVoicePhrases[chosen].name, IconFor(chosen, look.female), FloatArg(bright), FloatArg(look.red),
-            FloatArg(look.green), FloatArg(look.blue));
+        g_scripts->CallFunction(g_wheelFrame, Player(), nullptr, nullptr, 9, static_cast<uint32_t>(show ? 1 : 0),
+            chosen >= 0 ? coop::kVoicePhrases[chosen].name : kTitle, said.c_str(),
+            IconFor(chosen >= 0 ? chosen : 0, look.female), static_cast<uint32_t>(show && chosen >= 0 ? 1 : 0),
+            FloatArg(bright), FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue));
         s_shown = show;
         s_chosen = chosen;
+        s_line = said;
         s_look = look;
     }
 

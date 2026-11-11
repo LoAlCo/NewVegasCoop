@@ -323,7 +323,8 @@ namespace game
     bool ReadMyLooks(net::PlayerLooks& out);
     // The voice line wheel: shown with one phrase picked (0 = the middle), in the HUD colour or its own.
     struct VoiceWheelLook { bool hudColor = true; float red = 255, green = 255, blue = 255; bool female = false; };
-    void ShowVoiceWheel(bool show, int chosen, const VoiceWheelLook& look);
+    // chosen: the hovered slot (-1 for none); line: what that phrase will say, shown under the wheel.
+    void ShowVoiceWheel(bool show, int chosen, const char* line, const VoiceWheelLook& look);
     // While the wheel is open: how far the view turned since last time (radians, x right, y up), then turns it back.
     bool WheelPointer(bool open, float& dx, float& dy);
     bool ApplyLooks(TESObjectREFR* standIn, const net::PlayerLooks& looks, bool* headRemade = nullptr);

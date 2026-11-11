@@ -26,7 +26,8 @@ namespace
     bool g_wheelOpen = false;
     bool g_wheelFemale = false;
     float g_pointerX = 0, g_pointerY = 0;
-    int g_chosen = 0;
+    int g_chosen = -1;
+    int g_chosenLine = 0;   // which of the hovered phrase's lines it'll be (shown under the wheel)
     coop::VoiceLineLimiter g_myLimit;
     coop::AutoLines g_auto;
     std::minstd_rand g_random{GetTickCount()};
@@ -92,7 +93,7 @@ namespace
     }
 
     // Says a phrase on our character and sends it to friends. why: "" for the wheel, else what made us say it.
-    bool Speak(uint8_t phrase, uint32_t now, const char* why)
+    bool Speak(uint8_t phrase, uint32_t now, const char* why, int pickedLine = -1)
     {
         if (phrase >= coop::kVoicePhraseCount)
             return false;
@@ -101,7 +102,8 @@ namespace
             LOG_DEBUG("Voice lines: too soon after the last one; \"%s\" not said", coop::kVoicePhrases[phrase].name);
             return false;
         }
-        auto line = static_cast<uint8_t>(g_random() % coop::kVoicePhrases[phrase].count);
+        auto line = static_cast<uint8_t>(pickedLine >= 0 && pickedLine < coop::kVoicePhrases[phrase].count ? pickedLine :
+            g_random() % coop::kVoicePhrases[phrase].count);
         net::PlayerLooks looks;
         bool female = game::ReadMyLooks(looks) && looks.female;
         uint32_t voice = coop::VoiceFor(female, g_config.voiceLineVoice);
@@ -282,7 +284,7 @@ void UpdateVoiceLines(uint32_t now)
         {
             g_wheelOpen = true;
             g_pointerX = g_pointerY = 0;
-            g_chosen = 0;
+            g_chosen = -1;
             LOG_DEBUG("Voice lines: wheel open");
         }
         float dx = 0, dy = 0;
@@ -290,19 +292,23 @@ void UpdateVoiceLines(uint32_t now)
         g_pointerX += dx;
         g_pointerY += dy;
         coop::ClampWheelPointer(g_pointerX, g_pointerY);
-        g_chosen = coop::WheelSlot(g_pointerX, g_pointerY);
-        game::ShowVoiceWheel(true, g_chosen, look);
+        int now_on = coop::WheelSlot(g_pointerX, g_pointerY);
+        if (now_on != g_chosen && now_on >= 0)
+            g_chosenLine = static_cast<int>(g_random() % coop::kVoicePhrases[now_on].count);
+        g_chosen = now_on;
+        game::ShowVoiceWheel(true, g_chosen, g_chosen >= 0 ? coop::kVoicePhrases[g_chosen].lines[g_chosenLine].text : "",
+            look);
     }
     else if (g_wheelOpen)
     {
         g_wheelOpen = false;
         float dx, dy;
         game::WheelPointer(false, dx, dy);
-        game::ShowVoiceWheel(false, g_chosen, look);
-        if (can)
-            Speak(static_cast<uint8_t>(g_chosen), now, "");
+        game::ShowVoiceWheel(false, g_chosen, "", look);
+        if (can && g_chosen >= 0)
+            Speak(static_cast<uint8_t>(g_chosen), now, "", g_chosenLine);
         else
-            LOG_DEBUG("Voice lines: wheel closed without saying anything");
+            LOG_DEBUG("Voice lines: wheel closed without saying anything%s", g_chosen < 0 ? " (let go in the middle)" : "");
     }
     KeepMineMuted(now);
     UpdateAuto(now, me, alive && !g_wheelOpen && !game::InMenuMode() && !game::ChatTyping());

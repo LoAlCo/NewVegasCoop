@@ -740,7 +740,7 @@
 					"title": "Wheel Key",
 					"type": 3,
 					"enable": 1,
-					"mouse": "Hold this key to open the voice line wheel; let go to say the phrase you're pointing at (the middle one if you didn't turn)",
+					"mouse": "Hold this key to open the voice line wheel; let go to say the phrase you're pointing at (letting go without moving the mouse says nothing)",
 					"vars": [
 						{
 							"configINI": "Settings:iVoiceLineKey",
