@@ -64,6 +64,7 @@
 #include <utility>
 #include <vector>
 #include "plugin.h"
+#include "number_box.h"
 
     uint32_t g_nextTeleporterLook = 0;
     int g_teleportersHad = -1;
@@ -123,10 +124,13 @@
             g_giftStep = GiftStep::Menu;
     }
 
-    std::string GiftAmountText()
+    NumberBox g_giftAmount;
+
+    std::string GiftAmountText(int32_t value, const std::string& typed)
     {
         return "Send caps to " + g_coop.NameOf(g_giftTo) + " (you have " + std::to_string(g_giftHave) + ")\n\n" +
-            game::TextEntryText() + "_\n\nType how many. Enter sends, Esc cancels.";
+            (typed.empty() ? std::to_string(value) : typed + "_") + " caps\n\nType how many, or step it with the "
+            "buttons. Enter or Send sends; Esc or Cancel cancels.";
     }
 
     void StartGiftAmount(uint8_t to, TESObjectREFR* me)
@@ -140,16 +144,20 @@
             game::ShowMessage("You have no caps to send.");
             return;
         }
-        if (!game::StartTextEntry())
-        {
-            game::ShowMessage("Couldn't take typing in the game (see NVCoop.log).");
-            return;
-        }
-        g_giftShown = GiftAmountText();
-        if (game::AskChoice(g_giftShown, {"Cancel"}, kGiftAmountQuestion))
+        NumberBox::Setup setup;
+        setup.question = kGiftAmountQuestion;
+        setup.confirm = "Send";
+        setup.special = "All";
+        setup.specialValue = g_giftHave;
+        setup.last = "Cancel";
+        setup.start = 1;
+        setup.min = 1;
+        setup.max = g_giftHave;
+        setup.text = GiftAmountText;
+        if (g_giftAmount.Start(setup))
             g_giftStep = GiftStep::Amount;
         else
-            game::StopTextEntry();
+            game::ShowMessage("Couldn't open the amount box (see NVCoop.log).");
     }
 
     void GiftSendCaps(uint8_t to, int32_t amount, TESObjectREFR* me)
@@ -191,55 +199,30 @@
 
     void UpdateGiftAmount(TESObjectREFR* me)
     {
-        game::EntryState state = game::TextEntryState();
-        int box = game::TakeChoice(kGiftAmountQuestion);
-        if (state == game::EntryState::Typing)
-        {
-            if (box != -1)
-            {
-                LOG_INFO("Gifts: cancelled the amount box with its button");
-                game::StopTextEntry();
-                g_giftStep = GiftStep::None;
-                return;
-            }
-            std::string text = GiftAmountText();
-            if (text != g_giftShown)
-            {
-                game::SetQuestionText(kGiftAmountQuestion, text);
-                g_giftShown = text;
-            }
-            return;
-        }
-        g_giftStep = GiftStep::None;
-        game::DropQuestion(kGiftAmountQuestion);
-        if (state != game::EntryState::Done)
-        {
-            LOG_INFO("Gifts: cancelled the amount box with Esc");
-            game::StopTextEntry();
-            return;
-        }
         int32_t amount = 0;
-        switch (coop::ParseAmount(game::TakeTextEntry(), g_giftHave, amount))
+        switch (g_giftAmount.Update(amount))
         {
-        case coop::Amount::Ok:
+        case NumberBox::Result::Open:
+            return;
+        case NumberBox::Result::Confirmed:
+            g_giftStep = GiftStep::None;
             GiftSendCaps(g_giftTo, amount, me);
-            break;
-        case coop::Amount::NotANumber:
+            return;
+        case NumberBox::Result::NotANumber:
+            g_giftStep = GiftStep::None;
             game::ShowMessage("That isn't a number, so nothing was sent.");
-            break;
-        case coop::Amount::Zero:
-            game::ShowMessage("Nothing to send: that's zero caps.");
-            break;
-        case coop::Amount::TooMany:
-            game::ShowMessage("You only have " + std::to_string(g_giftHave) + " caps.");
-            break;
+            return;
+        default:
+            g_giftStep = GiftStep::None;
+            LOG_INFO("Gifts: cancelled the amount box");
+            return;
         }
     }
 
     void StopGiftMenus()
     {
         if (g_giftStep == GiftStep::Amount)
-            game::StopTextEntry();
+            g_giftAmount.Stop();
         if (g_giftStep != GiftStep::None)
         {
             game::DropQuestion(kCoopMenuQuestion);

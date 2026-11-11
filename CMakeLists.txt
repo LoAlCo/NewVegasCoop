@@ -59,6 +59,7 @@ add_library(NVCoop SHARED
     src/main.cpp
     src/linked_saves.cpp
     src/teleporter.cpp
+    src/number_box.cpp
     src/downed.cpp
     src/chat_voice.cpp
     src/quick_start.cpp
