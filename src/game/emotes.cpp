@@ -7,12 +7,86 @@
 #include "game/internal.h"
 
 #include <cctype>
+#include <cmath>
 #include <cstring>
+#include <Xinput.h>
 
 namespace game
 {
     namespace
     {
+        // A gamepad: read straight from XInput (the game's own copy), since xNVSE's IsControlPressed only sees the
+        // keyboard and mouse. The game's pad bindings say which button does what.
+        struct PadButton
+        {
+            uint8_t code;
+            uint16_t mask;
+            const char* name;
+        };
+        constexpr PadButton kPadButtons[] = {
+            {1, XINPUT_GAMEPAD_DPAD_UP, "D-pad Up"}, {2, XINPUT_GAMEPAD_DPAD_DOWN, "D-pad Down"},
+            {4, XINPUT_GAMEPAD_DPAD_RIGHT, "D-pad Right"}, {5, XINPUT_GAMEPAD_DPAD_LEFT, "D-pad Left"},
+            {6, XINPUT_GAMEPAD_START, "Start"}, {7, XINPUT_GAMEPAD_BACK, "Back"},
+            {8, XINPUT_GAMEPAD_LEFT_THUMB, "LS"}, {9, XINPUT_GAMEPAD_RIGHT_THUMB, "RS"},
+            {10, XINPUT_GAMEPAD_A, "A"}, {11, XINPUT_GAMEPAD_B, "B"}, {12, XINPUT_GAMEPAD_X, "X"},
+            {13, XINPUT_GAMEPAD_Y, "Y"}, {14, XINPUT_GAMEPAD_RIGHT_SHOULDER, "RB"},
+            {15, XINPUT_GAMEPAD_LEFT_SHOULDER, "LB"},
+        };
+
+        bool ReadPad(XINPUT_GAMEPAD& out)
+        {
+            using GetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
+            static GetStateFn s_get = nullptr;
+            static bool s_tried = false;
+            if (!s_tried)
+            {
+                s_tried = true;
+                HMODULE xinput = GetModuleHandleA("xinput1_3.dll");
+                if (!xinput)
+                    xinput = LoadLibraryA("xinput1_3.dll");
+                if (!xinput)
+                    xinput = LoadLibraryA("xinput9_1_0.dll");
+                if (xinput)
+                    s_get = reinterpret_cast<GetStateFn>(GetProcAddress(xinput, "XInputGetState"));
+                if (!s_get)
+                    LOG_WARN("Emotes: no XInput, so a gamepad can't stop a dance you joined (moving with keys can)");
+            }
+            XINPUT_STATE state{};
+            if (!s_get || s_get(0, &state) != ERROR_SUCCESS)
+                return false;
+            out = state.Gamepad;
+            return true;
+        }
+
+        const PadButton* PadButtonFor(int control)
+        {
+            auto* globals = *reinterpret_cast<const uint8_t* const*>(addr::kInputGlobals);
+            if (!globals || control < 0 || control >= addr::kControlBinds)
+                return nullptr;
+            uint8_t code = globals[addr::kPadBinds + control];
+            for (const PadButton& b : kPadButtons)
+                if (b.code == code)
+                    return &b;
+            return nullptr;
+        }
+
+        // the player activating a friend's character, by whatever key or button (a pad's, or one a remapping mod
+        // such as Dynamic Controller Mod presses for them): the game runs its activation either way
+        TESObjectREFR* g_activated = nullptr;
+        DWORD g_activatedAt = 0;
+
+        void OnActivateStandIn(TESObjectREFR*, void* parameters)
+        {
+            auto** args = static_cast<void**>(parameters);
+            auto* ref = args ? static_cast<TESObjectREFR*>(args[0]) : nullptr;
+            auto* who = args ? static_cast<TESObjectREFR*>(args[1]) : nullptr;
+            if (ref && who && who == Player() && IsStandIn(ref))
+            {
+                g_activated = ref;
+                g_activatedAt = GetTickCount();
+            }
+        }
+
         bool g_emotesTried = false;
         Script* g_emoteNow = nullptr;
         Script* g_emoteSongPlay = nullptr;
@@ -128,6 +202,8 @@ namespace game
             "  endif\n"
             "  SetFunctionValue iMoved\n"
             "End\n");
+        if (!g_events || !g_events->SetNativeEventHandler("OnActivate", OnActivateStandIn))
+            LOG_WARN("Emotes: no OnActivate event, so only the keyboard's activate key joins a friend's emote");
         if (!g_emoteNow)
             LOG_ERROR("Emotes: Too Many Emotes is loaded but its emotes can't be read, so they won't show for friends");
         else
@@ -184,6 +260,49 @@ namespace game
         TESForm* form = SongForm(song);
         if (EmotesReady() && g_emoteSongStop && from && form)
             g_scripts->CallFunctionAlt(g_emoteSongStop, from, 2, form, from);
+    }
+
+    bool UsingGamepad()
+    {
+        return reinterpret_cast<bool(__cdecl*)()>(addr::kIsGamepad)();
+    }
+
+    std::string PadButtonName(int control)
+    {
+        const PadButton* b = PadButtonFor(control);
+        return b ? b->name : std::string();
+    }
+
+    bool PadButtonPressed(int control)
+    {
+        const PadButton* b = PadButtonFor(control);
+        XINPUT_GAMEPAD pad{};
+        return b && ReadPad(pad) && (pad.wButtons & b->mask);
+    }
+
+    bool PadMoving()
+    {
+        constexpr float kStick = 0.3f * 32767, kTrigger = 0.5f * 255;
+        XINPUT_GAMEPAD pad{};
+        if (!ReadPad(pad))
+            return false;
+        // the left stick walks; the triggers aim and attack
+        if (std::fabs(static_cast<float>(pad.sThumbLX)) > kStick || std::fabs(static_cast<float>(pad.sThumbLY)) > kStick ||
+            pad.bLeftTrigger > kTrigger || pad.bRightTrigger > kTrigger)
+            return true;
+        for (int control : {layout::kControlAttack, layout::kControlAimBlock, layout::kControlReadyItem,
+            layout::kControlJump})
+            if (const PadButton* b = PadButtonFor(control); b && (pad.wButtons & b->mask))
+                return true;
+        return false;
+    }
+
+    TESObjectREFR* TakeActivatedStandIn()
+    {
+        // only a fresh one: one left from a moment we weren't looking for it doesn't count later
+        TESObjectREFR* ref = GetTickCount() - g_activatedAt < 300 ? g_activated : nullptr;
+        g_activated = nullptr;
+        return ref;
     }
 
     bool EmoteCameraOut()

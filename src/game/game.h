@@ -326,6 +326,15 @@ namespace game
     bool EmoteSongPlaying(TESObjectREFR* from, uint32_t song);
     void StopEmoteSong(TESObjectREFR* from, uint32_t song);
     bool LeaveEmoteDance(TESObjectREFR* who);
+    // A gamepad: in use (the game's own prompts follow this), the button bound to a control ("A"; empty if none
+    // known), whether it's held, and whether the pad moves the player (left stick, triggers, or the buttons for
+    // attack, aim, drawing a weapon, jumping).
+    bool UsingGamepad();
+    std::string PadButtonName(int control);
+    bool PadButtonPressed(int control);
+    bool PadMoving();
+    // The friend's character the player last activated (any key or button), once; null if none since.
+    TESObjectREFR* TakeActivatedStandIn();
     // Third person for dancing (the mod's camera option on, and in first person now): true if it switched.
     bool EmoteCameraOut();
     void EmoteCameraBack();
