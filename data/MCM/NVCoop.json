@@ -589,6 +589,30 @@
 						"HUD colour",
 						"Own colours"
 					]
+				},
+				"5": {
+					"title": "Ping Button",
+					"type": 1,
+					"enable": 1,
+					"mouse": "The controller button that pings. It still does its usual job too, so pick one you don't need",
+					"vars": [
+						{
+							"configINI": "Settings:iPingPadButton",
+							"default": 1
+						}
+					],
+					"strings": [
+						"Off",
+						"D-pad Up",
+						"D-pad Down",
+						"D-pad Left",
+						"D-pad Right",
+						"Left stick click",
+						"Right stick click",
+						"Back",
+						"Left bumper",
+						"Right bumper"
+					]
 				}
 			}
 		},

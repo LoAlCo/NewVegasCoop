@@ -176,6 +176,13 @@ namespace coop
         return {net::PingKind::Person, name.empty() ? "Someone" : name, c.hostRef};
     }
 
+    // The menu's Ping Button choices, in its order, as XInput button bits. 0 is off.
+    constexpr uint16_t kPingPadButtons[] = {0, 0x0001, 0x0002, 0x0004, 0x0008, 0x0040, 0x0080, 0x0020, 0x0100, 0x0200};
+    inline uint16_t PingPadMask(int choice)
+    {
+        return choice > 0 && choice < static_cast<int>(std::size(kPingPadButtons)) ? kPingPadButtons[choice] : 0;
+    }
+
     // How the menu's Ping Icons option shows them.
     enum class PingIcons : uint8_t
     {

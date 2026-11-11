@@ -1413,11 +1413,11 @@ namespace
             LOG_INFO("Mode: %s (changed in the menu)", coop::Describe(g_ourMode).c_str());
         }
         LOG_INFO("Settings: changed in the menu (chat %d, key %d, speech %d at %d%%, voice %d/%d pitch %d speed %d "
-            "effect %d, voice chat %d key %d mode %d at %d%%, radio %d, weather %d, desync notices %d, pings %d key %d sound %d icons %d)", g_config.chat,
+            "effect %d, voice chat %d key %d mode %d at %d%%, radio %d, weather %d, desync notices %d, pings %d key %d pad %d sound %d icons %d)", g_config.chat,
             g_config.chatKey, g_config.chatSpeech, g_config.chatSpeechVolume, g_config.voice, g_config.voiceVariant,
             g_config.voicePitch, g_config.voiceSpeed, g_config.voiceEffect, g_config.voiceChat, g_config.voiceChatKey,
             g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.syncWeather, g_config.desyncNotices, g_config.pings,
-            g_config.pingKey, g_config.pingSound, g_config.pingIcons);
+            g_config.pingKey, g_config.pingPadButton, g_config.pingSound, g_config.pingIcons);
         LOG_INFO("Settings: voice lines %d, key %d, voice %d, hear own %d, HUD colour %d (%d %d %d), by themselves %d "
             "(every %d s at most, greeting every %d min)", g_config.voiceLines, g_config.voiceLineKey,
             g_config.voiceLineVoice + 1, g_config.voiceLineHearOwn, g_config.voiceLineHudColor, g_config.voiceLineRed,

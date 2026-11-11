@@ -250,7 +250,12 @@ namespace
             s_board.Clear();
         coop::Pose me;
         bool placed = on && game::GetPose(game::Player(), me);
-        bool key = placed && !g_cutscene && !game::ChatTyping() && game::IsKeyPressed(g_config.pingKey);
+        // IsKeyPressed also counts a key another mod presses for the player (HoldKey or TapKey), so a pad button a
+        // controller mod maps to the ping key pings too.
+        uint16_t padMask = coop::PingPadMask(g_config.pingPadButton);
+        bool ready = placed && !g_cutscene && !game::ChatTyping();
+        bool key = ready && (game::IsKeyPressed(g_config.pingKey) ||
+            (padMask && (game::PadButtons() & padMask) == padMask && !game::InMenuMode()));
         if (key && !s_keyWas && s_gate.Allow(now))
         {
             game::CrosshairPick aim;

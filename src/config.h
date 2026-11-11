@@ -84,6 +84,7 @@ struct Config
     int voiceChatVolume = 100;
     bool pings = true;
     int pingKey = 34;
+    int pingPadButton = 1;
     int pingSound = 1;
     int pingIcons = 1;
     bool voiceLines = true;
