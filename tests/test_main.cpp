@@ -6557,15 +6557,21 @@ TEST(voice_wheel_points_at_the_slot_you_turn_towards)
     }
     CHECK(coop::WheelSlotDegrees(0) == 0 && coop::WheelSlotDegrees(1) == 36 && coop::WheelSlotDegrees(9) == 324);
     CHECK(std::string(coop::kVoicePhrases[0].name) == "Hey" && std::string(coop::kVoicePhrases[9].name) == "Later");
+    // Page 2 follows page 1; lines said by themselves come after both pages.
+    CHECK(coop::kWheelPhrases == 20 && std::string(coop::kVoicePhrases[10].name) == "Careful" &&
+        std::string(coop::kVoicePhrases[19].name) == "Good Business" && coop::kAutoFight == 20);
+    for (int i = coop::kVoiceSlots; i < coop::kWheelPhrases; ++i)
+        CHECK(coop::kPhraseIcons[i].boy[1] == std::string(coop::kVoiceIconTemp));
     float x = 1000, y = 1000;
     coop::ClampWheelPointer(x, y);
     CHECK(std::fabs(std::sqrt(x * x + y * y) - coop::kWheelReach) < 1e-3f && std::fabs(x - y) < 1e-3f);
     x = INFINITY;
     coop::ClampWheelPointer(x, y);
     CHECK(x == 0 && y == 0);
-    const char* const slugs[coop::kVoiceSlots] = {"hey", "help", "lookout", "overhere", "enemyspotted", "grenade",
-        "retreat", "taunt", "thanks", "later"};
-    for (int i = 0; i < coop::kVoiceSlots; ++i)
+    const char* const slugs[coop::kWheelPhrases] = {"hey", "help", "lookout", "overhere", "enemyspotted", "grenade",
+        "retreat", "taunt", "thanks", "later", "careful", "whatwasthat", "wheredtheygo", "getem", "allclear", "mandown",
+        "thief", "no", "keepmoving", "goodbusiness"};
+    for (int i = 0; i < coop::kWheelPhrases; ++i)
     {
         // Every phrase has its own Vault Boy and Vault Girl picture in the wheel's folder, named after the phrase.
         std::string folder = "interface\\nvcoop\\voicewheel\\";

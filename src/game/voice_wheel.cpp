@@ -67,15 +67,15 @@ namespace game
 
         const char* IconFor(int slot, bool female)
         {
-            static const char* s_boy[coop::kVoiceSlots];
-            static const char* s_girl[coop::kVoiceSlots];
+            static const char* s_boy[coop::kWheelPhrases];
+            static const char* s_girl[coop::kWheelPhrases];
             static bool s_looked = false;
-            if (slot < 0 || slot >= coop::kVoiceSlots)
+            if (slot < 0 || slot >= coop::kWheelPhrases)
                 slot = 0;
             if (!s_looked)
             {
                 s_looked = true;
-                for (int i = 0; i < coop::kVoiceSlots; ++i)
+                for (int i = 0; i < coop::kWheelPhrases; ++i)
                 {
                     const char* boy = FirstInstalled(coop::kPhraseIcons[i].boy);
                     const char* girl = FirstInstalled(coop::kPhraseIcons[i].girl);
@@ -170,19 +170,21 @@ namespace game
                         "End\n");
                 }
                 std::string frame;
-                for (const char* t : {"Dial", "Name", "Line"})
+                for (const char* t : {"Dial", "Name", "Line", "Page"})
                     frame += Tint(t) + "  SetUIFloat \"" + std::string(kTile) + t + "/visible\" iShow\n";
                 g_wheelFrame = Compile("voice wheel frame",
                     "int iShow\n"
                     "string_var sName\n"
                     "string_var sLine\n"
+                    "string_var sPage\n"
                     "string_var sIcon\n"
                     "int iIcon\n"
                     "float fBright\n"
                     "float fRed\n"
                     "float fGreen\n"
                     "float fBlue\n"
-                    "Begin Function {iShow, sName, sLine, sIcon, iIcon, fBright, fRed, fGreen, fBlue}\n"
+                    "Begin Function {iShow, sName, sLine, sPage, sIcon, iIcon, fBright, fRed, fGreen, fBlue}\n"
+                    "  SetUIStringEx \"" + std::string(kTile) + "Page/string\" \"%z\" sPage\n"
                     "  SetUIStringEx \"" + std::string(kTile) + "Name/string\" \"%z\" sName\n"
                     "  SetUIStringEx \"" + std::string(kTile) + "Line/string\" \"%z\" sLine\n"
                     "  SetUIStringEx \"" + std::string(kTile) + "MiddleIcon/filename\" \"%z\" sIcon\n"
@@ -223,6 +225,7 @@ namespace game
                 true));
             inject(Text("Name", kTitle, kHalf + 18, 1, 600, 24));
             inject(Text("Line", kPick, kHalf + 60, 3, 700, 24));
+            inject(Text("Page", " ", -kHalf - 34, 3, 700, 24));
             g_wheelMade = true;
             LOG_INFO("Voice lines: wheel added to the HUD (full ring, %d phrases)", coop::kVoiceSlots);
             return true;
@@ -241,7 +244,7 @@ namespace game
 
         int __fastcall MouseMovementHook(void* input, void*, int axis)
         {
-            if (g_blockLook && (axis == 1 || axis == 2))
+            if (g_blockLook && (axis == 1 || axis == 2 || axis == 3))
                 return 0;
             if (g_mouseBefore)
                 return reinterpret_cast<int(__thiscall*)(void*, int)>(g_mouseBefore)(input, axis);
@@ -287,43 +290,53 @@ namespace game
         }
     }
 
-    void ShowVoiceWheel(bool show, int chosen, const char* line, const VoiceWheelLook& look)
+    void ShowVoiceWheel(bool show, int page, int chosen, const char* line, const char* pageHint,
+        const VoiceWheelLook& look)
     {
         static bool s_shown = false;
-        static int s_chosen = -2;
-        static std::string s_line;
+        static int s_chosen = -2, s_page = -1;
+        static std::string s_line, s_hint;
         static VoiceWheelLook s_look;
         if (chosen < 0 || chosen >= coop::kVoiceSlots)
             chosen = -1;
+        if (page < 0 || page >= coop::kVoicePages)
+            page = 0;
         std::string said = chosen >= 0 && line && *line ? std::string("\"") + line + "\"" : std::string(kPick);
+        std::string hint = "Page " + std::to_string(page + 1) + " of " + std::to_string(coop::kVoicePages) +
+            (pageHint && *pageHint ? std::string(" - ") + pageHint : std::string());
         bool lookChanged = look.hudColor != s_look.hudColor || look.red != s_look.red || look.green != s_look.green ||
             look.blue != s_look.blue || look.female != s_look.female;
-        if (show == s_shown && (!show || (chosen == s_chosen && said == s_line && !lookChanged)))
+        if (show == s_shown && (!show || (chosen == s_chosen && page == s_page && said == s_line && hint == s_hint &&
+            !lookChanged)))
             return;
         if (!MakeWheel())
             return;
         float bright = look.hudColor ? 255.0f : -1.0f;
+        int first = page * coop::kVoiceSlots;
         for (int i = 0; i < coop::kVoiceSlots; ++i)
         {
-            const char* icon = IconFor(i, look.female);
+            const char* icon = IconFor(first + i, look.female);
             g_scripts->CallFunction(g_wheelSlot[i], Player(), nullptr, nullptr, 9,
                 FloatArg(i == chosen ? kChosenIconAlpha : kIconAlpha), static_cast<uint32_t>(show && i == chosen ? 1 : 0),
                 FloatArg(bright), FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue),
                 static_cast<uint32_t>(show ? 1 : 0), icon, static_cast<uint32_t>(IsFace(icon) ? 1 : 0));
         }
-        g_scripts->CallFunction(g_wheelFrame, Player(), nullptr, nullptr, 9, static_cast<uint32_t>(show ? 1 : 0),
-            chosen >= 0 ? coop::kVoicePhrases[chosen].name : kTitle, said.c_str(),
-            IconFor(chosen >= 0 ? chosen : 0, look.female), static_cast<uint32_t>(show && chosen >= 0 ? 1 : 0),
+        g_scripts->CallFunction(g_wheelFrame, Player(), nullptr, nullptr, 10, static_cast<uint32_t>(show ? 1 : 0),
+            chosen >= 0 ? coop::kVoicePhrases[first + chosen].name : kTitle, said.c_str(), hint.c_str(),
+            IconFor(chosen >= 0 ? first + chosen : first, look.female), static_cast<uint32_t>(show && chosen >= 0 ? 1 : 0),
             FloatArg(bright), FloatArg(look.red), FloatArg(look.green), FloatArg(look.blue));
         s_shown = show;
         s_chosen = chosen;
+        s_page = page;
+        s_hint = hint;
         s_line = said;
         s_look = look;
     }
 
-    bool WheelPointer(bool open, float& dx, float& dy)
+    bool WheelPointer(bool open, float& dx, float& dy, int& scroll)
     {
         dx = dy = 0;
+        scroll = 0;
         TESObjectREFR* me = Player();
         auto* input = *reinterpret_cast<uint8_t**>(addr::kInputGlobals);
         if (open)
@@ -336,8 +349,10 @@ namespace game
         }
         // This frame's mouse movement (y grows downwards), taken from the game so it can't turn the view either.
         int mx = At<int>(input, kMouseX), my = At<int>(input, kMouseY);
+        scroll = At<int>(input, kMouseWheel);
         *reinterpret_cast<int*>(input + kMouseX) = 0;
         *reinterpret_cast<int*>(input + kMouseY) = 0;
+        *reinterpret_cast<int*>(input + kMouseWheel) = 0;
         if (!g_pointing)
         {
             g_pointing = true;
@@ -354,5 +369,77 @@ namespace game
             SetPitch(me, g_pitch);
         }
         return true;
+    }
+
+    namespace
+    {
+        // XInput, loaded by name: the same controller interface the game reads.
+        struct PadButtons { uint16_t buttons; uint8_t leftTrigger, rightTrigger; int16_t lx, ly, rx, ry; };
+        struct PadRead { uint32_t packet; PadButtons pad; };
+        using GetStateFn = uint32_t(__stdcall*)(uint32_t, PadRead*);
+        GetStateFn g_getPadState = nullptr;
+        bool g_padTried = false;
+        uint8_t g_heldControls = 0;
+    }
+
+    bool ReadPad(PadState& out)
+    {
+        out = PadState{};
+        if (!g_padTried)
+        {
+            g_padTried = true;
+            for (const char* dll : {"xinput1_3.dll", "xinput1_4.dll", "xinput9_1_0.dll"})
+            {
+                HMODULE m = GetModuleHandleA(dll);
+                if (!m)
+                    m = LoadLibraryA(dll);
+                if (m && (g_getPadState = reinterpret_cast<GetStateFn>(GetProcAddress(m, "XInputGetState"))))
+                {
+                    LOG_INFO("Voice lines: controller read through %s", dll);
+                    break;
+                }
+            }
+            if (!g_getPadState)
+                LOG_WARN("Voice lines: no XInput found; the wheel can't be used with a controller");
+        }
+        if (!g_getPadState)
+            return false;
+        for (uint32_t i = 0; i < 4; ++i)
+        {
+            PadRead r{};
+            if (g_getPadState(i, &r) == 0)
+            {
+                out.connected = true;
+                out.buttons = r.pad.buttons;
+                out.rx = r.pad.rx / 32767.0f;
+                out.ry = r.pad.ry / 32767.0f;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void HoldControlsForWheel(bool hold)
+    {
+        // The player's own disabled-controls flags (+0x680): look 0x02, attack (and VATS) 0x08, view switch 0x10. Only
+        // the ones not already off are turned off, and only those are turned back on.
+        constexpr uint8_t kLook = 0x02, kFight = 0x08, kView = 0x10;
+        auto* player = reinterpret_cast<uint8_t*>(Player());
+        if (!player)
+        {
+            g_heldControls = 0;
+            return;
+        }
+        uint8_t& flags = player[layout::kPlayerDisabledControls];
+        if (hold && !g_heldControls)
+        {
+            g_heldControls = static_cast<uint8_t>((kLook | kFight | kView) & ~flags);
+            flags |= g_heldControls;
+        }
+        else if (!hold && g_heldControls)
+        {
+            flags &= static_cast<uint8_t>(~g_heldControls);
+            g_heldControls = 0;
+        }
     }
 }

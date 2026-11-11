@@ -25,12 +25,14 @@ namespace coop
         uint8_t count = 0;
     };
 
-    // The wheel's slots go all the way round, clockwise from the top (slot 0, Hey). After the wheel's phrases come the
-    // ones a character says by itself (Say Lines By Themselves).
+    // The wheel's slots go all the way round, clockwise from the top; it has two pages of them (phrase = page * slots +
+    // slot). After the wheel's phrases come the ones a character says by itself (Say Lines By Themselves).
     constexpr int kVoiceSlots = 10;
+    constexpr int kVoicePages = 2;
+    constexpr int kWheelPhrases = kVoiceSlots * kVoicePages;
     constexpr uint8_t kGrenadePhrase = 5;
-    enum AutoPhrase : uint8_t { kAutoFight = kVoiceSlots, kAutoAttack, kAutoHit, kAutoHurt, kAutoFightOver, kAutoGreet };
-    constexpr int kVoicePhraseCount = kVoiceSlots + 6;
+    enum AutoPhrase : uint8_t { kAutoFight = kWheelPhrases, kAutoAttack, kAutoHit, kAutoHurt, kAutoFightOver, kAutoGreet };
+    constexpr int kVoicePhraseCount = kWheelPhrases + 6;
     constexpr VoicePhrase kVoicePhrases[kVoicePhraseCount] = {
         {"Hey", {{0xD2, 0x0017529D, "Hey.", "genericadult_hello_0017529d"},
             {0xD2, 0x0017529A, "Hello.", "generic_hello_0017529a"}}, 2},
@@ -53,6 +55,36 @@ namespace coop
         {"Thanks", {{0x116, 0x0017511B, "Thanks.", "genericadult_barterexit_0017511b"}}, 1},
         {"Later", {{0xD4, 0x001751C5, "Later.", "genericadult_goodbye_001751c5"},
             {0xD4, 0x0004E5E3, "Bye.", "genericadult_goodbye_0004e5e3"}}, 2},
+        // page 2
+        {"Careful", {{0xCB, 0x00175137, "Whoa, whoa! Careful!", "genericadu_playerfireweapo_00175137"},
+            {0xCB, 0x00175136, "Cut it out, will you?", "genericadu_playerfireweapo_00175136"},
+            {0xCC, 0x00175120, "Whoa now. Be careful with that thing.", "genericadu_playerlaymine_00175120"}}, 3},
+        {"What Was That?", {{0xF4, 0x00175171, "What was that?", "generic_normaltoalert_00175171"},
+            {0xF4, 0x00175173, "Did you hear something?", "genericadu_normaltoalert_00175173"},
+            {0x104, 0x00175249, "Who's there?", "generic_alertidle_00175249"},
+            {0x104, 0x0017524A, "Anybody there?", "genericadu_alertidle_0017524a"}}, 4},
+        {"Where'd They Go?", {{0xF7, 0x0017515B, "Where'd you go?", "generic_combattolost_0017515b"},
+            {0xF7, 0x0017515D, "Damn it. Where'd he go?", "genericadu_combattolost_0017515d"},
+            {0xF8, 0x0017519E, "Must have got away.", "genericadu_losttonormal_0017519e"}}, 3},
+        {"Get 'Em", {{0x1FB51, 0x001751AF, "Flank 'em!", "genericadu_deathresponse_001751af"},
+            {0x1FB51, 0x001751AE, "We'll get 'em.", "genericadu_deathresponse_001751ae"},
+            {0xF9, 0x00175219, "There you are!", "generic_losttocombat_00175219"}}, 3},
+        {"All Clear", {{0xF5, 0x0017527D, "Guess it was nothing.", "generic_alerttonormal_0017527d"},
+            {0xF6, 0x00175189, "Phew. I'm glad that's over.", "generic_combattonormal_00175189"},
+            {0xF6, 0x0017518C, "That takes care of that.", "genericadu_combattonormal_0017518c"}}, 3},
+        {"Man Down", {{0x1FB51, 0x001751AB, "They killed him!", "genericadu_deathresponse_001751ab"},
+            {0x1FB51, 0x001751AC, "They killed her!", "genericadu_deathresponse_001751ac"}}, 2},
+        {"Thief!", {{0xDF, 0x00175202, "Thief!", "genericadultcombat_steal_00175202"},
+            {0xDF, 0x00175200, "That doesn't belong to you!", "genericadultcombat_steal_00175200"},
+            {0xDF, 0x00175201, "You can't just take that!", "genericadultcombat_steal_00175201"}}, 3},
+        {"No!", {{0xE5, 0x00175229, "No!", "genericadultcombat_murder_00175229"},
+            {0xE5, 0x0017522B, "What have you done?", "genericadultcombat_murder_0017522b"},
+            {0xE5, 0x0017522A, "Murderer!", "genericadultcombat_murder_0017522a"}}, 3},
+        {"Keep Moving", {{0xF2, 0x0017513F, "Keep moving.", "genericadu_guardtrespass_0017513f"},
+            {0xF2, 0x00175140, "You'd better get out of here.", "genericadu_guardtrespass_00175140"}}, 2},
+        {"Good Business", {{0x116, 0x0017511E, "Pleasure doing business with you.", "genericadult_barterexit_0017511e"},
+            {0x116, 0x0017511D, "Another satisfied customer.", "genericadult_barterexit_0017511d"},
+            {0x116, 0x0017511C, "Give me a shout if you need anything else.", "genericadult_barterexit_0017511c"}}, 3},
         {"(fight starts)", {{0xEE, 0x001750E7, "Hey!", "genericadu_normaltocombat_001750e7"},
             {0xEE, 0x001750E8, "I've got one!", "genericadu_normaltocombat_001750e8"},
             {0xF3, 0x001751DA, "Found you!", "genericadu_alerttocombat_001751da"},
@@ -181,7 +213,7 @@ namespace coop
     }
 
     // The game's own Vault Boy for each phrase, by path: shown only when the wheel's own pictures below are missing.
-    constexpr const char* kVoiceIcons[kVoiceSlots] = {
+    constexpr const char* kVoiceIcons[kWheelPhrases] = {
         "interface\\companion_wheel\\comp_talk_on.dds",
         "interface\\icons\\message icons\\glow_message_vaultboy_in_pain.dds",
         "interface\\icons\\message icons\\glow_message_vaultboy_surprised.dds",
@@ -192,6 +224,16 @@ namespace coop
         "interface\\icons\\pipboyimages\\perks\\perk_terrifying_presence.dds",
         "interface\\icons\\stats\\special_charisma.dds",
         "interface\\companion_wheel\\comp_stayfar_on.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds",
+        "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds",
     };
 
     // The wheel's own pictures (Data\Textures\interface\nvcoop\voicewheel, shipped with the mod), looked for in order:
@@ -205,7 +247,7 @@ namespace coop
         const char* boy[2];
         const char* girl[2];
     };
-    constexpr PhraseIcons kPhraseIcons[kVoiceSlots] = {
+    constexpr PhraseIcons kPhraseIcons[kWheelPhrases] = {
         {{"interface\\nvcoop\\voicewheel\\vaultboy_hey.dds", nullptr},
             {"interface\\nvcoop\\voicewheel\\vaultgirl_hey.dds",
                 "interface\\icons\\pipboyimages\\itsmejesushchrist\\message icons\\glow_vaultgirl.dds"}},
@@ -227,6 +269,26 @@ namespace coop
             {"interface\\nvcoop\\voicewheel\\vaultgirl_thanks.dds", nullptr}},
         {{"interface\\nvcoop\\voicewheel\\vaultboy_later.dds", kVoiceIconTemp},
             {"interface\\nvcoop\\voicewheel\\vaultgirl_later.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_careful.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_careful.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_whatwasthat.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_whatwasthat.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_wheredtheygo.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_wheredtheygo.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_getem.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_getem.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_allclear.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_allclear.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_mandown.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_mandown.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_thief.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_thief.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_no.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_no.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_keepmoving.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_keepmoving.dds", nullptr}},
+        {{"interface\\nvcoop\\voicewheel\\vaultboy_goodbusiness.dds", kVoiceIconTemp},
+            {"interface\\nvcoop\\voicewheel\\vaultgirl_goodbusiness.dds", nullptr}},
     };
 
     // Lines a player may say: one every so often, and a short burst at most, so the wheel can't be spammed.

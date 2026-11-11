@@ -79,6 +79,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iVoiceChatVolume", voiceChatVolume);
         Write(path, "bVoiceLines", voiceLines);
         Write(path, "iVoiceLineKey", voiceLineKey);
+        Write(path, "iVoiceLinePadButton", voiceLinePadButton);
         Write(path, "iVoiceLineVoice", voiceLineVoice);
         Write(path, "bVoiceLineHudColor", voiceLineHudColor);
         Write(path, "iVoiceLineRed", voiceLineRed);
@@ -146,6 +147,7 @@ void Config::LoadPlayer(const std::string& path)
     voiceChatVolume = number("iVoiceChatVolume", voiceChatVolume, 0, 100);
     voiceLines = flag("bVoiceLines", voiceLines);
     voiceLineKey = number("iVoiceLineKey", voiceLineKey, 1, 255);
+    voiceLinePadButton = number("iVoiceLinePadButton", voiceLinePadButton, 0, 9);
     voiceLineVoice = number("iVoiceLineVoice", voiceLineVoice, 0, coop::kMostVoiceChoices - 1);
     voiceLineHudColor = flag("bVoiceLineHudColor", voiceLineHudColor);
     voiceLineRed = number("iVoiceLineRed", voiceLineRed, 0, 255);

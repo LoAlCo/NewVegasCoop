@@ -60,6 +60,7 @@ struct Config
     int voiceChatVolume = 100;
     bool voiceLines = true;
     int voiceLineKey = 45;
+    int voiceLinePadButton = 0;
     int voiceLineVoice = 0;
     bool voiceLineHudColor = true;
     int voiceLineRed = 255;

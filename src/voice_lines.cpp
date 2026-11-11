@@ -260,13 +260,64 @@ void NoteMyAttack(uint8_t shots, bool release)
         Auto(coop::AutoEvent::Attacking, GetTickCount(), "attacking");
 }
 
+namespace
+{
+    // The controller buttons the wheel can be opened with (MCM Controller Button), as XInput button bits. Start and the
+    // face buttons are left out: the game needs them.
+    constexpr uint16_t kPadButtons[] = {0, 0x0001, 0x0002, 0x0004, 0x0008, 0x0020, 0x0040, 0x0080, 0x0100, 0x0200};
+    constexpr uint16_t kPadB = 0x2000, kPadLeftBumper = 0x0100, kPadRightBumper = 0x0200;
+    constexpr float kStickPush = 0.5f;   // how far the right stick must be pushed to pick a wedge
+    constexpr int kScrollNotch = 120;    // one notch of the mouse wheel
+
+    enum class WheelBy { Keyboard, Pad };
+    WheelBy g_by = WheelBy::Keyboard;
+    int g_page = 0;
+    int g_scroll = 0;
+    uint16_t g_padWas = 0;
+    bool g_cancelled = false;
+
+    uint16_t PadButton()
+    {
+        int i = g_config.voiceLinePadButton;
+        return i > 0 && i < static_cast<int>(std::size(kPadButtons)) ? kPadButtons[i] : 0;
+    }
+
+    int Phrase() { return g_chosen >= 0 ? g_page * coop::kVoiceSlots + g_chosen : -1; }
+
+    void Pick(int slot, int page)
+    {
+        int was = Phrase();
+        g_chosen = slot;
+        g_page = page;
+        int now = Phrase();
+        if (now >= 0 && now != was)
+            g_chosenLine = static_cast<int>(g_random() % coop::kVoicePhrases[now].count);
+    }
+
+    void TurnPage(int by)
+    {
+        int page = ((g_page + by) % coop::kVoicePages + coop::kVoicePages) % coop::kVoicePages;
+        Pick(g_chosen, page);
+        LOG_DEBUG("Voice lines: page %d", page + 1);
+    }
+}
+
 void UpdateVoiceLines(uint32_t now)
 {
     TESObjectREFR* me = game::Player();
     bool alive = me && !game::IsDead(me);
     bool can = g_config.voiceLines && g_worldLoaded && alive && !g_downed && !game::ChatTyping() &&
         !game::InMenuMode();
-    bool held = can && game::IsKeyPressed(g_config.voiceLineKey);
+    bool keyHeld = can && game::IsKeyPressed(g_config.voiceLineKey);
+    game::PadState pad;
+    uint16_t padButton = PadButton();
+    bool padHeld = can && padButton && game::ReadPad(pad) && (pad.buttons & padButton);
+    uint16_t padPressed = static_cast<uint16_t>(pad.buttons & ~g_padWas);
+    g_padWas = pad.buttons;
+    // Pressing B with the controller cancels: nothing is said until the button is let go and held again.
+    if (!keyHeld && !padHeld)
+        g_cancelled = false;
+    bool held = (keyHeld || padHeld) && !g_cancelled;
     game::VoiceWheelLook look;
     look.hudColor = g_config.voiceLineHudColor;
     look.red = static_cast<float>(g_config.voiceLineRed);
@@ -283,33 +334,62 @@ void UpdateVoiceLines(uint32_t now)
         if (!g_wheelOpen)
         {
             g_wheelOpen = true;
+            g_by = padHeld && !keyHeld ? WheelBy::Pad : WheelBy::Keyboard;
             g_pointerX = g_pointerY = 0;
+            g_scroll = 0;
             g_chosen = -1;
-            LOG_DEBUG("Voice lines: wheel open");
+            g_page = 0;
+            LOG_DEBUG("Voice lines: wheel open (%s)", g_by == WheelBy::Pad ? "controller" : "keyboard and mouse");
         }
-        float dx = 0, dy = 0;
-        game::WheelPointer(true, dx, dy);
-        g_pointerX += dx;
-        g_pointerY += dy;
-        coop::ClampWheelPointer(g_pointerX, g_pointerY);
-        int now_on = coop::WheelSlot(g_pointerX, g_pointerY);
-        if (now_on != g_chosen && now_on >= 0)
-            g_chosenLine = static_cast<int>(g_random() % coop::kVoicePhrases[now_on].count);
-        g_chosen = now_on;
-        game::ShowVoiceWheel(true, g_chosen, g_chosen >= 0 ? coop::kVoicePhrases[g_chosen].lines[g_chosenLine].text : "",
-            look);
+        if (g_by == WheelBy::Keyboard)
+        {
+            float dx = 0, dy = 0;
+            int scroll = 0;
+            game::WheelPointer(true, dx, dy, scroll);
+            g_pointerX += dx;
+            g_pointerY += dy;
+            coop::ClampWheelPointer(g_pointerX, g_pointerY);
+            Pick(coop::WheelSlot(g_pointerX, g_pointerY), g_page);
+            g_scroll += scroll;
+            while (g_scroll >= kScrollNotch) { g_scroll -= kScrollNotch; TurnPage(-1); }
+            while (g_scroll <= -kScrollNotch) { g_scroll += kScrollNotch; TurnPage(1); }
+        }
+        else
+        {
+            game::HoldControlsForWheel(true);
+            // The right stick picks a wedge, which stays picked when the stick is let go.
+            if (std::hypot(pad.rx, pad.ry) > kStickPush)
+                Pick(coop::WheelSlot(pad.rx * coop::kWheelReach, pad.ry * coop::kWheelReach), g_page);
+            if (padPressed & kPadLeftBumper) TurnPage(-1);
+            if (padPressed & kPadRightBumper) TurnPage(1);
+            if (padPressed & kPadB)
+            {
+                g_cancelled = true;
+                LOG_DEBUG("Voice lines: cancelled with B");
+            }
+        }
+        int phrase = Phrase();
+        game::ShowVoiceWheel(!g_cancelled, g_page, g_chosen,
+            phrase >= 0 ? coop::kVoicePhrases[phrase].lines[g_chosenLine].text : "",
+            g_by == WheelBy::Pad ? "LB / RB to turn" : "scroll to turn", look);
     }
-    else if (g_wheelOpen)
+    if (g_wheelOpen && (!held || g_cancelled))
     {
         g_wheelOpen = false;
         float dx, dy;
-        game::WheelPointer(false, dx, dy);
-        game::ShowVoiceWheel(false, g_chosen, "", look);
-        if (can && g_chosen >= 0)
-            Speak(static_cast<uint8_t>(g_chosen), now, "", g_chosenLine);
+        int scroll;
+        game::WheelPointer(false, dx, dy, scroll);
+        game::HoldControlsForWheel(false);
+        game::ShowVoiceWheel(false, g_page, g_chosen, "", "", look);
+        int phrase = Phrase();
+        if (can && phrase >= 0 && !g_cancelled)
+            Speak(static_cast<uint8_t>(phrase), now, "", g_chosenLine);
         else
-            LOG_DEBUG("Voice lines: wheel closed without saying anything%s", g_chosen < 0 ? " (let go in the middle)" : "");
+            LOG_DEBUG("Voice lines: wheel closed without saying anything%s",
+                g_cancelled ? " (cancelled)" : phrase < 0 ? " (let go in the middle)" : "");
     }
+    else if (!g_wheelOpen)
+        game::HoldControlsForWheel(false);
     KeepMineMuted(now);
     UpdateAuto(now, me, alive && !g_wheelOpen && !game::InMenuMode() && !game::ChatTyping());
     HearFriends();
