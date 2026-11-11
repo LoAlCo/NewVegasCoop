@@ -1,6 +1,7 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
 #include "coop/coop.h"
+#include "coop/item_glide.h"
 #include "coop/objects.h"
 #include "coop/activator_uses.h"
 #include "coop/copy_kill.h"
@@ -10542,4 +10543,40 @@ TEST(delirium_copy_slides_back_after_a_reaction)
     CHECK(coop::BlendStep(at, close, 1.0f, 60, step) && step.x == 25);
     CHECK(!coop::BlendStep(at, want, 0, 60, step));
     CHECK(coop::kDeliriumRootEveryMs < 50);
+}
+
+TEST(items_that_are_gone_are_never_moved)
+{
+    CHECK(coop::CanMoveItem(true, true, false, false));
+    CHECK(!coop::CanMoveItem(false, true, false, false));
+    CHECK(!coop::CanMoveItem(true, false, false, false));
+    CHECK(!coop::CanMoveItem(true, true, true, false));
+    CHECK(!coop::CanMoveItem(true, true, false, true));
+    CHECK(!coop::CanMoveItem(true, true, true, true));
+}
+
+TEST(only_carryable_lights_are_synced_items)
+{
+    constexpr uint8_t kMisc = 0x1F;
+    CHECK(coop::IsSyncedItemType(kMisc, 0));
+    CHECK(!coop::IsSyncedItemType(coop::kLightFormType, 0));
+    CHECK(!coop::IsSyncedItemType(coop::kLightFormType, 0x20 | 0x1));
+    CHECK(coop::IsSyncedItemType(coop::kLightFormType, coop::kLightCanBeCarried));
+    CHECK(coop::IsSyncedItemType(coop::kLightFormType, coop::kLightCanBeCarried | 0x8));
+}
+
+TEST(loose_items_are_placed_once_and_only_carried_ones_are_held)
+{
+    using coop::GlideStep;
+    CHECK(coop::StepGlide(0, false) == GlideStep::Move);
+    CHECK(coop::StepGlide(coop::kGlideMs - 1, false) == GlideStep::Move);
+    CHECK(coop::StepGlide(coop::kGlideMs, false) == GlideStep::PlaceLast);
+    CHECK(coop::StepGlide(coop::kGlideMs + 5000, false) == GlideStep::PlaceLast);
+    CHECK(coop::StepGlide(60000, false) == GlideStep::PlaceLast);
+
+    CHECK(coop::StepGlide(0, true) == GlideStep::Move);
+    CHECK(coop::StepGlide(coop::kGlideMs, true) == GlideStep::Move);
+    CHECK(coop::StepGlide(coop::kGlideMs + coop::kHeldStayMs, true) == GlideStep::Move);
+    CHECK(coop::StepGlide(coop::kGlideMs + coop::kHeldStayMs + 1, true) == GlideStep::Done);
+    CHECK(coop::StepGlide(60000, true) == GlideStep::Done);
 }

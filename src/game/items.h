@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
 
 namespace game
 {
@@ -13,6 +14,7 @@ namespace game
     {
     public:
         void Update(coop::Coop& coop, uint32_t now);
+        void Forget();
 
     private:
         void HostApply(coop::Coop& coop, uint32_t now);
@@ -27,6 +29,7 @@ namespace game
         bool Following(uint32_t ref, uint32_t now) const;
         std::map<uint32_t, Glide> m_glides;
         std::map<uint32_t, uint32_t> m_settling;
+        std::set<uint32_t> m_goneNoted;
         uint32_t m_grabbed = 0;
 
         uint32_t m_nextLook = 0;

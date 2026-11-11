@@ -396,6 +396,7 @@ namespace game::layout
     constexpr uint32_t kRefPersistent = 0x400;
     constexpr uint32_t kRefDeleted = 0x20;
     constexpr uint32_t kRefDisabled = 0x800;
+    constexpr uint32_t kLightFlags = 0xA8;
     constexpr uint32_t kRefDestroyed = 0x00800000;
     constexpr uint32_t kRefDestructible = 0x01000000;
     constexpr uint32_t kMenuTerminal = 0xA8;
