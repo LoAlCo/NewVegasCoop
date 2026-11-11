@@ -3,6 +3,7 @@
 #include "coop/coop.h"
 #include "coop/item_glide.h"
 #include "coop/kept_off.h"
+#include "number_box.h"
 #include "coop/objects.h"
 #include "coop/activator_uses.h"
 #include "coop/copy_kill.h"
@@ -10651,4 +10652,38 @@ TEST(an_original_comes_back_on_only_with_its_enable_parent)
     CHECK(coop::RestoreOn(false, true));
     CHECK(coop::RestoreOn(true, true));
     CHECK(!coop::RestoreOn(true, false));
+}
+
+TEST(number_box_steps_and_typing)
+{
+    NumberBox::Setup caps;
+    caps.special = "All";
+    caps.specialValue = 250;
+    caps.min = 1;
+    caps.max = 250;
+    // Buttons: 0 confirm, 1 All, 2 -10, 3 -1, 4 +1, 5 +10, 6 +100, 7 Cancel.
+    CHECK(NumberBox::Pressed(4, 1, caps) == 2);
+    CHECK(NumberBox::Pressed(6, 1, caps) == 101);
+    CHECK(NumberBox::Pressed(6, 200, caps) == 250);
+    CHECK(NumberBox::Pressed(2, 5, caps) == 1);
+    CHECK(NumberBox::Pressed(3, 1, caps) == 1);
+    CHECK(NumberBox::Pressed(1, 7, caps) == 250);
+    CHECK(NumberBox::Pressed(0, 7, caps) == 7 && NumberBox::Pressed(7, 7, caps) == 7);
+
+    int32_t out = 0;
+    CHECK(NumberBox::Current("", 12, caps, out) && out == 12);
+    CHECK(NumberBox::Current(" 40 ", 12, caps, out) && out == 40);
+    CHECK(NumberBox::Current("9999", 12, caps, out) && out == 250);
+    CHECK(NumberBox::Current("0", 12, caps, out) && out == 1);
+    CHECK(!NumberBox::Current("4x", 12, caps, out));
+
+    NumberBox::Setup price;
+    price.special = "Free";
+    price.specialValue = 0;
+    price.min = 0;
+    price.max = net::kMaxItemCount;
+    CHECK(NumberBox::Pressed(1, 30, price) == 0);
+    CHECK(NumberBox::Pressed(2, 3, price) == 0);
+    CHECK(NumberBox::Current("0", 5, price, out) && out == 0);
+    CHECK(NumberBox::Current("", 0, price, out) && out == 0);
 }

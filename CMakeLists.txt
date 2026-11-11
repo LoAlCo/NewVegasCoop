@@ -62,6 +62,7 @@ add_library(NVCoop SHARED
     src/linked_saves.cpp
     src/teleporter.cpp
     src/trade.cpp
+    src/number_box.cpp
     src/downed.cpp
     src/chat_voice.cpp
     src/voice_lines.cpp

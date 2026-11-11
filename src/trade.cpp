@@ -5,6 +5,7 @@
 
 #include "nvse/PluginAPI.h"
 #include "plugin.h"
+#include "number_box.h"
 
 #include "nvse/GameForms.h"
 #include "nvse/GameObjects.h"
@@ -44,7 +45,6 @@ namespace
     // Sales wait while the screen's "how many?" is up: it points at a stack, which taking an item out can free.
     std::vector<coop::Coop::TradeEvent> g_sales;
     bool g_pricing = false;
-    std::string g_priceShown;
     bool g_priceListed = false;
     bool g_buying = false;
     game::TradePick g_buyPick;
@@ -341,59 +341,60 @@ namespace
         }
     }
 
-    std::string PriceBoxText(const ToPrice& p)
+    std::string PriceBoxText(const ToPrice& p, int32_t value, const std::string& typed)
     {
         std::string now;
         if (const coop::Listing* l = g_coop.MyStall().FindKind(p.item))
             now = "Up now: " + std::to_string(l->item.count) + " at " + PriceWords(l->price) + (l->price ? " each" : "") +
                 ".\n";
+        std::string shown = typed.empty() ? (value == 0 ? std::string("free") : std::to_string(value) + " caps") :
+            typed + "_ caps";
         return "Put up " + Many(p.item.count, game::ItemName(p.item.item)) + " for " +
-            g_coop.NameOf(g_coop.TradePartner()) + "\n" + now + "\nPrice each, in caps: " + game::TextEntryText() +
-            "_\n\nEnter alone puts it up for free. Esc cancels.";
+            g_coop.NameOf(g_coop.TradePartner()) + "\n" + now + "\nPrice each: " + shown +
+            "\n\nType a price or step it with the buttons. Enter or Put it up puts it up; Esc cancels.";
     }
+
+    // Typed, or stepped with the box's buttons from a pad.
+    NumberBox g_priceBox;
 
     void StartPricing()
     {
-        if (!game::StartTextEntry())
-        {
-            g_toPrice.clear();
-            game::ShowMessage("Couldn't take typing in the game (see NVCoop.log).");
-            return;
-        }
-        g_priceShown = PriceBoxText(g_toPrice.front());
-        g_priceListed = g_coop.MyStall().FindKind(g_toPrice.front().item) != nullptr;
-        if (game::AskChoice(g_priceShown, {g_priceListed ? "Take it down" : "Cancel"}, kTradePriceQuestion))
+        const ToPrice& p = g_toPrice.front();
+        const coop::Listing* listed = g_coop.MyStall().FindKind(p.item);
+        g_priceListed = listed != nullptr;
+        NumberBox::Setup setup;
+        setup.question = kTradePriceQuestion;
+        setup.confirm = "Put it up";
+        setup.special = "Free";
+        setup.specialValue = 0;
+        setup.last = g_priceListed ? "Take it down" : "Cancel";
+        setup.start = listed ? listed->price : 0;
+        setup.min = 0;
+        setup.max = net::kMaxItemCount;
+        ToPrice item = p;
+        setup.text = [item](int32_t value, const std::string& typed) { return PriceBoxText(item, value, typed); };
+        if (g_priceBox.Start(setup))
             g_pricing = true;
         else
         {
-            game::StopTextEntry();
             g_toPrice.pop_front();
+            game::ShowMessage("Couldn't open the price box (see NVCoop.log).");
         }
     }
 
     void UpdatePricing()
     {
-        game::EntryState state = game::TextEntryState();
-        int box = game::TakeChoice(kTradePriceQuestion);
-        if (state == game::EntryState::Typing && box == -1)
-        {
-            std::string text = PriceBoxText(g_toPrice.front());
-            if (text != g_priceShown)
-            {
-                game::SetQuestionText(kTradePriceQuestion, text);
-                g_priceShown = text;
-            }
+        int32_t price = 0;
+        NumberBox::Result result = g_priceBox.Update(price);
+        if (result == NumberBox::Result::Open)
             return;
-        }
         g_pricing = false;
-        game::DropQuestion(kTradePriceQuestion);
         ToPrice p = g_toPrice.front();
         g_toPrice.pop_front();
-        if (state != game::EntryState::Done)
+        if (result == NumberBox::Result::Last)
         {
-            game::StopTextEntry();
             const coop::Listing* l = g_coop.MyStall().FindKind(p.item);
-            if (box == 0 && g_priceListed && l)
+            if (g_priceListed && l)
             {
                 g_coop.UnlistItem(l->id);
                 g_stallDirty = true;
@@ -401,17 +402,13 @@ namespace
             }
             return;
         }
-        std::string typed = game::TakeTextEntry();
-        int32_t price = 0;
-        coop::Amount parsed = typed.find_first_not_of(' ') == std::string::npos ? coop::Amount::Zero :
-            coop::ParseAmount(typed, net::kMaxItemCount, price);
-        if (parsed == coop::Amount::NotANumber || parsed == coop::Amount::TooMany)
+        if (result == NumberBox::Result::NotANumber)
         {
             game::ShowMessage("That isn't a price, so " + game::ItemName(p.item.item) + " wasn't put up.");
             return;
         }
-        if (parsed == coop::Amount::Zero)
-            price = 0;
+        if (result != NumberBox::Result::Confirmed)
+            return;
         g_stallDirty = true;
         if (g_coop.ListItem(p.item, p.itemType, price))
             game::Notify(("Co-op: put up " + Many(p.item.count, game::ItemName(p.item.item)) + " (" + PriceWords(price) +
@@ -491,13 +488,11 @@ namespace
     void ResetTradeUi()
     {
         if (g_pricing)
-            game::StopTextEntry();
+            g_priceBox.Stop();
         if (g_pickingFriend)
             game::DropQuestion(kTradeFriendQuestion);
         if (g_askFrom != kNone)
             game::DropQuestion(kTradeAskQuestion);
-        if (g_pricing)
-            game::DropQuestion(kTradePriceQuestion);
         if (g_buying)
             game::DropQuestion(kTradeBuyQuestion);
         CloseWindow();
@@ -554,7 +549,7 @@ void StopTrade()
     // A save is loading or the game is going to the main menu: the world, the chest and anything waiting go with it.
     g_sales.clear();
     if (g_pricing)
-        game::StopTextEntry();
+        g_priceBox.Stop();
     g_pickingFriend = g_pricing = g_buying = g_windowWanted = g_stallDirty = g_closingOurselves = g_wasShown = false;
     g_askFrom = kNone;
     g_toPrice.clear();
