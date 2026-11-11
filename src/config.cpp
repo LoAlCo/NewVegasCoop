@@ -85,6 +85,7 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iPingIcons", pingIcons);
         Write(path, "bVoiceLines", voiceLines);
         Write(path, "iVoiceLineKey", voiceLineKey);
+        Write(path, "iVoiceLinePadButton", voiceLinePadButton);
         Write(path, "iVoiceLineVoice", voiceLineVoice);
         Write(path, "bVoiceLineHudColor", voiceLineHudColor);
         Write(path, "iVoiceLineRed", voiceLineRed);
@@ -182,6 +183,7 @@ void Config::LoadPlayer(const std::string& path)
     pingIcons = number("iPingIcons", pingIcons, 0, 2);
     voiceLines = flag("bVoiceLines", voiceLines);
     voiceLineKey = number("iVoiceLineKey", voiceLineKey, 1, 255);
+    voiceLinePadButton = number("iVoiceLinePadButton", voiceLinePadButton, 0, 9);
     voiceLineVoice = number("iVoiceLineVoice", voiceLineVoice, 0, coop::kMostVoiceChoices - 1);
     voiceLineHudColor = flag("bVoiceLineHudColor", voiceLineHudColor);
     voiceLineRed = number("iVoiceLineRed", voiceLineRed, 0, 255);

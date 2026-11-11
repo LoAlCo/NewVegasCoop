@@ -1262,7 +1262,7 @@
 					"title": "Wheel Key",
 					"type": 3,
 					"enable": 1,
-					"mouse": "Hold this key to open the voice line wheel; let go to say the phrase you're pointing at (the middle one if you didn't turn)",
+					"mouse": "Hold this key to open the voice line wheel; let go to say the phrase you're pointing at (letting go without moving the mouse says nothing)",
 					"vars": [
 						{
 							"configINI": "Settings:iVoiceLineKey",
@@ -1274,6 +1274,30 @@
 					}
 				},
 				"4": {
+					"title": "Controller Button",
+					"type": 1,
+					"enable": 1,
+					"mouse": "Hold this controller button to open the wheel: the right stick picks a phrase, LB and RB turn the page, let go to say it, B to say nothing. Off: keyboard and mouse only",
+					"vars": [
+						{
+							"configINI": "Settings:iVoiceLinePadButton",
+							"default": 0
+						}
+					],
+					"strings": [
+						"Off",
+						"D-pad Up",
+						"D-pad Down",
+						"D-pad Left",
+						"D-pad Right",
+						"Back",
+						"Left Stick (click)",
+						"Right Stick (click)",
+						"Left Bumper",
+						"Right Bumper"
+					]
+				},
+				"5": {
 					"title": "Voice",
 					"type": 1,
 					"enable": 1,
@@ -1299,7 +1323,7 @@
 						"Voice 12"
 					]
 				},
-				"5": {
+				"6": {
 					"title": "Hear Your Own Lines",
 					"type": 5,
 					"enable": 1,
@@ -1311,7 +1335,7 @@
 						}
 					]
 				},
-				"6": {
+				"7": {
 					"title": "Use HUD Colour",
 					"type": 5,
 					"enable": 1,
@@ -1323,7 +1347,7 @@
 						}
 					]
 				},
-				"7": {
+				"8": {
 					"title": "Red",
 					"type": 2,
 					"enable": 1,
@@ -1341,7 +1365,7 @@
 						"valueMax": 255
 					}
 				},
-				"8": {
+				"9": {
 					"title": "Green",
 					"type": 2,
 					"enable": 1,
@@ -1359,7 +1383,7 @@
 						"valueMax": 255
 					}
 				},
-				"9": {
+				"10": {
 					"title": "Blue",
 					"type": 2,
 					"enable": 1,
@@ -1377,12 +1401,12 @@
 						"valueMax": 255
 					}
 				},
-				"10": {
+				"11": {
 					"title": "Lines Said By Themselves",
 					"enable": 1,
 					"type": 0
 				},
-				"11": {
+				"12": {
 					"title": "Say Lines By Themselves",
 					"type": 5,
 					"enable": 1,
@@ -1394,7 +1418,7 @@
 						}
 					]
 				},
-				"12": {
+				"13": {
 					"title": "Seconds Between Them",
 					"type": 2,
 					"enable": 1,
@@ -1412,7 +1436,7 @@
 						"valueMax": 120
 					}
 				},
-				"13": {
+				"14": {
 					"title": "Minutes Between Greetings",
 					"type": 2,
 					"enable": 1,

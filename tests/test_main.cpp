@@ -10233,36 +10233,38 @@ TEST(voice_wheel_points_at_the_slot_you_turn_towards)
 {
     using coop::WheelSlot;
     const float reach = coop::kWheelReach, inside = coop::kWheelDeadZone * 0.5f;
-    CHECK(WheelSlot(0, 0) == 0 && WheelSlot(inside, 0) == 0 && WheelSlot(0, -inside) == 0);
-    // Laid out like the Companion Commands wheel: 1-4 on the right, 5-8 on the left, both clockwise.
-    CHECK(WheelSlot(reach, reach) == 1);
-    CHECK(WheelSlot(reach, 0) == 3);
-    CHECK(WheelSlot(reach, -reach) == 4);
-    CHECK(WheelSlot(-reach, -reach) == 5);
-    CHECK(WheelSlot(-reach, 0) == 7);
-    CHECK(WheelSlot(-reach, reach) == 8);
-    // The gaps at the top and bottom pick the nearest wedge.
-    CHECK(WheelSlot(0.01f, reach) == 1 && WheelSlot(-0.01f, reach) == 8);
-    CHECK(WheelSlot(0.01f, -reach) == 4 && WheelSlot(-0.01f, -reach) == 5);
-    CHECK(WheelSlot(NAN, 1) == 0);
-    for (int s = 1; s < coop::kVoiceSlots; ++s)
+    // The middle says nothing; the wedges go all the way round, Hey at the top, then clockwise.
+    CHECK(WheelSlot(0, 0) == -1 && WheelSlot(inside, 0) == -1 && WheelSlot(0, -inside) == -1);
+    CHECK(WheelSlot(0, reach) == 0);
+    CHECK(WheelSlot(reach, 0) == 2 || WheelSlot(reach, 0) == 3);
+    CHECK(WheelSlot(0, -reach) == 5);
+    CHECK(WheelSlot(-0.01f, reach) == 0 && WheelSlot(0.01f, reach) == 0);
+    CHECK(WheelSlot(NAN, 1) == -1);
+    for (int s = 0; s < coop::kVoiceSlots; ++s)
     {
         float a = coop::WheelSlotDegrees(s) / 57.2957795f;
         CHECK(WheelSlot(std::sin(a) * reach, std::cos(a) * reach) == s);
-        // Just inside each edge of the wedge.
-        CHECK(WheelSlot(std::sin(a + 0.24f) * reach, std::cos(a + 0.24f) * reach) == s);
-        CHECK(WheelSlot(std::sin(a - 0.24f) * reach, std::cos(a - 0.24f) * reach) == s);
+        // Just inside each edge of the wedge (each is 36 degrees wide).
+        CHECK(WheelSlot(std::sin(a + 0.30f) * reach, std::cos(a + 0.30f) * reach) == s);
+        CHECK(WheelSlot(std::sin(a - 0.30f) * reach, std::cos(a - 0.30f) * reach) == s);
     }
-    CHECK(coop::WheelSlotDegrees(0) == 0 && coop::WheelSlotDegrees(1) == 45 && coop::WheelSlotDegrees(8) == 315);
+    CHECK(coop::WheelSlotDegrees(0) == 0 && coop::WheelSlotDegrees(1) == 36 && coop::WheelSlotDegrees(9) == 324);
+    CHECK(std::string(coop::kVoicePhrases[0].name) == "Hey" && std::string(coop::kVoicePhrases[9].name) == "Later");
+    // Page 2 follows page 1; lines said by themselves come after both pages.
+    CHECK(coop::kWheelPhrases == 20 && std::string(coop::kVoicePhrases[10].name) == "Careful" &&
+        std::string(coop::kVoicePhrases[19].name) == "Good Business" && coop::kAutoFight == 20);
+    for (int i = coop::kVoiceSlots; i < coop::kWheelPhrases; ++i)
+        CHECK(coop::kPhraseIcons[i].boy[1] == std::string(coop::kVoiceIconTemp));
     float x = 1000, y = 1000;
     coop::ClampWheelPointer(x, y);
     CHECK(std::fabs(std::sqrt(x * x + y * y) - coop::kWheelReach) < 1e-3f && std::fabs(x - y) < 1e-3f);
     x = INFINITY;
     coop::ClampWheelPointer(x, y);
     CHECK(x == 0 && y == 0);
-    const char* const slugs[coop::kVoiceSlots] = {"hey", "help", "lookout", "overhere", "enemyspotted", "grenade",
-        "retreat", "taunt", "thanks"};
-    for (int i = 0; i < coop::kVoiceSlots; ++i)
+    const char* const slugs[coop::kWheelPhrases] = {"hey", "help", "lookout", "overhere", "enemyspotted", "grenade",
+        "retreat", "taunt", "thanks", "later", "careful", "whatwasthat", "wheredtheygo", "getem", "allclear", "mandown",
+        "thief", "no", "keepmoving", "goodbusiness"};
+    for (int i = 0; i < coop::kWheelPhrases; ++i)
     {
         // Every phrase has its own Vault Boy and Vault Girl picture in the wheel's folder, named after the phrase.
         std::string folder = "interface\\nvcoop\\voicewheel\\";
@@ -10272,6 +10274,7 @@ TEST(voice_wheel_points_at_the_slot_you_turn_towards)
     // Look Out and Retreat have no drawing yet: their Vault Boy falls back to the TEMP card (girls fall back to boys).
     CHECK(coop::kPhraseIcons[2].boy[1] == std::string(coop::kVoiceIconTemp));
     CHECK(coop::kPhraseIcons[6].boy[1] == std::string(coop::kVoiceIconTemp));
+    CHECK(coop::kPhraseIcons[9].boy[1] == std::string(coop::kVoiceIconTemp));
     for (const char* icon : coop::kVoiceIcons)
     {
         std::string path = icon;

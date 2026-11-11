@@ -402,9 +402,17 @@ namespace game
     bool ReadMyLooks(net::PlayerLooks& out);
     // The voice line wheel: shown with one phrase picked (0 = the middle), in the HUD colour or its own.
     struct VoiceWheelLook { bool hudColor = true; float red = 255, green = 255, blue = 255; bool female = false; };
-    void ShowVoiceWheel(bool show, int chosen, const VoiceWheelLook& look);
+    // chosen: the hovered slot (-1 for none); line: what that phrase will say, shown under the wheel.
+    void ShowVoiceWheel(bool show, int page, int chosen, const char* line, const char* pageHint,
+        const VoiceWheelLook& look);
     // While the wheel is open: how far the view turned since last time (radians, x right, y up), then turns it back.
-    bool WheelPointer(bool open, float& dx, float& dy);
+    bool WheelPointer(bool open, float& dx, float& dy, int& scroll);
+    // A controller (XInput): its buttons (XINPUT_GAMEPAD_* bits) and right stick (-1..1, up positive).
+    struct PadState { bool connected = false; uint16_t buttons = 0; float rx = 0, ry = 0; };
+    bool ReadPad(PadState& out);
+    // Turns the player's looking, attacking and view switching off while the wheel is worked with a controller (and
+    // back on, only the ones it turned off).
+    void HoldControlsForWheel(bool hold);
     bool ApplyLooks(TESObjectREFR* standIn, const net::PlayerLooks& looks, bool* headRemade = nullptr);
     bool RemakeFace(TESObjectREFR* standIn);
     const void* FaceNode(TESObjectREFR* standIn);

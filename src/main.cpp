@@ -1418,9 +1418,9 @@ namespace
             g_config.voicePitch, g_config.voiceSpeed, g_config.voiceEffect, g_config.voiceChat, g_config.voiceChatKey,
             g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.syncWeather, g_config.desyncNotices, g_config.pings,
             g_config.pingKey, g_config.pingPadButton, g_config.pingSound, g_config.pingIcons);
-        LOG_INFO("Settings: voice lines %d, key %d, voice %d, hear own %d, HUD colour %d (%d %d %d), by themselves %d "
-            "(every %d s at most, greeting every %d min)", g_config.voiceLines, g_config.voiceLineKey,
-            g_config.voiceLineVoice + 1, g_config.voiceLineHearOwn, g_config.voiceLineHudColor, g_config.voiceLineRed,
+        LOG_INFO("Settings: voice lines %d, key %d, controller button %d, voice %d, hear own %d, HUD colour %d "
+            "(%d %d %d), by themselves %d (every %d s at most, greeting every %d min)", g_config.voiceLines,
+            g_config.voiceLineKey, g_config.voiceLinePadButton, g_config.voiceLineVoice + 1, g_config.voiceLineHearOwn, g_config.voiceLineHudColor, g_config.voiceLineRed,
             g_config.voiceLineGreen, g_config.voiceLineBlue, g_config.autoVoiceLines, g_config.autoVoiceLineGap,
             g_config.autoGreetingGap);
         LOG_INFO("Settings: Delirium sync %d", g_config.syncDelirium);
@@ -2825,7 +2825,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
         return false;
 
     Log::Open("");
-    LOG_INFO("NVCoop %s, Combined v44 test build, starting (xNVSE %08X, game %08X)",
+    LOG_INFO("NVCoop %s, Combined v45 test build, starting (xNVSE %08X, game %08X)",
         NVCOOP_VERSION_STRING, nvse->nvseVersion, nvse->runtimeVersion);
 
     if (nvse->runtimeVersion != RUNTIME_VERSION_1_4_0_525)

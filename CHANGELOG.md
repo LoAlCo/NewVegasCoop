@@ -21,10 +21,14 @@
   follows them: a skull for enemies, a person for anyone else, including your friends. A body shows the loot icon.
   A ping on loot stays on it if it's knocked, thrown or carried away.
 - New: voice line wheel. Hold X (change it, turn it off, or pick a voice and the wheel's colour on the Mod Configuration
-  Menu's Voice Lines page), turn the view towards a phrase and let go: your character says it out loud in one of the
+  Menu's Voice Lines page), move the mouse towards a phrase and let go: your character says it out loud in one of the
   game's NPC voices (male or female, to match your character), with lip sync. Friends hear it from your character.
-  Phrases: Hey, Help, Look Out, Over Here, Enemy Spotted, Grenade, Retreat, Taunt and Thanks. You hear your own
-  lines too (Hear Your Own Lines), and the view stays still while the wheel is open.
+  Two pages of phrases (scroll the mouse wheel to turn): Hey, Help, Look Out, Over Here, Enemy Spotted, Grenade,
+  Retreat, Taunt, Thanks and Later; then Careful, What Was That?, Where'd They Go?, Get 'Em, All Clear, Man Down,
+  Thief!, No!, Keep Moving and Good Business. Works with a controller too (pick a Controller Button: right stick to
+  point, LB/RB to turn the page, B to cancel). In a ring
+  with a Vault Boy (or Vault Girl) for each and what you'll say written under the wheel; letting go in the middle says
+  nothing. You hear your own lines too (Hear Your Own Lines), and the view stays still while the wheel is open.
 - New: Say Lines By Themselves (off by default, Voice Lines page). Like early co-op versions, your character shouts
   now and then by itself: when a fight starts, while attacking, when hit or badly hurt and when the fight is over, and
   greets people now and then (Minutes Between Greetings, 0 for never). Friends hear it too.
