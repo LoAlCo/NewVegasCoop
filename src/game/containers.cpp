@@ -28,6 +28,10 @@ namespace game
         constexpr uint32_t kKeepUnmatchedMs = 600000;
         // A friend's change to a container the host can't see waits this long for their offer of its contents.
         constexpr uint32_t kWaitForOfferMs = 5000;
+        // A body that just died is tried for this long (our copy may die a moment after the host says so), and its
+        // loose items are kept hidden this long at most while the host's list of them comes.
+        constexpr uint32_t kHideTriesMs = 2000;
+        constexpr uint32_t kHideForMs = 3000;
         constexpr size_t kMaxUnmatched = 256;
 
         bool Read(TESObjectREFR* ref, std::vector<net::ItemCount>& out, double& ms)
@@ -70,6 +74,9 @@ namespace game
             m_nearFriends.clear();
             m_unmatched.clear();
             m_waiting.clear();
+            m_aliveNpcs.clear();
+            m_toHide.clear();
+            m_hidden.clear();
             return;
         }
         if (QuantityPromptOpen())
@@ -308,19 +315,30 @@ namespace game
         };
         // The one our player has open or is looking at right away, and the others (a friend or a script may have
         // changed them) one at a time, so this costs the same however many bodies lie around.
+        // New ones first, a few a look: a friend may loot one a second after the kill.
+        size_t fresh = 0;
+        std::vector<uint32_t> looked;
+        for (const auto& [ref, settling] : bodies)
+            if (!m_bodyLoot.Knows(ref) && fresh < kMaxNewReads)
+            {
+                look(ref, settling);
+                looked.push_back(ref);
+                ++fresh;
+            }
+        auto lookedAt = [&](uint32_t ref) { return std::find(looked.begin(), looked.end(), ref) != looked.end(); };
         TESObjectREFR* mine = OpenContainer();
         if (!mine)
             mine = CrosshairRef();
         uint32_t mineRef = mine ? RefId(mine) : 0;
         for (const auto& [ref, settling] : bodies)
-            if (ref == mineRef)
+            if (ref == mineRef && !lookedAt(ref))
                 look(ref, settling);
         auto next = std::find_if(bodies.begin(), bodies.end(),
             [&](const auto& b) { return b.first > m_lastBodyLook; });
         if (next == bodies.end())
             next = bodies.begin();
         m_lastBodyLook = next->first;
-        if (next->first != mineRef)
+        if (next->first != mineRef && !lookedAt(next->first))
             look(next->first, next->second);
     }
 
@@ -379,16 +397,104 @@ namespace game
         }
     }
 
+    void Containers::FriendHideFreshBodies(coop::Coop& coop, const Npcs& npcs, uint32_t now)
+    {
+        std::set<uint32_t> alive;
+        for (const auto& [hostRef, npc] : coop.Npcs())
+        {
+            if (!npc.dead)
+                alive.insert(hostRef);
+            else if (m_aliveNpcs.count(hostRef))
+                m_toHide[hostRef] = now + kHideTriesMs;
+        }
+        m_aliveNpcs.swap(alive);
+
+        for (auto it = m_toHide.begin(); it != m_toHide.end();)
+        {
+            uint32_t hostRef = it->first;
+            auto npc = coop.Npcs().find(hostRef);
+            // The host's list already came: it's matched below.
+            if (npc == coop.Npcs().end() || m_unmatched.count(hostRef))
+            {
+                it = m_toHide.erase(it);
+                continue;
+            }
+            TESObjectREFR* body = npcs.OurRefOf(hostRef);
+            std::vector<net::ItemCount> local;
+            if (!IsLootable(body) || !Read(body, local, m_readMs))
+            {
+                it = coop::IsDue(now, it->second) ? m_toHide.erase(it) : std::next(it);
+                continue;
+            }
+            it = m_toHide.erase(it);
+            std::set<uint32_t> keep{npc->second.weapon};
+            for (const net::WornItem& w : npc->second.gear)
+                keep.insert(w.item);
+            Hidden hidden;
+            for (const net::ItemCount& i : local)
+                if (!keep.count(i.item) && IsItem(i.item))
+                {
+                    hidden.items.push_back(i);
+                    net::ItemCount out = i;
+                    out.count = -i.count;
+                    ChangeItem(body, out);
+                }
+            if (hidden.items.empty())
+                continue;
+            hidden.until = now + kHideForMs;
+            m_hidden[hostRef] = std::move(hidden);
+            // Not the player's doing, so not a change to tell the host.
+            if (hostRef == coop.ViewingContainer() && Read(body, local, m_readMs))
+                coop.ContainerSettled(local);
+            RefreshItemList();
+            RefreshLootWindows();
+            LOG_DEBUG("Containers: body %08X died; %zu kinds of loose items hidden until the host says what it carried",
+                RefId(body), m_hidden[hostRef].items.size());
+        }
+
+        for (auto it = m_hidden.begin(); it != m_hidden.end();)
+        {
+            if (!coop::IsDue(now, it->second.until))
+            {
+                ++it;
+                continue;
+            }
+            TESObjectREFR* body = npcs.OurRefOf(it->first);
+            if (IsLootable(body))
+            {
+                for (const net::ItemCount& i : it->second.items)
+                    ChangeItem(body, i);
+                if (it->first == coop.ViewingContainer())
+                    if (std::vector<net::ItemCount> local; Read(body, local, m_readMs))
+                        coop.ContainerSettled(local);
+                RefreshItemList();
+                RefreshLootWindows();
+                LOG_INFO("Containers: the host didn't say what body %08X carried; our own roll given back", RefId(body));
+            }
+            it = m_hidden.erase(it);
+        }
+    }
+
+    void Containers::FriendBodyMatched(coop::Coop& coop, uint32_t hostRef)
+    {
+        (void)coop;
+        m_hidden.erase(hostRef);
+        m_toHide.erase(hostRef);
+    }
+
     void Containers::FriendMatchBodies(coop::Coop& coop, const Npcs& npcs, uint32_t now)
     {
         for (auto& [hostRef, items] : coop.TakeBodyLoots())
             if (m_unmatched.size() < kMaxUnmatched || m_unmatched.count(hostRef))
                 m_unmatched[hostRef] = {std::move(items), now + kKeepUnmatchedMs};
+        FriendHideFreshBodies(coop, npcs, now);
         for (auto it = m_unmatched.begin(); it != m_unmatched.end();)
         {
             uint32_t hostRef = it->first;
-            // The one being watched is matched by FriendRead, which knows what our player just took from it.
-            if (hostRef == coop.ViewingContainer())
+            // The one being watched is matched by FriendRead, which knows what our player just took from it. One with
+            // its loose items hidden has nothing of them to take, so it's matched here.
+            bool watched = hostRef == coop.ViewingContainer();
+            if (watched && !m_hidden.count(hostRef))
             {
                 it = m_unmatched.erase(it);
                 continue;
@@ -403,6 +509,7 @@ namespace game
             }
             std::vector<net::ItemCount> items = std::move(it->second.items);
             it = m_unmatched.erase(it);
+            FriendBodyMatched(coop, hostRef);
             size_t changed = 0;
             for (const net::ItemCount& f : coop::ItemDiff(local, items))
                 if (IsItem(f.item))
@@ -412,6 +519,10 @@ namespace game
                 }
             if (!changed)
                 continue;
+            if (watched)
+                if (std::vector<net::ItemCount> after; Read(body, after, m_readMs))
+                    coop.ContainerSettled(after);
+            RefreshItemList();
             RefreshLootWindows();
             ++m_fixes;
             LOG_DEBUG("Containers: %08X matched to the host's without looking at it (%zu kinds of items changed)",
@@ -480,6 +591,7 @@ namespace game
         RefreshItemList();
         RefreshLootWindows();
         ++m_fixes;
+        FriendBodyMatched(coop, coop.ViewingContainer());
         if (Read(open, local, m_readMs))
         {
             coop.ContainerSettled(local);

@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <vector>
 
 class TESObjectREFR;
@@ -44,6 +45,18 @@ namespace game
             uint32_t since = 0;
         };
         std::vector<Waiting> m_waiting;
+        // Friend: a body's loose items are hidden from the moment it dies until the host's list of them comes (our game
+        // rolled its own), and given back if none does. What it wears and holds stays.
+        void FriendHideFreshBodies(coop::Coop& coop, const Npcs& npcs, uint32_t now);
+        void FriendBodyMatched(coop::Coop& coop, uint32_t hostRef);
+        std::set<uint32_t> m_aliveNpcs;
+        std::map<uint32_t, uint32_t> m_toHide;
+        struct Hidden
+        {
+            std::vector<net::ItemCount> items;
+            uint32_t until = 0;
+        };
+        std::map<uint32_t, Hidden> m_hidden;
         uint32_t m_lastBodyLook = 0;
         uint32_t m_nextLook = 0;
         uint32_t m_closedHeld = 0;
