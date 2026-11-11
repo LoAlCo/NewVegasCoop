@@ -311,7 +311,10 @@ void UpdateVoiceLines(uint32_t now)
     bool keyHeld = can && game::IsKeyPressed(g_config.voiceLineKey);
     game::PadState pad;
     uint16_t padButton = PadButton();
-    bool padHeld = can && padButton && game::ReadPad(pad) && (pad.buttons & padButton);
+    // The controller is read whenever one is plugged in, so it also works when a remap mod (such as Dynamic Controller
+    // Mod) holds the wheel key for a pad button: that key reaches the game's own input, which IsKeyPressed reads.
+    bool padThere = game::ReadPad(pad);
+    bool padHeld = can && padButton && padThere && (pad.buttons & padButton);
     uint16_t padPressed = static_cast<uint16_t>(pad.buttons & ~g_padWas);
     g_padWas = pad.buttons;
     // Pressing B with the controller cancels: nothing is said until the button is let go and held again.
@@ -341,7 +344,6 @@ void UpdateVoiceLines(uint32_t now)
             g_page = 0;
             LOG_DEBUG("Voice lines: wheel open (%s)", g_by == WheelBy::Pad ? "controller" : "keyboard and mouse");
         }
-        if (g_by == WheelBy::Keyboard)
         {
             float dx = 0, dy = 0;
             int scroll = 0;
@@ -349,12 +351,14 @@ void UpdateVoiceLines(uint32_t now)
             g_pointerX += dx;
             g_pointerY += dy;
             coop::ClampWheelPointer(g_pointerX, g_pointerY);
-            Pick(coop::WheelSlot(g_pointerX, g_pointerY), g_page);
+            // The mouse changes the pick only when it moves, so it doesn't undo a pick made with the right stick.
+            if (dx != 0 || dy != 0)
+                Pick(coop::WheelSlot(g_pointerX, g_pointerY), g_page);
             g_scroll += scroll;
             while (g_scroll >= kScrollNotch) { g_scroll -= kScrollNotch; TurnPage(-1); }
             while (g_scroll <= -kScrollNotch) { g_scroll += kScrollNotch; TurnPage(1); }
         }
-        else
+        if (padThere)
         {
             game::HoldControlsForWheel(true);
             // The right stick picks a wedge, which stays picked when the stick is let go.
@@ -371,7 +375,7 @@ void UpdateVoiceLines(uint32_t now)
         int phrase = Phrase();
         game::ShowVoiceWheel(!g_cancelled, g_page, g_chosen,
             phrase >= 0 ? coop::kVoicePhrases[phrase].lines[g_chosenLine].text : "",
-            g_by == WheelBy::Pad ? "LB / RB to turn" : "scroll to turn", look);
+            padThere ? "LB / RB to turn" : "scroll to turn", look);
     }
     if (g_wheelOpen && (!held || g_cancelled))
     {
