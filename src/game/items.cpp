@@ -3,6 +3,7 @@
 #include "game/items.h"
 
 #include "coop/clock.h"
+#include "coop/item_glide.h"
 #include "game/addresses.h"
 #include "game/game.h"
 #include "log.h"
@@ -21,10 +22,8 @@ namespace game
         constexpr uint32_t kLookMs = 500;
         constexpr float kMyReach = 300;
         constexpr float kMyPushReach = 600;
-        constexpr uint32_t kGlideMs = 450;
-        constexpr uint32_t kStayMs = 700;
-        constexpr uint32_t kHeldStayMs = 10000;
         constexpr uint32_t kSettleMs = 1500;
+        constexpr size_t kMaxGoneNoted = 256;
         constexpr size_t kMaxGlides = 16;
         constexpr float kGlideRange = 3000;
 
@@ -44,6 +43,14 @@ namespace game
 
         void MoveTo(TESObjectREFR* ref, const coop::ItemPose& p) { MoveItem(ref, p.x, p.y, p.z, p.rx, p.ry, p.rz); }
 
+        // Moving a taken (deleted), switched-off or placeless reference can leave its physics half alive.
+        bool CanMove(TESObjectREFR* ref)
+        {
+            WorldItem w = ReadWorldItem(ref);
+            return coop::CanMoveItem(ref && w.base, w.inCell, (w.flags & layout::kRefDeleted) != 0,
+                (w.flags & layout::kRefDisabled) != 0);
+        }
+
         float AngleBetween(float a, float b, float t)
         {
             return a + std::remainder(b - a, 6.2831853f) * t;
@@ -54,6 +61,15 @@ namespace game
             return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, AngleBetween(a.rx, b.rx, t),
                 AngleBetween(a.ry, b.ry, t), AngleBetween(a.rz, b.rz, t)};
         }
+    }
+
+    void WorldItems::Forget()
+    {
+        m_glides.clear();
+        m_settling.clear();
+        m_goneNoted.clear();
+        m_grabbed = 0;
+        m_area = nullptr;
     }
 
     void WorldItems::Update(coop::Coop& coop, uint32_t now)
@@ -264,8 +280,14 @@ namespace game
     void WorldItems::GlideTo(uint32_t id, const coop::ItemPose& to, bool held, uint32_t now, const char* whose)
     {
         TESObjectREFR* ref = LookupRef(id);
-        if (!ref)
+        if (!CanMove(ref))
+        {
+            m_glides.erase(id);
+            if (m_goneNoted.size() < kMaxGoneNoted && m_goneNoted.insert(id).second)
+                LOG_DEBUG("Items: %08X is gone here (taken, switched off or in no place); not moving it to %s's place",
+                    id, whose);
             return;
+        }
         bool fresh = m_glides.find(id) == m_glides.end();
         TESObjectREFR* player = Player();
         float dx = player ? to.x - player->posX : 0, dy = player ? to.y - player->posY : 0;
@@ -293,17 +315,20 @@ namespace game
             TESObjectREFR* ref = LookupRef(it->first);
             const Glide& g = it->second;
             uint32_t age = now - g.startedAt;
-            if (!ref || !IsThere(ReadWorldItem(ref)) || it->first == grabbed ||
-                age > kGlideMs + (g.held ? kHeldStayMs : kStayMs))
+            bool movable = CanMove(ref);
+            coop::GlideStep step = coop::StepGlide(age, g.held);
+            if (movable && it->first != grabbed && step == coop::GlideStep::PlaceLast)
+                MoveTo(ref, g.to);
+            if (!movable || it->first == grabbed || step != coop::GlideStep::Move)
             {
                 if (ref)
                     LOG_DEBUG("Items: %08X left at %s%s", it->first, Where(ref).c_str(),
-                        it->first == grabbed ? " (our player took it)" : "");
+                        it->first == grabbed ? " (our player took it)" : !movable ? " (gone here)" : "");
                 m_settling[it->first] = now;
                 it = m_glides.erase(it);
                 continue;
             }
-            MoveTo(ref, Between(g.from, g.to, age >= kGlideMs ? 1.f : static_cast<float>(age) / kGlideMs));
+            MoveTo(ref, Between(g.from, g.to, age >= coop::kGlideMs ? 1.f : static_cast<float>(age) / coop::kGlideMs));
             ++it;
         }
         for (auto it = m_settling.begin(); it != m_settling.end();)

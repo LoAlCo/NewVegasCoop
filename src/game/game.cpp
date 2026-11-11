@@ -11,6 +11,7 @@
 #include "coop/talk_log.h"
 #include "coop/vats_feel.h"
 #include "coop/balance.h"
+#include "coop/item_glide.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -1977,6 +1978,11 @@ namespace game
     void ItemsNear(std::vector<TESObjectREFR*>& out, float range)
     {
         RefsNear(ItemType, 0, out, range);
+        out.erase(std::remove_if(out.begin(), out.end(), [](TESObjectREFR* ref) {
+            const TESForm* base = ref->baseForm;
+            uint32_t lightFlags = base->typeID == coop::kLightFormType ? At<uint32_t>(base, layout::kLightFlags) : 0;
+            return !coop::IsSyncedItemType(base->typeID, lightFlags);
+        }), out.end());
     }
 
     WorldItem ReadWorldItem(TESObjectREFR* ref)

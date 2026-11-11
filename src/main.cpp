@@ -2523,6 +2523,7 @@ namespace
             g_worldLoaded = false;
             game::ForgetHolds();
             game::LetGoOfFarCells();
+            g_items.Forget();
             g_gameOver = false;
             g_standIns.Forget();
             g_npcs.Forget();
