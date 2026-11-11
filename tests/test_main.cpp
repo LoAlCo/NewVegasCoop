@@ -3398,6 +3398,22 @@ TEST(a_loot_ping_follows_the_item_on_every_screen)
     CHECK(items.HostRefOf(0xFF000999) == 0 && items.HostRefOf(0) == 0);
 }
 
+TEST(ping_button_choices_match_the_menu)
+{
+    using coop::PingPadMask;
+    CHECK(PingPadMask(0) == 0);
+    CHECK(PingPadMask(1) == 0x0001);
+    CHECK(PingPadMask(4) == 0x0008);
+    CHECK(PingPadMask(5) == 0x0040);
+    CHECK(PingPadMask(6) == 0x0080);
+    CHECK(PingPadMask(7) == 0x0020);
+    CHECK(PingPadMask(9) == 0x0200);
+    CHECK(PingPadMask(10) == 0 && PingPadMask(-1) == 0);
+    for (int choice = 1; choice < 10; ++choice)
+        for (int other = choice + 1; other < 10; ++other)
+            CHECK(PingPadMask(choice) != PingPadMask(other));
+}
+
 TEST(ping_gate_allows_one_a_second)
 {
     coop::PingGate gate(coop::kPingSendGapMs);

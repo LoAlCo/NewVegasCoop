@@ -3905,6 +3905,47 @@ namespace game
         }
     }
 
+    // The buttons held on the first connected controller, read straight from XInput: the game's own controls don't
+    // pass pad buttons to scripts. Loaded at run time, so a PC without XInput just has no pad.
+    uint16_t PadButtons()
+    {
+        struct PadState { uint32_t packet; uint16_t buttons; uint8_t leftTrigger, rightTrigger; int16_t sticks[4]; };
+        using GetStateFn = uint32_t(WINAPI*)(uint32_t, PadState*);
+        static GetStateFn getState = [] {
+            for (const char* dll : {"xinput1_3.dll", "xinput1_4.dll", "xinput9_1_0.dll"})
+            {
+                HMODULE module = GetModuleHandleA(dll);
+                if (!module)
+                    module = LoadLibraryA(dll);
+                if (auto fn = module ? reinterpret_cast<GetStateFn>(GetProcAddress(module, "XInputGetState")) : nullptr)
+                {
+                    LOG_INFO("Pings: reads the controller through %s", dll);
+                    return fn;
+                }
+            }
+            LOG_WARN("Pings: no XInput found; the controller button can't ping");
+            return static_cast<GetStateFn>(nullptr);
+        }();
+        static uint32_t s_pad = 0, s_nextLook = 0;
+        if (!getState)
+            return 0;
+        PadState state = {};
+        if (getState(s_pad, &state) == 0)
+            return state.buttons;
+        // That pad is gone: look for another now and then, as asking an empty slot is slow.
+        uint32_t now = GetTickCount();
+        if (static_cast<int32_t>(now - s_nextLook) < 0)
+            return 0;
+        s_nextLook = now + 2000;
+        for (uint32_t pad = 0; pad < 4; ++pad)
+            if (getState(pad, &state) == 0)
+            {
+                s_pad = pad;
+                return state.buttons;
+            }
+        return 0;
+    }
+
     void PlayPingSound(int choice)
     {
         struct SoundHandle { uint32_t id = 0xFFFFFFFF; uint8_t assumeSuccess = 0; uint32_t state = 0; };
