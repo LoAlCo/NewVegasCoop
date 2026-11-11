@@ -1191,6 +1191,47 @@
 							"default": 1
 						}
 					]
+				},
+				"17": {
+					"title": "Controller",
+					"enable": 1,
+					"type": 0
+				},
+				"18": {
+					"title": "Controller in Chat",
+					"type": 5,
+					"enable": 1,
+					"mouse": "While chat is open, a controller works it: A sends, B closes, the d-pad's left and right pick a quick message, up and down or the right stick read back, LB and RB turn a page. The game doesn't see the controller meanwhile",
+					"vars": [
+						{
+							"configINI": "Settings:bChatPad",
+							"default": 1
+						}
+					]
+				},
+				"19": {
+					"title": "Controller Button",
+					"type": 1,
+					"enable": 1,
+					"mouse": "Press this controller button to open chat, and again to close it. The game also sees that first press, so pick one you can spare, or map a button to the chat key with a controller remapper. Off: the chat key only",
+					"vars": [
+						{
+							"configINI": "Settings:iChatPadButton",
+							"default": 0
+						}
+					],
+					"strings": [
+						"Off",
+						"D-pad Up",
+						"D-pad Down",
+						"D-pad Left",
+						"D-pad Right",
+						"Back",
+						"Left Stick (click)",
+						"Right Stick (click)",
+						"Left Bumper",
+						"Right Bumper"
+					]
 				}
 			}
 		},

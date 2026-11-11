@@ -3300,6 +3300,15 @@ namespace game
         return result.GetNumber() != 0;
     }
 
+    bool IsKeyDown(int key)
+    {
+        NVSEArrayVarInterface::Element result;
+        if (!g_keyDown || !Player() ||
+            !g_scripts->CallFunction(g_keyDown, Player(), nullptr, &result, 1, static_cast<uint32_t>(key)))
+            return false;
+        return result.GetNumber() != 0;
+    }
+
     namespace
     {
         std::mutex g_chatMutex;
@@ -3316,7 +3325,7 @@ namespace game
         EntryState g_entryState = EntryState::None;
         bool g_chatHudMade = false;
         bool g_chatShown = false;
-        int g_chatScroll = 0;
+        std::string g_chatHint;
 
         LRESULT CALLBACK ChatWndProc(HWND window, UINT message, WPARAM w, LPARAM l)
         {
@@ -3338,18 +3347,6 @@ namespace game
                 }
                 if (g_chatTyping)
                 {
-                    if (message == WM_KEYDOWN)
-                    {
-                        constexpr int kPage = 10;
-                        if (w == VK_PRIOR)
-                            g_chatScroll += kPage;
-                        else if (w == VK_NEXT)
-                            g_chatScroll -= kPage;
-                        else if (w == VK_UP)
-                            ++g_chatScroll;
-                        else if (w == VK_DOWN)
-                            --g_chatScroll;
-                    }
                     if (message == WM_CHAR)
                     {
                         coop::ChatDraft::Done done = g_chatDraft.Type(static_cast<unsigned char>(w));
@@ -4081,6 +4078,21 @@ namespace game
         g_chatChanged = true;
     }
 
+    bool ChatDraftEmpty()
+    {
+        std::lock_guard<std::mutex> lock(g_chatMutex);
+        return g_chatDraft.Text().empty();
+    }
+
+    void SetChatHint(const std::string& hint)
+    {
+        std::lock_guard<std::mutex> lock(g_chatMutex);
+        if (g_chatHint == hint)
+            return;
+        g_chatHint = hint;
+        g_chatChanged = true;
+    }
+
     bool ChatTyping()
     {
         std::lock_guard<std::mutex> lock(g_chatMutex);
@@ -4192,7 +4204,7 @@ namespace game
     std::vector<std::string> UpdateChat()
     {
         bool typing, changed, talking;
-        std::string text;
+        std::string text, hint;
         std::vector<std::string> sent;
         {
             std::lock_guard<std::mutex> lock(g_chatMutex);
@@ -4201,6 +4213,7 @@ namespace game
             g_chatChanged = false;
             talking = g_chatTalking;
             text = g_chatDraft.Text();
+            hint = g_chatHint;
             sent = std::move(g_chatSent);
             g_chatSent.clear();
         }
@@ -4215,7 +4228,8 @@ namespace game
         bool show = typing || talking;
         if (changed || show != g_chatShown)
         {
-            ShowChatLine(typing ? "Say: " + text + "_" : std::string("((( Talking )))"), show);
+            ShowChatLine(typing ? (text.empty() && !hint.empty() ? hint : "Say: " + text + "_") :
+                std::string("((( Talking )))"), show);
             g_chatShown = show;
         }
         return sent;
@@ -5274,14 +5288,6 @@ namespace game
             y += height + look.gap;
         }
         s_showing = count > 0;
-    }
-
-    int TakeChatScroll()
-    {
-        std::lock_guard<std::mutex> lock(g_chatMutex);
-        int scroll = g_chatScroll;
-        g_chatScroll = 0;
-        return scroll;
     }
 
     void SetSpeedMult(TESObjectREFR* actor, int mult)

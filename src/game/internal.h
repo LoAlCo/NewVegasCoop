@@ -151,6 +151,7 @@ namespace game
     extern Script* g_spotOnScreen;
     extern Script* g_wouldAttack;
     extern Script* g_pingLabel[coop::kPingSlots];
+    extern Script* g_keyDown;
     extern Script* g_chatHud;
     extern Script* g_chatShow;
     extern Script* g_onScreen;

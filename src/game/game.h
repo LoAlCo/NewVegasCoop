@@ -6,6 +6,7 @@
 #include "coop/smoothing.h"
 #include "coop/ping.h"
 #include "coop/chat_history.h"
+#include "coop/chat_pad.h"
 #include "coop/talk_log.h"
 #include "net/protocol.h"
 
@@ -300,6 +301,11 @@ namespace game
     bool IsKeyPressed(int key);
     bool OpenChat();
     bool ChatTyping();
+    bool ChatDraftEmpty();
+    // Shown in place of an empty "Say:" line; empty for the usual line
+    void SetChatHint(const std::string& hint);
+    // Down by any route: the keyboard, the game, or put in by a script or another mod, even while turned off for the game
+    bool IsKeyDown(int key);
     void CancelChat();
     bool KeyDown(int key);
     bool ApplyBalance(const coop::Balance* balance);
@@ -348,8 +354,10 @@ namespace game
         int style = 1;
     };
     void ShowChatPanel(const std::vector<coop::ChatPanelRow>& rows, const ChatPanelLook& look);
-    // Lines to move back through the history (negative is forward) since last asked
-    int TakeChatScroll();
+    // Chat with a controller (chat_pad.cpp): the first connected controller, and keeping it from the game while chat has
+    // it (the game sees nothing pressed)
+    bool ReadChatPad(coop::ChatPadInput& out);
+    void HidePadFromGame(bool hide);
     void SetSpeedMult(TESObjectREFR* actor, int mult);
     float CachedRunSpeed(TESObjectREFR* actor);
     std::vector<std::string> ModAnimFiles(TESObjectREFR* actor);

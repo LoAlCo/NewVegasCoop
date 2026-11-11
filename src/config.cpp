@@ -1,6 +1,7 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
 #include "config.h"
+#include "coop/chat_pad.h"
 #include "log.h"
 #include "net/session.h"
 #include "coop/voice_lines.h"
@@ -129,6 +130,8 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "bEventFeed", eventFeed);
         Write(path, "bChatHistory", chatHistory);
         Write(path, "bChatPopup", chatPopup);
+        Write(path, "bChatPad", chatPad);
+        Write(path, "iChatPadButton", chatPadButton);
         Write(path, "iFeedX", feedX);
         Write(path, "iFeedY", feedY);
         Write(path, "iFeedWidth", feedWidth);
@@ -224,6 +227,16 @@ void Config::LoadPlayer(const std::string& path)
     eventFeed = flag("bEventFeed", eventFeed);
     chatHistory = flag("bChatHistory", chatHistory);
     chatPopup = flag("bChatPopup", chatPopup);
+    chatPad = flag("bChatPad", chatPad);
+    chatPadButton = number("iChatPadButton", chatPadButton, 0, static_cast<int>(std::size(coop::kChatPadButtons)) - 1);
+    // Not in the menu, which can't take text: the ini's own line, written out once so it can be found and changed
+    std::string quick = Read(path, "sChatQuickMessages", "\x01", "Settings");
+    if (quick == "\x01")
+    {
+        quick = coop::kDefaultQuickMessages;
+        WritePrivateProfileStringA("Settings", "sChatQuickMessages", quick.c_str(), path.c_str());
+    }
+    quickMessages = coop::QuickMessages(quick);
     feedX = number("iFeedX", feedX, 0, 100);
     feedY = number("iFeedY", feedY, 0, 100);
     feedWidth = number("iFeedWidth", feedWidth, 200, 1200);
