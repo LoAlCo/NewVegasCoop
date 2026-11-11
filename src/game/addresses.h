@@ -22,6 +22,11 @@ namespace game::addr
     constexpr uintptr_t kMobileObjectJump = 0x00930640;
     constexpr int kActorReloadSlot = 0x3E8 / 4;
     constexpr uintptr_t kExtraListGetByType = 0x00410220;
+    // The game's queues of references to switch off and on, which its Disable and Enable commands feed once they've
+    // checked for an enable parent.
+    constexpr uintptr_t kQueueDisable = 0x005AA500;
+    constexpr uintptr_t kQueueEnable = 0x005AA580;
+    constexpr uintptr_t kUnqueueEnableState = 0x005AA5D0;
     constexpr uintptr_t kExtraListAdd = 0x0040FF60;
     constexpr uintptr_t kCompassTargetSet = 0x00966F20;
     constexpr uintptr_t kCompassTargetRemove = 0x00967350;

@@ -475,6 +475,8 @@ namespace game
     struct EnableChange { uint32_t ref; bool enabled; };
     std::vector<EnableChange> TakeEnables();
     void SetEnabled(TESObjectREFR* ref, bool enabled);
+    // Like SetEnabled, but also for a reference with an enable parent, which the Disable and Enable commands refuse.
+    void ForceEnabled(TESObjectREFR* ref, bool enabled);
     bool InDialogue();
     int32_t PlayerXp();
     int32_t PlayerKarma();

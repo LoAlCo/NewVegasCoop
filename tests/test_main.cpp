@@ -2,6 +2,7 @@
 
 #include "coop/coop.h"
 #include "coop/item_glide.h"
+#include "coop/kept_off.h"
 #include "coop/objects.h"
 #include "coop/activator_uses.h"
 #include "coop/copy_kill.h"
@@ -10602,4 +10603,52 @@ TEST(loose_items_are_placed_once_and_only_carried_ones_are_held)
     CHECK(coop::StepGlide(coop::kGlideMs + coop::kHeldStayMs, true) == GlideStep::Move);
     CHECK(coop::StepGlide(coop::kGlideMs + coop::kHeldStayMs + 1, true) == GlideStep::Done);
     CHECK(coop::StepGlide(60000, true) == GlideStep::Done);
+}
+
+TEST(a_rerolled_original_that_comes_back_on_is_switched_off_again_then_made_harmless)
+{
+    using coop::KeepOff;
+    const uint32_t raider = 0x6041610;
+    coop::KeptOff k;
+    CHECK(k.Look(raider, 1000, false) == KeepOff::Nothing);
+    CHECK(k.Look(raider, 1000, true) == KeepOff::Nothing);
+    CHECK(k.Look(raider, 1000 + coop::kKeepOffRetryMs - 1, true) == KeepOff::Nothing);
+    CHECK(k.Look(raider, 1000 + coop::kKeepOffRetryMs, true) == KeepOff::SwitchOff);
+    CHECK(k.Look(raider, 1000 + coop::kKeepOffRetryMs + 10, true) == KeepOff::Nothing);
+    CHECK(k.Look(raider, 1000 + 2 * coop::kKeepOffRetryMs, true) == KeepOff::SwitchOff);
+    CHECK(!k.IsFrozen(raider));
+    CHECK(k.Look(raider, 1000 + coop::kKeepOffFreezeMs, true) == KeepOff::Freeze);
+    CHECK(k.IsFrozen(raider) && k.FrozenCount() == 1);
+    CHECK(k.Look(raider, 1000 + coop::kKeepOffFreezeMs + 5000, true) == KeepOff::Nothing);
+    k.NoteGhost(raider, true);
+    coop::KeptOff::Gone gone = k.Forget(raider);
+    CHECK(gone.frozen && gone.wasGhost);
+    CHECK(!k.IsFrozen(raider) && k.FrozenCount() == 0);
+    CHECK(!k.Forget(raider).frozen);
+}
+
+TEST(a_rerolled_original_that_stays_off_is_left_alone)
+{
+    using coop::KeepOff;
+    const uint32_t trooper = 0x14633D;
+    coop::KeptOff k;
+    CHECK(k.Look(trooper, 1000, true) == KeepOff::Nothing);
+    CHECK(k.Look(trooper, 1200, false) == KeepOff::Nothing);
+    for (uint32_t t = 1500; t < 20000; t += 500)
+        CHECK(k.Look(trooper, t, false) == KeepOff::Nothing);
+    CHECK(k.Look(trooper, 20000, true) == KeepOff::Nothing);
+    CHECK(k.Look(trooper, 20000 + coop::kKeepOffRetryMs, true) == KeepOff::SwitchOff);
+    CHECK(k.Look(trooper, 20000 + coop::kKeepOffRetryMs + 100, false) == KeepOff::Nothing);
+    CHECK(k.Look(trooper, 30000, true) == KeepOff::Nothing);
+    CHECK(!k.IsFrozen(trooper));
+    k.Clear();
+    CHECK(k.FrozenCount() == 0 && !k.Forget(trooper).frozen);
+}
+
+TEST(an_original_comes_back_on_only_with_its_enable_parent)
+{
+    CHECK(coop::RestoreOn(false, false));
+    CHECK(coop::RestoreOn(false, true));
+    CHECK(coop::RestoreOn(true, true));
+    CHECK(!coop::RestoreOn(true, false));
 }

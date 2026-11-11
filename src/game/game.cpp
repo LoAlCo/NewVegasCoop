@@ -2426,6 +2426,20 @@ namespace game
             g_scripts->CallFunctionAlt(s, ref, 0);
     }
 
+    void ForceEnabled(TESObjectREFR* ref, bool enabled)
+    {
+        if (!ref)
+            return;
+        if (!enabled)
+        {
+            reinterpret_cast<void(__cdecl*)(TESObjectREFR*, uint8_t)>(addr::kQueueDisable)(ref, 0);
+            return;
+        }
+        reinterpret_cast<void(__cdecl*)(TESObjectREFR*)>(addr::kUnqueueEnableState)(ref);
+        if (ref->flags & layout::kRefDisabled)
+            reinterpret_cast<void(__cdecl*)(TESObjectREFR*)>(addr::kQueueEnable)(ref);
+    }
+
     bool IsEnabled(const TESObjectREFR* ref)
     {
         return ref && !(ref->flags & layout::kRefDisabled);
