@@ -139,17 +139,6 @@ namespace coop
         {0x00061EA8, "FemaleGenericGhoul"},
         {0x00143779, "FemaleGhoul02"},
     };
-    constexpr int kMostVoiceChoices = 12;
-
-    // The MCM's Voice choice (0-11, shown as Voice 1-12) for a male or female character. Men have 11 voices, so
-    // Voice 12 is Voice 1 again for them.
-    inline uint32_t VoiceFor(bool female, int choice)
-    {
-        size_t n = female ? std::size(kFemaleVoices) : std::size(kMaleVoices);
-        size_t i = choice < 0 ? 0 : static_cast<size_t>(choice) % n;
-        return female ? kFemaleVoices[i].form : kMaleVoices[i].form;
-    }
-
     // The voice's folder under Sound/Voice/FalloutNV.esm, or null if it isn't one of the wheel's voices.
     inline const char* VoiceFolder(uint32_t voice)
     {
@@ -163,6 +152,52 @@ namespace coop
     }
 
     inline bool IsWheelVoice(uint32_t voice) { return VoiceFolder(voice) != nullptr; }
+
+    // The MCM's Voice choice: 0 matches the character, then every voice by name, the men's first (1-11) and then the
+    // women's (12-23).
+    constexpr int kVoiceMatchCharacter = 0;
+    constexpr int kVoiceChoices = 1 + static_cast<int>(std::size(kMaleVoices) + std::size(kFemaleVoices));
+
+    inline bool IsFemaleVoice(uint32_t voice)
+    {
+        for (const WheelVoice& v : kFemaleVoices)
+            if (v.form == voice)
+                return true;
+        return false;
+    }
+
+    // Which voice says the lines, and whether the wheel shows Vault Girl (a female voice) or Vault Boy.
+    struct VoicePick
+    {
+        uint32_t voice;
+        bool female;
+    };
+
+    // own: the character's own voice type; raceMale/raceFemale: its race's default voices (0 when unknown);
+    // bodyFemale: whether the character is a woman. A voice the game has no wheel lines for (a mod's own voice) can't
+    // be used, but still tells the wheel which voice 1 to fall back on when it's one of the race's two.
+    inline VoicePick PickVoice(int choice, uint32_t own, uint32_t raceMale, uint32_t raceFemale, bool bodyFemale)
+    {
+        constexpr int men = static_cast<int>(std::size(kMaleVoices));
+        if (choice >= 1 && choice <= men)
+            return {kMaleVoices[choice - 1].form, false};
+        if (choice > men && choice < kVoiceChoices)
+            return {kFemaleVoices[choice - 1 - men].form, true};
+        if (IsWheelVoice(own))
+            return {own, IsFemaleVoice(own)};
+        bool female = bodyFemale;
+        if (own && own == raceFemale)
+            female = true;
+        else if (own && own == raceMale)
+            female = false;
+        else
+        {
+            uint32_t race = bodyFemale ? raceFemale : raceMale;
+            if (IsWheelVoice(race))
+                return {race, IsFemaleVoice(race)};
+        }
+        return female ? VoicePick{kFemaleVoices[0].form, true} : VoicePick{kMaleVoices[0].form, false};
+    }
 
     inline bool IsVoiceLine(uint8_t phrase, uint8_t line)
     {

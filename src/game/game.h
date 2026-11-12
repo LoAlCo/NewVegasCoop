@@ -321,6 +321,10 @@ namespace game
     bool QuantityPromptOpen();
     bool SetFieldOfView(int degrees);
     bool ReadMyLooks(net::PlayerLooks& out);
+    // The voices the game gives our character: its own voice type and its race's default male and female voices
+    // (form ids, 0 when not set or not found). False when there's no character to read.
+    struct MyVoices { uint32_t own = 0, raceMale = 0, raceFemale = 0; bool female = false; };
+    bool ReadMyVoices(MyVoices& out);
     // The voice line wheel: shown with one phrase picked (0 = the middle), in the HUD colour or its own.
     struct VoiceWheelLook { bool hudColor = true; float red = 255, green = 255, blue = 255; bool female = false; };
     // chosen: the hovered slot (-1 for none); line: what that phrase will say, shown under the wheel.

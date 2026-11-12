@@ -3,7 +3,9 @@
 ## Unreleased
 - New: voice line wheel. Hold X (change it, turn it off, or pick a voice and the wheel's colour on the Mod Configuration
   Menu's Voice Lines page), move the mouse towards a phrase and let go: your character says it out loud in one of the
-  game's NPC voices (male or female, to match your character), with lip sync. Friends hear it from your character.
+  game's NPC voices, with lip sync. Friends hear it from your character. The Voice option matches your character by
+  default (the voice the game or a race mod gives them, else voice 1 of their sex), or pick any of the 23 voices by
+  name: the icons follow the voice, Vault Girl for a female one and Vault Boy for a male one.
   Two pages of phrases (scroll the mouse wheel to turn): Hey, Help, Look Out, Over Here, Enemy Spotted, Grenade,
   Retreat, Taunt, Thanks and Later; then Careful, What Was That?, Where'd They Go?, Get 'Em, All Clear, Man Down,
   Thief!, No!, Keep Moving and Good Business. Works with a controller too (pick a Controller Button: right stick to

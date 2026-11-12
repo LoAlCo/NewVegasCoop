@@ -1291,7 +1291,7 @@ namespace
             g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.desyncNotices);
         LOG_INFO("Settings: voice lines %d, key %d, controller button %d, voice %d, hear own %d, HUD colour %d "
             "(%d %d %d), by themselves %d (every %d s at most, greeting every %d min)", g_config.voiceLines,
-            g_config.voiceLineKey, g_config.voiceLinePadButton, g_config.voiceLineVoice + 1, g_config.voiceLineHearOwn, g_config.voiceLineHudColor, g_config.voiceLineRed,
+            g_config.voiceLineKey, g_config.voiceLinePadButton, g_config.voiceLineVoice, g_config.voiceLineHearOwn, g_config.voiceLineHudColor, g_config.voiceLineRed,
             g_config.voiceLineGreen, g_config.voiceLineBlue, g_config.autoVoiceLines, g_config.autoVoiceLineGap,
             g_config.autoGreetingGap);
     }

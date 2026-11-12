@@ -1368,6 +1368,47 @@ namespace game
         }
     }
 
+    bool ReadMyVoices(MyVoices& out)
+    {
+        // An NPC's voice type is at +0x50 (its actor data +0x20), its race at +0x110, and male/female in its flags.
+        constexpr uint32_t kNpcFlags = 0x34, kNpcVoice = 0x50, kNpcRace = 0x110;
+        // The race's default voices sit in the part of the race after its face data (0x4B8-0x4CC); their exact place
+        // isn't known, so the two that are voice types are taken from there, male first.
+        constexpr uint32_t kRaceVoicesFrom = 0x4B8, kRaceVoicesTo = 0x4CC;
+        constexpr uint32_t kDataHandlerVoices = 0xF0;
+        out = MyVoices{};
+        TESObjectREFR* player = Player();
+        const auto* npc = player ? reinterpret_cast<const uint8_t*>(player->baseForm) : nullptr;
+        if (!npc || player->baseForm->typeID != kFormType_TESNPC)
+            return false;
+        out.female = (*reinterpret_cast<const uint32_t*>(npc + kNpcFlags) & 1) != 0;
+        const void* data = *reinterpret_cast<const void* const*>(addr::kDataHandler);
+        std::set<const void*> voices;
+        if (data)
+            ForEachIn(static_cast<const char*>(data) + kDataHandlerVoices, [&](void* v) { voices.insert(v); });
+        // Only pointers found in the game's own list of voice types are trusted (nothing else is followed).
+        auto voiceId = [&](const void* p) -> uint32_t
+        {
+            return p && voices.count(p) ? static_cast<const TESForm*>(p)->refID : 0;
+        };
+        out.own = voiceId(*reinterpret_cast<const void* const*>(npc + kNpcVoice));
+        const auto* race = *reinterpret_cast<const uint8_t* const*>(npc + kNpcRace);
+        if (race && reinterpret_cast<const TESForm*>(race)->typeID == kFormType_TESRace)
+        {
+            uint32_t found[2] = {};
+            int n = 0;
+            for (uint32_t at = kRaceVoicesFrom; at < kRaceVoicesTo && n < 2; at += 4)
+                if (uint32_t id = voiceId(*reinterpret_cast<const void* const*>(race + at)))
+                    found[n++] = id;
+            if (n == 2)
+            {
+                out.raceMale = found[0];
+                out.raceFemale = found[1];
+            }
+        }
+        return true;
+    }
+
     void ReadQuests(std::vector<QuestInfo>& out, bool all)
     {
         out.clear();
