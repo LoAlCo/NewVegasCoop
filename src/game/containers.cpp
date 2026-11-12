@@ -77,6 +77,7 @@ namespace game
             m_aliveNpcs.clear();
             m_toHide.clear();
             m_hidden.clear();
+            m_pendingRefunds.clear();
             return;
         }
         if (QuantityPromptOpen())
@@ -92,7 +93,13 @@ namespace game
             HostApply(coop, now);
         else
         {
-            std::vector<net::ItemCount> refunds = coop.TakeItemRefunds();
+            // The game's container menu keeps pointers into the stacks it lists, and taking one away under it crashes
+            // the game when it's clicked: a refund waits for the menu to shut.
+            for (const net::ItemCount& r : coop.TakeItemRefunds())
+                m_pendingRefunds.push_back(r);
+            std::vector<net::ItemCount> refunds;
+            if (!OpenContainer())
+                refunds.swap(m_pendingRefunds);
             for (const net::ItemCount& r : refunds)
             {
                 ChangeItem(Player(), r);
@@ -184,7 +191,7 @@ namespace game
     bool Containers::HostRelease(coop::Coop& coop, TESObjectREFR* ref, std::vector<net::ItemCount>& items)
     {
         std::vector<net::ItemCount> record;
-        if (!coop.Unseen().Size() || !coop.Unseen().Release(RefId(ref), record))
+        if (!coop.Unseen().Size() || ref == OpenContainer() || !coop.Unseen().Release(RefId(ref), record))
             return false;
         size_t changed = 0;
         for (const net::ItemCount& f : coop::ItemDiff(items, record))
@@ -220,6 +227,17 @@ namespace game
             if (locker)
                 LOG_INFO("Containers: %s's change to gear locker %08X refused (each game's copy holds its own "
                     "player's gear)", coop.NameOf(c.playerId).c_str(), c.change.ref);
+            // Our player has its menu open: the menu keeps pointers into the stacks it lists, and taking one away under
+            // it crashes the game when it's clicked. The change waits for the menu to shut; if our player takes the
+            // same thing meanwhile, the friend gets theirs back.
+            if (ok && ref == mine)
+            {
+                if (w.since == now)
+                    LOG_DEBUG("Containers: %s's change to %08X waits: our menu on it is open",
+                        coop.NameOf(c.playerId).c_str(), c.change.ref);
+                m_waiting.push_back(w);
+                continue;
+            }
             if (!ok && !locker && IsItem(want.item))
             {
                 // Our game can't see it: it's checked against the record of the friend who set it instead.
@@ -421,7 +439,7 @@ namespace game
             }
             TESObjectREFR* body = npcs.OurRefOf(hostRef);
             std::vector<net::ItemCount> local;
-            if (!IsLootable(body) || !Read(body, local, m_readMs))
+            if (!IsLootable(body) || body == OpenContainer() || !Read(body, local, m_readMs))
             {
                 it = coop::IsDue(now, it->second) ? m_toHide.erase(it) : std::next(it);
                 continue;
@@ -460,6 +478,11 @@ namespace game
                 continue;
             }
             TESObjectREFR* body = npcs.OurRefOf(it->first);
+            if (body && body == OpenContainer())
+            {
+                ++it;
+                continue;
+            }
             if (IsLootable(body))
             {
                 for (const net::ItemCount& i : it->second.items)
@@ -501,6 +524,11 @@ namespace game
             }
             TESObjectREFR* body = npcs.OurRefOf(hostRef);
             std::vector<net::ItemCount> local;
+            if (body && body == OpenContainer())
+            {
+                ++it;
+                continue;
+            }
             if (!body || !IsLootable(body) || !Read(body, local, m_readMs))
             {
                 // Our game may not have loaded it yet: the host shares what's near us a moment before we get there.
@@ -582,7 +610,9 @@ namespace game
             playerChange = coop::CountChanges(m_playerBefore, mine);
         m_playerKnown = true;
         m_playerBefore = coop::CountsToKeep(mine, local);
-        std::vector<net::ItemCount> fixes = coop.LookAtContainer(local, playerChange);
+        // Not while its menu is open: the game's menu keeps pointers into the stacks a fix would take away, and crashes
+        // when one is clicked. The host's contents wait for the menu to shut.
+        std::vector<net::ItemCount> fixes = coop.LookAtContainer(local, playerChange, open != OpenContainer());
         if (fixes.empty())
             return;
         for (const net::ItemCount& f : fixes)

@@ -251,7 +251,7 @@ namespace coop
     }
 
     std::vector<net::ItemCount> FriendContainer::Look(const std::vector<net::ItemCount>& local,
-        std::vector<net::ContainerChange>& changes, const std::vector<net::ItemCount>& playerChange)
+        std::vector<net::ContainerChange>& changes, const std::vector<net::ItemCount>& playerChange, bool fix)
     {
         if (!m_ref)
             return {};
@@ -293,7 +293,7 @@ namespace coop
         }
         m_snapshot = local;
         m_hasSnapshot = true;
-        if (m_hasHost && m_host.ref == m_ref && static_cast<int32_t>(m_host.seen - m_seq) >= 0)
+        if (fix && m_hasHost && m_host.ref == m_ref && static_cast<int32_t>(m_host.seen - m_seq) >= 0)
         {
             m_hasHost = false;
             return ItemDiff(local, m_host.items);

@@ -107,8 +107,11 @@ namespace coop
         // playerChange: how the player's own inventory changed since the last look. With no menu seen open, a body
         // losing what the player gained (or gaining what they lost) is still the player's doing: loot mods and menus
         // we can't see count too, while the game's own changes to its copy of the body don't.
+        // fix: whether the host's contents may be matched now. Not while the container's menu is open (the game's menu
+        // keeps pointers into the stacks a fix would remove); they're kept for a later look.
         std::vector<net::ItemCount> Look(const std::vector<net::ItemCount>& local,
-            std::vector<net::ContainerChange>& changes, const std::vector<net::ItemCount>& playerChange = {});
+            std::vector<net::ContainerChange>& changes, const std::vector<net::ItemCount>& playerChange = {},
+            bool fix = true);
         void Closing(const std::vector<net::ItemCount>& local, std::vector<net::ContainerChange>& changes);
         void Settle(const std::vector<net::ItemCount>& local) { m_snapshot = local; }
         void Heard(const net::ContainerContents& m);
