@@ -558,7 +558,7 @@ namespace coop
         void OfferContainer(uint32_t ref, const std::vector<net::ItemCount>& local);
         void ViewContainer(uint32_t hostRef, bool open = true);
         std::vector<net::ItemCount> LookAtContainer(const std::vector<net::ItemCount>& local,
-            const std::vector<net::ItemCount>& playerChange = {});
+            const std::vector<net::ItemCount>& playerChange = {}, bool fix = true);
         void ContainerSettled(const std::vector<net::ItemCount>& local) { m_friendContainer.Settle(local); }
         void ClosedContainer(const std::vector<net::ItemCount>& local);
         std::vector<net::ItemCount> TakeItemRefunds() { return std::move(m_refunds); }

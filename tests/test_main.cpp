@@ -2526,6 +2526,22 @@ TEST(container_messages_round_trip_and_checks)
     CHECK(rz.Type(t) && !DecodeItemRefund(rz, refund));
 }
 
+TEST(friend_container_keeps_the_hosts_contents_while_its_menu_is_open)
+{
+    coop::FriendContainer box;
+    std::vector<ContainerChange> changes;
+    const std::vector<ItemCount> start{{0x15169, 2}};
+    box.View(0x1062A9);
+    box.Look(start, changes);
+    box.Heard({0x1062A9, 0, {{0x15169, 1}}});
+    // The menu is open: nothing is taken away under it, and the host's contents are kept.
+    CHECK(box.Look(start, changes, {}, false).empty() && changes.empty());
+    CHECK(box.Look(start, changes, {}, false).empty());
+    // It shut: matched now.
+    auto fixes = box.Look(start, changes);
+    CHECK((fixes.size() == 1 && fixes[0] == ItemCount{0x15169, -1}));
+}
+
 TEST(friend_container_waits_for_the_host_to_see_its_changes)
 {
     coop::FriendContainer box;

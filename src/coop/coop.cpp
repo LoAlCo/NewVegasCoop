@@ -3364,12 +3364,12 @@ namespace coop
     }
 
     std::vector<ItemCount> Coop::LookAtContainer(const std::vector<ItemCount>& local,
-        const std::vector<ItemCount>& playerChange)
+        const std::vector<ItemCount>& playerChange, bool fix)
     {
         if (m_role != Role::Friend || !InGame())
             return {};
         std::vector<ContainerChange> changes;
-        std::vector<ItemCount> fixes = m_friendContainer.Look(local, changes, playerChange);
+        std::vector<ItemCount> fixes = m_friendContainer.Look(local, changes, playerChange, fix);
         SendContainerChanges(changes);
         return fixes;
     }

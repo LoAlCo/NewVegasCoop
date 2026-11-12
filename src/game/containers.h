@@ -45,6 +45,8 @@ namespace game
             uint32_t since = 0;
         };
         std::vector<Waiting> m_waiting;
+        // Friend: refunds wait while a container's menu is open (it keeps pointers into the player's stacks).
+        std::vector<net::ItemCount> m_pendingRefunds;
         // Friend: a body's loose items are hidden from the moment it dies until the host's list of them comes (our game
         // rolled its own), and given back if none does. What it wears and holds stays.
         void FriendHideFreshBodies(coop::Coop& coop, const Npcs& npcs, uint32_t now);
