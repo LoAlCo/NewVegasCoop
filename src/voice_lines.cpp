@@ -92,6 +92,29 @@ namespace
             LOG_WARN("Voice lines: couldn't play %s for you to hear", path.c_str());
     }
 
+    // The voice our character speaks in, from the MCM's Voice choice (or the character's own voice), logged when it
+    // changes so a modded race's voice can be checked in the log.
+    coop::VoicePick MyVoice()
+    {
+        static uint64_t s_logged = ~0ull;
+        game::MyVoices mine;
+        bool read = game::ReadMyVoices(mine);
+        coop::VoicePick pick = coop::PickVoice(g_config.voiceLineVoice, mine.own, mine.raceMale, mine.raceFemale,
+            mine.female);
+        uint64_t key = (static_cast<uint64_t>(pick.voice) << 8) ^ (static_cast<uint64_t>(mine.own) << 32) ^
+            (static_cast<uint64_t>(g_config.voiceLineVoice) << 1) ^ (read ? 1 : 0);
+        if (key != s_logged)
+        {
+            s_logged = key;
+            LOG_INFO("Voice lines: voice %08X (%s, %s); character %s, its voice %08X, race voices %08X/%08X%s",
+                pick.voice, pick.female ? "female" : "male",
+                g_config.voiceLineVoice == coop::kVoiceMatchCharacter ? "matching the character" : "picked in the menu",
+                mine.female ? "female" : "male", mine.own, mine.raceMale, mine.raceFemale,
+                read ? "" : " (couldn't read the character)");
+        }
+        return pick;
+    }
+
     // Says a phrase on our character and sends it to friends. why: "" for the wheel, else what made us say it.
     bool Speak(uint8_t phrase, uint32_t now, const char* why, int pickedLine = -1)
     {
@@ -104,9 +127,7 @@ namespace
         }
         auto line = static_cast<uint8_t>(pickedLine >= 0 && pickedLine < coop::kVoicePhrases[phrase].count ? pickedLine :
             g_random() % coop::kVoicePhrases[phrase].count);
-        net::PlayerLooks looks;
-        bool female = game::ReadMyLooks(looks) && looks.female;
-        uint32_t voice = coop::VoiceFor(female, g_config.voiceLineVoice);
+        uint32_t voice = MyVoice().voice;
         game::Sound sound;
         bool said = Say(game::Player(), phrase, line, voice, sound);
         if (said)
@@ -328,8 +349,7 @@ void UpdateVoiceLines(uint32_t now)
     look.blue = static_cast<float>(g_config.voiceLineBlue);
     if (held && !g_wheelOpen)
     {
-        net::PlayerLooks mine;
-        g_wheelFemale = game::ReadMyLooks(mine) && mine.female;
+        g_wheelFemale = MyVoice().female;
     }
     look.female = g_wheelFemale;
     if (held)

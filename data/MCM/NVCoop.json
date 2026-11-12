@@ -1301,26 +1301,38 @@
 					"title": "Voice",
 					"type": 1,
 					"enable": 1,
-					"mouse": "Which game voice your character speaks in. Male characters use a male voice and female characters a female one; the numbers pick between the game's generic voices",
+					"mouse": "Which game voice your character speaks in. Match My Character uses the voice the game (or a race mod) gives your character, falling back to Voice 1 of their sex. Or pick any voice: the icons follow it, Vault Girl for a female voice and Vault Boy for a male one",
 					"vars": [
 						{
-							"configINI": "Settings:iVoiceLineVoice",
+							"configINI": "Settings:iVoiceLineVoiceType",
 							"default": 0
 						}
 					],
 					"strings": [
-						"Voice 1",
-						"Voice 2",
-						"Voice 3",
-						"Voice 4",
-						"Voice 5",
-						"Voice 6",
-						"Voice 7",
-						"Voice 8",
-						"Voice 9",
-						"Voice 10",
-						"Voice 11",
-						"Voice 12"
+						"Match My Character",
+						"Male Adult 1",
+						"Male Adult 1 (B)",
+						"Male Adult 2",
+						"Male Adult 4",
+						"Male Adult 5",
+						"Male Adult 7",
+						"Male Adult 8",
+						"Male Adult 9",
+						"Male Old 1",
+						"Male Old 2",
+						"Male Ghoul",
+						"Female Adult 1",
+						"Female Adult 2",
+						"Female Adult 3",
+						"Female Adult 4",
+						"Female Adult 6",
+						"Female Adult 7",
+						"Female Adult 9",
+						"Female Adult 10",
+						"Female Old 1",
+						"Female Old 2",
+						"Female Ghoul 1",
+						"Female Ghoul 2"
 					]
 				},
 				"6": {

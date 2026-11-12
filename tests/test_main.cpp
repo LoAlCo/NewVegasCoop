@@ -10237,11 +10237,26 @@ TEST(voice_line_table_has_lines_for_every_phrase)
     for (const coop::AutoRule& r : coop::kAutoRules)
         CHECK(r.phrase >= coop::kVoiceSlots && r.phrase < coop::kVoicePhraseCount);
     CHECK(std::string(coop::VoiceFolder(0x2E)) == "FemaleAdult01Default" && !coop::VoiceFolder(0x14));
-    CHECK(coop::VoiceFor(false, 0) == 0x2D && coop::VoiceFor(true, 0) == 0x2E);
-    CHECK(coop::VoiceFor(false, 11) == 0x2D && coop::VoiceFor(true, 11) == 0x143779);
-    CHECK(coop::VoiceFor(false, -3) == 0x2D);
-    for (int c = 0; c < coop::kMostVoiceChoices; ++c)
-        CHECK(coop::IsWheelVoice(coop::VoiceFor(false, c)) && coop::IsWheelVoice(coop::VoiceFor(true, c)));
+    // Picked in the menu: any voice, and the icons follow the voice, not the body.
+    CHECK(coop::kVoiceChoices == 24);
+    CHECK(coop::PickVoice(1, 0, 0, 0, true).voice == 0x2D && !coop::PickVoice(1, 0, 0, 0, true).female);
+    CHECK(coop::PickVoice(12, 0, 0, 0, false).voice == 0x2E && coop::PickVoice(12, 0, 0, 0, false).female);
+    CHECK(coop::PickVoice(23, 0, 0, 0, false).voice == 0x143779);
+    for (int c = 1; c < coop::kVoiceChoices; ++c)
+        CHECK(coop::IsWheelVoice(coop::PickVoice(c, 0, 0, 0, false).voice));
+    // Matching the character: its own voice when the game has the lines in it.
+    CHECK(coop::PickVoice(0, 0x13C8CD, 0x2D, 0x2E, false).voice == 0x13C8CD &&
+          coop::PickVoice(0, 0x13C8CD, 0x2D, 0x2E, false).female);
+    // No voice of its own: the race's voice for its sex.
+    CHECK(coop::PickVoice(0, 0, 0x19FC8, 0x19FCB, true).voice == 0x19FCB);
+    CHECK(coop::PickVoice(0, 0, 0x19FC8, 0x19FCB, false).voice == 0x19FC8);
+    // A mod's own voice (no lines): voice 1 of the sex its race gives that voice, else of the body.
+    CHECK(coop::PickVoice(0, 0x01000ABC, 0x01000ABD, 0x01000ABC, false).voice == 0x2E);
+    CHECK(coop::PickVoice(0, 0x01000ABC, 0x01000ABC, 0x01000ABD, true).voice == 0x2D);
+    CHECK(coop::PickVoice(0, 0x01000ABC, 0, 0, true).voice == 0x2E);
+    // Nothing known at all: male voice 1 for a man, female voice 1 for a woman; nonsense choices match the character.
+    CHECK(coop::PickVoice(0, 0, 0, 0, false).voice == 0x2D && coop::PickVoice(0, 0, 0, 0, true).voice == 0x2E);
+    CHECK(coop::PickVoice(-5, 0, 0, 0, false).voice == 0x2D && coop::PickVoice(99, 0, 0, 0, true).voice == 0x2E);
     CHECK(!coop::IsWheelVoice(0) && !coop::IsWheelVoice(0x0002853B));
 }
 
