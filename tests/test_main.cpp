@@ -6613,3 +6613,40 @@ TEST(a_copy_we_just_deleted_is_never_held_as_a_visitor_only_npc)
     a.sharedByHost = s.shared;
     CHECK(!coop::ShouldHold(a, false));
 }
+
+TEST(npcs_are_held_only_where_the_host_could_be_running_them)
+{
+    const uint32_t megaton = 0x6000A74, saloon = 0x6003A35;
+    CHECK(coop::HostNear(true, megaton, megaton, 100, 100, 4096));
+    CHECK(coop::HostNear(true, megaton, megaton, 4096, 0, 4096));
+    CHECK(!coop::HostNear(true, megaton, megaton, 4097, 0, 4096));
+    CHECK(!coop::HostNear(true, saloon, megaton, 0, 0, 4096));
+    CHECK(!coop::HostNear(false, megaton, megaton, 0, 0, 4096));
+    CHECK(!coop::HostNear(true, 0, 0, 0, 0, 4096));
+
+    coop::LocalActor nathan;
+    nathan.ref = 0x6003B57;
+    CHECK(coop::ShouldHold(nathan, false) && !coop::ShouldHide(nathan, false));
+    nathan.hostCouldHave = false;
+    CHECK(!coop::ShouldHold(nathan, false) && !coop::ShouldHide(nathan, false));
+}
+
+TEST(npcs_made_only_in_our_game_are_hidden_not_frozen)
+{
+    coop::LocalActor ant;
+    ant.ref = 0xFF00313F;
+    CHECK(coop::ShouldHide(ant, false));
+    ant.hostCouldHave = false;
+    CHECK(!coop::ShouldHide(ant, false));
+    ant.hostCouldHave = true;
+    ant.ourCopy = true;
+    CHECK(!coop::ShouldHide(ant, false));
+    ant.ourCopy = false;
+    ant.alive = false;
+    CHECK(!coop::ShouldHide(ant, false));
+    ant.alive = true;
+    ant.playerOrStandIn = true;
+    CHECK(!coop::ShouldHide(ant, false));
+    ant.playerOrStandIn = false;
+    CHECK(!coop::ShouldHide(ant, true));
+}

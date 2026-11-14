@@ -21,7 +21,16 @@ namespace coop
         bool alive = true;
         bool loaded = true;
         bool samePlace = true;
+        // The host is in our place and near enough to the NPC that its game would run it if it had it. When the host
+        // is far away, our NPCs there run on their own, as they did before holds.
+        bool hostCouldHave = true;
     };
+
+    // The host is near enough to an NPC to be running it, if it had it: in the same place and within reach.
+    inline bool HostNear(bool hostKnown, uint32_t hostSpace, uint32_t npcSpace, float dx, float dy, float reach)
+    {
+        return hostKnown && hostSpace != 0 && hostSpace == npcSpace && dx * dx + dy * dy <= reach * reach;
+    }
 
     // Who runs one of our NPCs, from the host's list. A reference made while playing here (FF...) is numbered by our
     // game, so the host's reference of the same number is a different NPC: ours is never the host's, and it's one of
@@ -41,7 +50,14 @@ namespace coop
     inline bool ShouldHold(const LocalActor& a, bool hostListFull)
     {
         return !hostListFull && a.ref != 0 && !a.playerOrStandIn && !a.ourCopy && !a.sharedByHost && a.enabled &&
-            a.alive && a.loaded && a.samePlace;
+            a.alive && a.loaded && a.samePlace && a.hostCouldHave;
+    }
+
+    // An NPC our game made while playing (FF...) that isn't one of our copies: the host never had it (a spawn of our
+    // own encounters or scripts). Freezing it leaves a still NPC only we see, so it's hidden instead.
+    inline bool ShouldHide(const LocalActor& a, bool hostListFull)
+    {
+        return (a.ref >> 24) == 0xFF && ShouldHold(a, hostListFull);
     }
 
     class Holds

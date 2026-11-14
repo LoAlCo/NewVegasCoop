@@ -70,6 +70,8 @@ namespace game
             coop::Pose spot;
         };
         coop::Holds m_holds;
+        std::set<uint32_t> m_hiddenSpawns;
+        void UnhideSpawn(uint32_t ref, const char* why);
         std::map<uint32_t, Held> m_heldActors;
         uint32_t m_nextHoldLook = 0, m_holdsStarted = 0;
         TESObjectREFR* Find(uint32_t ref) const;

@@ -327,6 +327,22 @@ namespace game
         if (coop::IsDue(now, m_nextHoldLook))
         {
             m_nextHoldLook = now + kHoldLookEveryMs;
+            coop::Pose host;
+            auto remote = coop.Remotes().find(coop::kHostPlayerId);
+            bool hostKnown = remote != coop.Remotes().end() && remote->second.motion.Sample(now, host);
+            const float holdReach = LoadedReach() / 2;
+            const bool listFull = coop.Npcs().size() >= coop::kMaxNpcs;
+            for (auto it = m_hiddenSpawns.begin(); it != m_hiddenSpawns.end();)
+            {
+                uint32_t ref = *it;
+                ++it;
+                TESObjectREFR* actor = LookupRef(ref);
+                coop::Pose at;
+                if (!actor || !IsActor(actor) || !GetPose(actor, at))
+                    m_hiddenSpawns.erase(ref);
+                else if (hostKnown && !coop::HostNear(true, host.space, at.space, at.x - host.x, at.y - host.y, holdReach))
+                    UnhideSpawn(ref, "the host is away from it");
+            }
             NearbyActors(m_nearby);
             std::vector<coop::LocalActor> nearby;
             nearby.reserve(m_nearby.size());
@@ -343,9 +359,24 @@ namespace game
                 a.loaded = Is3DLoaded(actor);
                 coop::Pose at;
                 a.samePlace = GetPose(actor, at) && at.space == myPose.space;
+                a.hostCouldHave = coop::HostNear(hostKnown, host.space, at.space, at.x - host.x, at.y - host.y,
+                    holdReach);
+                if (coop::ShouldHide(a, listFull) && !m_hiddenSpawns.count(a.ref) &&
+                    m_hiddenSpawns.size() < coop::Holds::kMaxHolds)
+                {
+                    if (TopEnableParent(actor))
+                        ForceEnabled(actor, false);
+                    else
+                        SetEnabled(actor, false);
+                    m_hiddenSpawns.insert(a.ref);
+                    LOG_INFO("NPCs: %s (%08X) was made in our game only (the host never had it); hidden while the host "
+                        "is near", Name(actor), a.ref);
+                }
+                if (m_hiddenSpawns.count(a.ref))
+                    a.enabled = false;
                 nearby.push_back(a);
             }
-            coop::Holds::Changes changes = m_holds.Look(nearby, coop.Npcs().size() >= coop::kMaxNpcs);
+            coop::Holds::Changes changes = m_holds.Look(nearby, listFull);
             for (const coop::Holds::Released& r : changes.release)
             {
                 coop::HostSide side = HostSideOf(r.ref, coop);
@@ -417,6 +448,21 @@ namespace game
         for (const coop::Holds::Released& held : m_holds.ReleaseAll())
             LetGoOfHold(held, false);
         m_heldActors.clear();
+        while (!m_hiddenSpawns.empty())
+            UnhideSpawn(*m_hiddenSpawns.begin(), "co-op is over");
+    }
+
+    void Npcs::UnhideSpawn(uint32_t ref, const char* why)
+    {
+        m_hiddenSpawns.erase(ref);
+        TESObjectREFR* actor = LookupRef(ref);
+        if (!actor || !IsActor(actor))
+            return;
+        if (TopEnableParent(actor))
+            ForceEnabled(actor, true);
+        else
+            SetEnabled(actor, true);
+        LOG_INFO("NPCs: %s (%08X), made in our game only, is shown again: %s", Name(actor), ref, why);
     }
 
     void Npcs::UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
@@ -1076,6 +1122,7 @@ namespace game
     {
         m_holds.ReleaseAll();
         m_heldActors.clear();
+        m_hiddenSpawns.clear();
         m_entries.clear();
         m_made.clear();
         m_rerolled.clear();
