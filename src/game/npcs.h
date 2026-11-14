@@ -33,6 +33,9 @@ namespace game
         void CheckDesyncs(coop::Coop& coop, uint32_t now, const coop::Pose& myPose);
         bool IsHeld(uint32_t ref) const { return m_holds.IsHeld(ref); }
         void ReleaseAll();
+        // Co-op characters a save still held (copies, other players' characters): switched off now, deleted later
+        size_t TakeLeftovers(const std::vector<uint32_t>& ids);
+        void DeleteLeftoversWhenAway(uint32_t now);
         void Forget();
         std::vector<uint32_t> MadeRefIds() const;
         static void LabCopySteps(uint32_t steps) { s_labSteps = steps; }
@@ -116,6 +119,8 @@ namespace game
         coop::KeptOff m_keptOff;
         coop::DeletedCopies m_deletedCopies;
         void KeepDeletedCopiesGone(uint32_t now);
+        std::set<uint32_t> m_leftovers;
+        uint32_t m_nextLeftoverLook = 0;
         void SwitchOffOriginal(TESObjectREFR* own);
         void PutBackOriginal(uint32_t ref);
         void KeepOriginalsOff(uint32_t now);

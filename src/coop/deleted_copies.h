@@ -21,6 +21,13 @@ namespace coop
         Gone,        // deleted or off for good: stop watching
     };
 
+    // A co-op character left in a save is switched off at once, but deleted only once it's no longer loaded and
+    // we're away from it: deleting it while its place is still loaded crashed the game (v33, 0x0043FCF6).
+    inline bool CanDeleteLeftover(bool loaded3D, float dx, float dy, float reach)
+    {
+        return !loaded3D && dx * dx + dy * dy > reach * reach;
+    }
+
     // Copies of the host's NPCs we deleted. The game switches a reference off later in the frame, so for a moment a
     // deleted copy still looks like a live NPC of our own; some never went and came back as strays. This keeps
     // watching each until it's really gone.

@@ -340,7 +340,8 @@ namespace game
                 coop::Pose at;
                 if (!actor || !IsActor(actor) || !GetPose(actor, at))
                     m_hiddenSpawns.erase(ref);
-                else if (hostKnown && !coop::HostNear(true, host.space, at.space, at.x - host.x, at.y - host.y, holdReach))
+                else if (hostKnown &&
+                    !coop::HostNear(true, host.space, at.space, at.x - host.x, at.y - host.y, holdReach))
                     UnhideSpawn(ref, "the host is away from it");
             }
             NearbyActors(m_nearby);
@@ -1075,7 +1076,71 @@ namespace game
             ids.push_back(m.localId);
         for (uint32_t id : m_deletedCopies.Ids())
             ids.push_back(id);
+        for (uint32_t id : m_leftovers)
+            ids.push_back(id);
         return ids;
+    }
+
+    size_t Npcs::TakeLeftovers(const std::vector<uint32_t>& ids)
+    {
+        size_t taken = 0;
+        for (uint32_t id : ids)
+        {
+            TESObjectREFR* ref = LookupRef(id);
+            if (!ref)
+                continue;
+            if (!IsActor(ref) || ref == Player())
+            {
+                LOG_INFO("NPCs: not removing %08X: noted in the save as ours, but now it's something else", id);
+                continue;
+            }
+            BaseInfo b = DescribeBase(ref);
+            coop::Pose at;
+            bool placed = GetPose(ref, at);
+            if (TopEnableParent(ref))
+                ForceEnabled(ref, false);
+            else
+                SetEnabled(ref, false);
+            m_leftovers.insert(id);
+            ++taken;
+            LOG_INFO("NPCs: %s (%08X, from %08X) was left in the save by co-op; switched it off (in %08X at %.0f, %.0f), "
+                "deleting it once we're away from it", Name(ref), id, b.base, placed ? at.space : 0,
+                placed ? at.x : 0.f, placed ? at.y : 0.f);
+        }
+        return taken;
+    }
+
+    void Npcs::DeleteLeftoversWhenAway(uint32_t now)
+    {
+        if (m_leftovers.empty() || !coop::IsDue(now, m_nextLeftoverLook))
+            return;
+        m_nextLeftoverLook = now + 1000;
+        coop::Pose me;
+        TESObjectREFR* player = Player();
+        bool known = player && GetPose(player, me);
+        for (auto it = m_leftovers.begin(); it != m_leftovers.end();)
+        {
+            uint32_t id = *it;
+            TESObjectREFR* ref = LookupRef(id);
+            if (!ref || !IsActor(ref) || (ReadWorldItem(ref).flags & layout::kRefDeleted))
+            {
+                it = m_leftovers.erase(it);
+                continue;
+            }
+            if (IsEnabled(ref))
+                SetEnabled(ref, false);
+            coop::Pose at;
+            bool away = known && GetPose(ref, at) && (at.space != me.space ||
+                coop::CanDeleteLeftover(Is3DLoaded(ref), at.x - me.x, at.y - me.y, LoadedReach()));
+            if (!away)
+            {
+                ++it;
+                continue;
+            }
+            Remove(ref);
+            LOG_INFO("NPCs: deleted %08X, a co-op character left in the save, now that we're away from it", id);
+            it = m_leftovers.erase(it);
+        }
     }
 
     void Npcs::KeepDeletedCopiesGone(uint32_t now)
@@ -1128,6 +1193,7 @@ namespace game
         m_rerolled.clear();
         m_keptOff.Clear();
         m_deletedCopies.Clear();
+        m_leftovers.clear();
         m_killed.clear();
         m_nextRevive.clear();
         m_switchedOff.clear();

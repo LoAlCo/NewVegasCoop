@@ -1012,21 +1012,10 @@ namespace
         }
         game::CheckMoverMap();
         std::vector<uint32_t> leftover = game::SavedMadeCharacters();
-        size_t removed = 0;
-        for (uint32_t id : leftover)
-        {
-            TESObjectREFR* ref = game::LookupRef(id);
-            if (ref && game::IsActor(ref) && ref != game::Player())
-            {
-                game::Remove(ref);
-                ++removed;
-            }
-            else if (ref)
-                LOG_INFO("Not removing %08X: noted in the save as ours, but now it's something else", id);
-        }
+        size_t removed = g_npcs.TakeLeftovers(leftover);
         if (!leftover.empty())
-            LOG_INFO("Removed %zu co-op character(s) left in the save (friends', copies of the host's NPCs; %zu "
-                "listed)", removed, leftover.size());
+            LOG_INFO("Switched off %zu co-op character(s) left in the save (friends', copies of the host's NPCs; %zu "
+                "listed); each is deleted once we're away from it", removed, leftover.size());
         game::NoteMadeCharacters({});
         g_notedMade.clear();
         g_worldLoaded = true;
@@ -2281,6 +2270,7 @@ namespace
             }
             game::UpdateFarArea(hosting, farFriends, s_usedMb, now);
         }
+        g_npcs.DeleteLeftoversWhenAway(now);
         if (g_coop.GetRole() == coop::Role::Host)
             g_npcs.Share(g_coop, now, me, g_standIns);
         else if (g_coop.InGame())

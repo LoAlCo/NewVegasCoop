@@ -6650,3 +6650,12 @@ TEST(npcs_made_only_in_our_game_are_hidden_not_frozen)
     ant.playerOrStandIn = false;
     CHECK(!coop::ShouldHide(ant, true));
 }
+
+TEST(a_leftover_from_a_save_is_deleted_only_once_we_are_away_from_it)
+{
+    CHECK(!coop::CanDeleteLeftover(true, 10000, 0, 8192));
+    CHECK(!coop::CanDeleteLeftover(false, 100, 100, 8192));
+    CHECK(!coop::CanDeleteLeftover(false, 8192, 0, 8192));
+    CHECK(coop::CanDeleteLeftover(false, 8193, 0, 8192));
+    CHECK(coop::CanDeleteLeftover(false, 0, -20000, 8192));
+}
