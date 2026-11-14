@@ -1,0 +1,4 @@
+# NPCs the host places during play show up for the friend
+host: coop spawntest 2
+waitfor friend 20 coop npcs ~ Powder Ganger
+shot friend gangers

@@ -1,0 +1,6 @@
+# The host goes through a door (a house in Goodsprings); the friend is pulled along
+capture hostspace host status ~ in ([0-9A-F]{8})
+host: activate 00177D3B
+waitfor host 30 status ~ in 00105619
+waitfor friend 30 status ~ in 00105619
+shot both inside

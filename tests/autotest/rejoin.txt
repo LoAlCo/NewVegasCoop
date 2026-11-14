@@ -1,0 +1,11 @@
+# The friend's game crashes: the host carries on, the friend comes back, joins again and is brought to the host
+kill friend
+waitfor host 60 status ~ (0 others)
+expect host status ~ co-op hosting
+relaunch friend
+connect
+expect host status ~ (1 others)
+expect friend status ~ co-op joined
+capture hs2 host status ~ in ([0-9A-F]{8})
+waitfor friend 30 status ~ in $hs2
+shot both rejoined

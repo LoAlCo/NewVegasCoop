@@ -1,0 +1,38 @@
+# NPC deaths and body loot match (outside, Goodsprings): the host kills a settler; the friend kills a Powder Ganger
+# the host placed, with a hit that goes through the host like a real shot
+both: player.moveto 00104F0A
+wait 3
+host: on 00104F0A kill
+waitfor friend 15 evalon 00104F0A GetDead >= 1
+wait 3
+both: activate 00104F0A
+wait 1
+expect both status ~ a menu is open
+same coop box
+both: CloseAllMenus
+wait 3
+both: activate 00104F0A
+wait 1
+same coop box
+both: CloseAllMenus
+say the friend's kill
+host: coop spawntest 1
+wait 6
+capture fg friend coop npcs ~ (FF[0-9A-F]{6}) Powder Ganger
+friend: player.moveto $fg
+wait 2
+capture hg friend friendhit 1000 ~ host's ([0-9A-F]{8})
+waitfor host 15 evalon $hg GetDead >= 1
+waitfor friend 15 evalon $fg GetDead >= 1
+say the friend opens the body at once (the loot mustn't change after)
+waitfor friend 10 activate $fg !~ not
+host: player.moveto $hg
+wait 1
+waitfor host 10 activate $hg !~ not
+wait 1
+expect both status ~ a menu is open
+same coop box
+wait 4
+same coop box
+both: CloseAllMenus
+shot both bodies

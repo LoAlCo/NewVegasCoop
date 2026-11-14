@@ -1,0 +1,8 @@
+# Chat lines with format codes, markup, accents and a long line: they arrive and nothing crashes
+mark
+friend: say odd %s %n %d %x 100% {0} <font color=FF0000>red</font> naïve 7741
+waitlog host 10 7741
+host: say long 7742 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa end
+waitlog friend 10 long 7742
+expect both status ~ world loaded
+shot both chat

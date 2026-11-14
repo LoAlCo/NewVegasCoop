@@ -1,0 +1,13 @@
+# Every scenario in order (one game session)
+include setup
+include leftovers
+include timeweather
+include chat
+include chatedge
+include positions
+include spawns
+include npckill
+include doors
+include containers
+include rejoin
+include reload

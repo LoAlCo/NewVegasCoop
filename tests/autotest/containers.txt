@@ -1,0 +1,41 @@
+# Two players and one container (the v46 crash fix). Run after doors (inside the house).
+both: activate 0010B74B
+wait 2
+expect both status ~ a menu is open
+say the friend adds 3 stimpaks while the host's menu is open
+friend: coop boxadd 3
+wait 2
+both: CloseAllMenus
+wait 2
+host: activate 0010B74B
+wait 2
+expect host coop box ~ 00015169 x3
+say the host takes them under the friend's open menu
+friend: activate 0010B74B
+wait 2
+host: coop boxadd -3
+wait 2
+both: CloseAllMenus
+wait 2
+friend: activate 0010B74B
+wait 2
+expect friend coop box !~ 00015169
+both: CloseAllMenus
+say both take the last stimpak at once
+host: activate 0010B74B
+wait 1
+host: coop boxadd 1
+both: CloseAllMenus
+wait 2
+both: activate 0010B74B
+wait 2
+host: coop boxadd -1
+friend: coop boxadd -1
+wait 3
+both: CloseAllMenus
+wait 3
+host: activate 0010B74B
+wait 2
+expect host coop box !~ 00015169
+both: CloseAllMenus
+expect both status ~ world loaded

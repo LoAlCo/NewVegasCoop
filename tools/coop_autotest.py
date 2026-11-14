@@ -260,6 +260,35 @@ def describe(path: str) -> str:
     return first.lstrip("# ") if first.startswith("#") else ""
 
 
+def first_number(text: str) -> float | None:
+    import re
+    m = re.search(r"-?\d+(?:\.\d+)?", text)
+    return float(m.group()) if m else None
+
+
+def check(got: str, op: str, want: str) -> bool:
+    if op == "~":
+        return want.lower() in got.lower()
+    if op == "!~":
+        return want.lower() not in got.lower()
+    if op == "==":
+        return got.strip() == want
+    v, x = first_number(got), first_number(want)
+    if v is None or x is None:
+        return False
+    return v >= x if op == ">=" else v <= x
+
+
+def norm(text: str) -> str:
+    """For comparing the two copies: whole numbers, list parts in any order, and a container's own reference id
+    left out (each copy may have its own copy of an NPC)."""
+    import re
+    text = re.sub(r"-?\d+\.\d+", lambda m: str(round(float(m.group()))), text.strip())
+    text = re.sub(r"\(reading took [^)]*\)", "", text)
+    text = re.sub(r"shows [0-9A-F]{8} \(base [0-9A-F]{8}\)", "shows", text)
+    return " | ".join(sorted(p.strip() for p in text.split(" | ")))
+
+
 def whos(w: str) -> list[str]:
     return ["host", "friend"] if w == "both" else [w]
 
@@ -286,6 +315,7 @@ class Run:
         self.shots: list[str] = []
         self.started = time.time()
         self.outcome = "unknown"
+        self.vars: dict[str, str] = {}
         self.saves_before = set(os.listdir(save_folder())) if os.path.isdir(save_folder()) else set()
 
     def log(self, msg: str) -> None:
@@ -311,6 +341,13 @@ class Run:
             self.log("the game is already running: close it first (the runner only drives copies it started)")
             return False
         for who in ("host", "friend"):
+            if not self.launch_one(who):
+                return False
+        self.mark()
+        return True
+
+    def launch_one(self, who: str) -> bool:
+        if True:
             before = set(game_pids())
             subprocess.Popen([os.path.join(GAME, GAME_EXE)], cwd=GAME)
             for _ in range(90):
@@ -334,13 +371,37 @@ class Run:
                 value = 1 if setting.startswith("bAlways") else 0
                 self.labs[who].ask(f'SetNumericINISetting "{setting}" {value}')
             self.log(f"{who}: {self.labs[who].ask('status')} (background running on, autosaves off)")
-        self.mark()
         return True
+
+    def ask(self, who: str, line: str) -> str:
+        """A lab line to one copy ($names replaced). For the mod's dev commands (coop ...), which print to the
+        console and the log, the answer is what they wrote to the log ("Command: ..." lines)."""
+        for k, v in sorted(self.vars.items(), key=lambda kv: -len(kv[0])):
+            line = line.replace("$" + k, v)
+        if not line.lower().startswith("coop "):
+            return self.labs[who].ask(line)
+        path = os.path.join(GAME, LOGS[who])
+        start = os.path.getsize(path) if os.path.isfile(path) else 0
+        got = self.labs[who].ask(line)
+        out, last, end = [], -1, time.time() + 3
+        while time.time() < end:
+            time.sleep(0.3)
+            with open(path, "rb") as f:
+                f.seek(start)
+                out = [l.split("Command: ", 1)[1].strip() for l in f.read().decode("utf-8", "replace").splitlines()
+                       if "Command: " in l]
+            if out and len(out) == last:
+                break
+            last = len(out)
+        return " | ".join(out) if out else got
 
     def connect(self, n: int) -> bool:
         """The host hosts (by IP too) with Autotest Host; the friend joins the last IP address (127.0.0.1), loads
         Autotest Friend if asked to pick a save, and the host lets them in."""
         host, friend = self.labs["host"], self.labs["friend"]
+        if "co-op hosting" in host.ask("status"):
+            self.log("host: already hosting")
+            return self.join(n)
         self.log(f"host> menu host => {host.ask('menu host')}")
         time.sleep(1)
         self.log(f"host> pick 1 => {host.ask('pick 1')}")
@@ -354,6 +415,10 @@ class Run:
                 return False
             time.sleep(2)
         self.ok(n, "connect: the host hosts with its save", got)
+        return self.join(n)
+
+    def join(self, n: int) -> bool:
+        host, friend = self.labs["host"], self.labs["friend"]
         self.mark()
         self.log(f"friend> menu join => {friend.ask('menu join')}")
         time.sleep(1)
@@ -436,6 +501,9 @@ class Run:
         s = line.strip()
         if not s or s.startswith("#"):
             return
+        if not s.startswith("capture "):
+            for k, v in sorted(self.vars.items(), key=lambda kv: -len(kv[0])):
+                s = s.replace("$" + k, v)
         w = s.split()
         c = w[0]
         if c == "say":
@@ -454,22 +522,61 @@ class Run:
             for who in whos(w[1]):
                 self.shot(who, " ".join(w[2:]))
         elif c in ("expect", "waitfor") and len(w) >= 3:
+            # expect <who> <line> <op> <want> / waitfor <who> <secs> <line> <op> <want>
+            # ops: ~ (contains), !~ (doesn't), == (exactly), >= <= (the answer's first number)
             who = w[1]
-            rest = s.split(None, 2 if c == "expect" else 3)
+            body = s.split(None, 2 if c == "expect" else 3)[-1]
             secs = float(w[2]) if c == "waitfor" else 0
-            body = rest[-1]
-            neg = " !~ " in body
-            lab_line, _, want = body.partition(" !~ " if neg else " ~ ")
+            op = next((o for o in (" !~ ", " ~ ", " == ", " >= ", " <= ") if o in body), None)
+            if not op:
+                self.bad(n, s, "no ~, !~, ==, >= or <= in the step")
+                return
+            lab_line, _, want = body.partition(op)
+            want = want.strip()
             for each in whos(who):
                 end = time.time() + secs
                 while True:
-                    got = self.labs[each].ask(lab_line.strip())
-                    hit = want.strip().lower() in got.lower()
-                    if hit != neg or time.time() >= end or self.crashed():
+                    got = self.ask(each, lab_line.strip())
+                    hit = check(got, op.strip(), want)
+                    if hit or time.time() >= end or self.crashed():
                         break
                     time.sleep(1)
-                what = f"{each}: {lab_line.strip()} {'!~' if neg else '~'} {want.strip()}"
-                (self.ok if hit != neg else self.bad)(n, what, got)
+                (self.ok if hit else self.bad)(n, f"{each}: {lab_line.strip()} {op.strip()} {want}", got)
+        elif c == "same" and len(w) >= 2:
+            # same <line>: both copies answer the same (numbers rounded to whole ones)
+            line_ = s.split(None, 1)[1]
+            line_, _, word = line_.partition(" ~ ")
+            a, b = self.ask("host", line_), self.ask("friend", line_)
+            if word:
+                # same <line> ~ <word>: as many parts of the answer mention <word> on both copies
+                ca = sum(word.strip() in p for p in a.split(" | "))
+                cb = sum(word.strip() in p for p in b.split(" | "))
+                (self.ok if ca == cb else self.bad)(n, f"same count of '{word.strip()}': {line_}", f"host {ca} / friend {cb}")
+            else:
+                (self.ok if norm(a) == norm(b) else self.bad)(n, f"same on both: {line_}", f"host {a} / friend {b}")
+        elif c == "capture" and len(w) >= 5:
+            # capture <name> <who> <line> ~ <regex with one group>: $name in later steps
+            import re
+            name, who = w[1], w[2]
+            body = s.split(None, 3)[3]
+            line_, _, rx = body.partition(" ~ ")
+            got = self.ask(who, line_.strip())
+            m = re.search(rx.strip(), got)
+            if m:
+                self.vars[name] = m.group(1)
+                self.log(f"${name} = {m.group(1)}")
+            else:
+                self.bad(n, f"capture {name}: {rx.strip()}", got[:300])
+        elif c == "kill" and len(w) >= 2:
+            pid = self.pids.pop(w[1], None)
+            self.labs[w[1]].close()
+            if pid:
+                subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+            self.log(f"killed {w[1]} (pid {pid}) on purpose")
+            time.sleep(2)
+        elif c == "relaunch" and len(w) >= 2:
+            if not self.launch_one(w[1]):
+                raise RuntimeError(f"relaunch {w[1]} failed")
         elif c == "mark":
             self.mark()
         elif c in ("waitlog", "nolog") and len(w) >= 3:
@@ -505,7 +612,7 @@ class Run:
         elif c.endswith(":") and c[:-1] in ("host", "friend", "both"):
             text = s[len(c):].strip()
             for each in whos(c[:-1]):
-                self.log(f"{each}> {text}  =>  {self.labs[each].ask(text)}")
+                self.log(f"{each}> {text}  =>  {self.ask(each, text)}")
         else:
             self.bad(n, "unknown step: " + s, "skipped")
 

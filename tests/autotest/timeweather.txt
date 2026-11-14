@@ -1,0 +1,6 @@
+# Time and weather follow the host (outside, Goodsprings)
+host: set gamehour to 20
+waitfor friend 15 eval gamehour >= 19.9
+expect friend eval gamehour <= 20.6
+capture hw host coop weather ~ here ([0-9A-F]{8})
+waitfor friend 20 coop weather ~ here $hw

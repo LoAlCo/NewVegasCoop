@@ -1,0 +1,8 @@
+# The host loads a save while the friend is in: both end up together again
+host: load "Autotest Host"
+wait 10
+waitfor host 120 status ~ (1 others)
+waitfor friend 120 status ~ co-op joined
+capture hs host status ~ in ([0-9A-F]{8})
+waitfor friend 60 status ~ in $hs
+shot both reloaded
