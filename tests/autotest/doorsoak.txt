@@ -1,0 +1,8 @@
+# Bug 15 (crash after about 20 minutes going in and out of houses): 25 trips in and out with both players
+both: player.moveto 00104F0A
+wait 10
+waitfor friend 60 evalon 00000014 GetPos X <= -60000
+host: evalon 00177D3B GetLinkedDoor
+repeat 25 doorloop
+expect both status ~ world loaded
+shot both after-doors

@@ -1,0 +1,16 @@
+# Bug 21 (dropped and traded loot disappearing): items the host drops show for the friend and stay after the friend picks one up
+both: player.moveto 00104F0A
+wait 5
+host: player.additem 00015169 3
+host: player.drop 00015169 3
+wait 4
+waitfor friend 15 coop items ~ 00015169
+say the friend drops some caps for the host
+friend: player.additem 0000000F 50
+friend: player.drop 0000000F 50
+wait 4
+waitfor host 15 coop items ~ 0000000F
+wait 10
+expect friend coop items ~ 00015169
+expect host coop items ~ 0000000F
+shot both dropped

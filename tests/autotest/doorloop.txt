@@ -1,0 +1,10 @@
+# One trip into the Goodsprings house and out again through its doors, both players (bug 15 repeats it)
+capture out host evalon 00177D3B GetLinkedDoor ~ ([0-9A-Fa-f]{6,8})
+host: activate 00177D3B
+waitfor host 30 status ~ in 00105619
+waitfor friend 30 status ~ in 00105619
+wait 5
+host: activate $out
+waitfor host 30 status ~ in 000DA726
+waitfor friend 30 status ~ in 000DA726
+wait 5

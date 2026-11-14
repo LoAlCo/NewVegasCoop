@@ -1,0 +1,3 @@
+# Bug 14 (crash when the host lets the friend in): the friend's game ends and it joins again, 5 times in a row
+repeat 5 rejoin
+expect both status ~ world loaded

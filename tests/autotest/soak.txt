@@ -1,0 +1,4 @@
+# Bugs 9 and 7 (crash or freeze every 5 to 10 minutes): about 30 minutes of mixed play
+repeat 12 playloop
+expect both status ~ world loaded
+shot both after-soak

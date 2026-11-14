@@ -1,0 +1,29 @@
+# One round of mixed play (bugs 9 and 7 repeat it): fights, a kill, loot, travel, a house, chat
+host: player.moveto 00104F0A
+wait 5
+host: coop spawntest 2
+wait 6
+capture g friend coop npcs ~ (FF[0-9A-F]{6}) Powder Ganger
+friend: player.moveto $g
+wait 2
+capture hg friend friendhit 1000 ~ host's ([0-9A-F]{8})
+wait 3
+host: say soak chat
+friend: say soak reply
+host: cow WastelandNV 16 5
+wait 20
+waitfor both 60 status ~ world loaded
+wait 10
+host: player.moveto 00104F0A
+wait 20
+waitfor both 60 status ~ world loaded
+host: activate 00177D3B
+waitfor friend 30 status ~ in 00105619
+both: activate 0010B74B
+wait 3
+both: CloseAllMenus
+host: player.moveto 00104F0A
+wait 15
+waitfor both 60 status ~ world loaded
+host: killcopies
+wait 3

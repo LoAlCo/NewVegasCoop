@@ -1,0 +1,36 @@
+# Bug 1 (VATS on an enemy the friend can't see crashes): the friend opens VATS facing a host's enemy that is hidden on the friend's screen
+both: player.moveto 00104F0A
+wait 4
+host: coop spawntest 1
+wait 6
+capture vg friend coop npcs ~ (FF[0-9A-F]{6}) Powder Ganger
+say the friend stands 400 units south of the copy, facing north at it
+friend: player.moveto $vg 0 -400 0
+wait 2
+friend: player.setangle z 0
+friend: on $vg disable
+wait 2
+say VATS (V) with the enemy hidden; key presses need the window in front
+focus friend
+wait 1
+friend: TapKey 47
+wait 3
+friend: status
+shot friend vats-hidden
+friend: CloseAllMenus
+wait 2
+expect friend status ~ world loaded
+say VATS with the enemy shown again (checks VATS opens at all)
+friend: on $vg enable
+wait 2
+friend: player.setangle z 0
+focus friend
+wait 1
+friend: TapKey 47
+wait 3
+expect friend status ~ a menu is open
+shot friend vats-shown
+friend: CloseAllMenus
+wait 2
+expect both status ~ world loaded
+host: killcopies

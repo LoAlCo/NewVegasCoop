@@ -249,6 +249,11 @@ def expand(path: str, seen: set[str] | None = None) -> list[str]:
             if w[:1] == ["include"] and len(w) == 2:
                 lines.append(f"say --- {w[1]}")
                 lines += expand(test_path(w[1]), seen)
+            elif w[:1] == ["repeat"] and len(w) == 3 and w[1].isdigit():
+                # repeat <n> <test>: that test n times in a row (long tests)
+                for i in range(int(w[1])):
+                    lines.append(f"say --- {w[2]} ({i + 1} of {w[1]})")
+                    lines += expand(test_path(w[2]), seen)
             else:
                 lines.append(line)
     return lines

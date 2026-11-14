@@ -1,0 +1,43 @@
+# Bug 10 (fast travel crashes): the host travels far and back, the friend travels alone, and the friend loads in after the host travelled
+both: player.moveto 00104F0A
+wait 10
+say the host travels to the Hoover Dam side of the map (x about 68000)
+host: cow WastelandNV 16 5
+wait 20
+waitfor both 60 status ~ world loaded
+expect host evalon 00000014 GetPos X >= 50000
+waitfor friend 90 evalon 00000014 GetPos X >= 50000
+shot both after-host-travel
+say the friend travels alone, to Goodsprings: whoever travels leads, so the host follows
+friend: player.moveto 00104F0A
+wait 20
+waitfor both 60 status ~ world loaded
+expect friend evalon 00000014 GetPos X <= -50000
+waitfor host 60 evalon 00000014 GetPos X <= -50000
+wait 20
+host: evalon 00000014 GetPos X
+friend: evalon 00000014 GetPos X
+shot both after-friend-travel
+say the host goes to Goodsprings too
+host: player.moveto 00104F0A
+wait 20
+waitfor both 60 status ~ world loaded
+expect host evalon 00000014 GetPos X <= -50000
+say the friend leaves, the host travels, the friend loads in after (the runtime error in the report)
+mark
+kill friend
+waitfor host 60 status ~ (0 others)
+host: cow WastelandNV 16 5
+wait 20
+waitfor host 60 status ~ world loaded
+relaunch friend
+connect
+waitfor friend 120 evalon 00000014 GetPos X >= 50000
+expect both status ~ world loaded
+nolog both Runtime error
+nolog both EXCEPTION
+shot both friend-loaded-in-after
+host: player.moveto 00104F0A
+wait 20
+waitfor both 60 status ~ world loaded
+waitfor friend 90 evalon 00000014 GetPos X <= -50000

@@ -1,0 +1,32 @@
+# Bug 2 (joining a Hardcore game mid-playthrough kills the friend): the host plays Hardcore with high needs, the friend joins
+kill friend
+waitfor host 60 status ~ (0 others)
+host: player.SetHardcore 1
+host: player.setav Dehydration 400
+host: player.setav Starvation 400
+host: player.setav SleepDeprivation 400
+host: player.setav Rads 300
+expect host evalon 00000014 IsHardcore >= 1
+relaunch friend
+connect
+friend: player.SetHardcore 1
+expect friend evalon 00000014 IsHardcore >= 1
+say a minute together in Hardcore
+wait 60
+expect friend evalon 00000014 GetDead == 0
+expect friend evalon 00000014 GetAV Health >= 1
+expect host evalon 00000014 GetDead == 0
+expect friend status ~ co-op joined
+friend: evalon 00000014 GetAV Dehydration
+friend: evalon 00000014 GetAV Starvation
+shot both hardcore
+say the friend walks after a minute (spinning in place)
+friend: player.moveto 00104F0A
+wait 5
+expect friend evalon 00000014 GetDead == 0
+host: player.SetHardcore 0
+friend: player.SetHardcore 0
+both: player.setav Dehydration 0
+both: player.setav Starvation 0
+both: player.setav SleepDeprivation 0
+both: player.setav Rads 0
