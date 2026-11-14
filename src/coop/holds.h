@@ -23,6 +23,21 @@ namespace coop
         bool samePlace = true;
     };
 
+    // Who runs one of our NPCs, from the host's list. A reference made while playing here (FF...) is numbered by our
+    // game, so the host's reference of the same number is a different NPC: ours is never the host's, and it's one of
+    // our copies only if we made it as one.
+    struct HostSide
+    {
+        bool ourCopy = false;
+        bool shared = false;
+    };
+    inline HostSide WhoRuns(uint32_t localRef, bool hostListsNumber, bool copyingNumber, bool madeAsCopy)
+    {
+        if ((localRef >> 24) == 0xFF)
+            return {madeAsCopy, false};
+        return {copyingNumber, hostListsNumber};
+    }
+
     inline bool ShouldHold(const LocalActor& a, bool hostListFull)
     {
         return !hostListFull && a.ref != 0 && !a.playerOrStandIn && !a.ourCopy && !a.sharedByHost && a.enabled &&

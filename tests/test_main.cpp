@@ -6551,3 +6551,28 @@ TEST(an_original_comes_back_on_only_with_its_enable_parent)
     CHECK(coop::RestoreOn(true, true));
     CHECK(!coop::RestoreOn(true, false));
 }
+
+TEST(our_npc_made_while_playing_is_never_the_hosts_same_numbered_one)
+{
+    const uint32_t wastelander = 0xFF002DA0, settler = 0x104F0A;
+    coop::HostSide s = coop::WhoRuns(wastelander, true, true, false);
+    CHECK(!s.shared && !s.ourCopy);
+    s = coop::WhoRuns(wastelander, true, false, true);
+    CHECK(!s.shared && s.ourCopy);
+    s = coop::WhoRuns(wastelander, false, false, false);
+    CHECK(!s.shared && !s.ourCopy);
+
+    s = coop::WhoRuns(settler, true, false, false);
+    CHECK(s.shared && !s.ourCopy);
+    s = coop::WhoRuns(settler, true, true, false);
+    CHECK(s.shared && s.ourCopy);
+    s = coop::WhoRuns(settler, false, false, false);
+    CHECK(!s.shared && !s.ourCopy);
+
+    coop::LocalActor own;
+    own.ref = wastelander;
+    s = coop::WhoRuns(own.ref, true, true, false);
+    own.ourCopy = s.ourCopy;
+    own.sharedByHost = s.shared;
+    CHECK(coop::ShouldHold(own, false));
+}

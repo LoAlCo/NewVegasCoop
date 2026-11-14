@@ -335,8 +335,9 @@ namespace game
                 coop::LocalActor a;
                 a.ref = RefId(actor);
                 a.playerOrStandIn = actor == Player() || standIns.IsStandIn(actor);
-                a.ourCopy = m_entries.count(a.ref) || (net::IsMadeWhilePlaying(a.ref) && HostRefOf(a.ref) != 0);
-                a.sharedByHost = coop.Npcs().count(a.ref) != 0;
+                coop::HostSide side = HostSideOf(a.ref, coop);
+                a.ourCopy = side.ourCopy;
+                a.sharedByHost = side.shared;
                 a.enabled = IsEnabled(actor);
                 a.alive = !IsDead(actor);
                 a.loaded = Is3DLoaded(actor);
@@ -346,7 +347,10 @@ namespace game
             }
             coop::Holds::Changes changes = m_holds.Look(nearby, coop.Npcs().size() >= coop::kMaxNpcs);
             for (const coop::Holds::Released& r : changes.release)
-                LetGoOfHold(r, coop.Npcs().count(r.ref) || m_entries.count(r.ref));
+            {
+                coop::HostSide side = HostSideOf(r.ref, coop);
+                LetGoOfHold(r, side.ourCopy || side.shared);
+            }
             for (uint32_t ref : changes.start)
             {
                 TESObjectREFR* actor = LookupRef(ref);
@@ -372,7 +376,8 @@ namespace game
         {
             TESObjectREFR* actor = LookupRef(ref);
             coop::Pose at;
-            if (coop.Npcs().count(ref) || m_entries.count(ref))
+            coop::HostSide side = HostSideOf(ref, coop);
+            if (side.ourCopy || side.shared)
                 continue;
             if (actor && IsActor(actor) && Is3DLoaded(actor) && GetPose(actor, at) && at.space == h.spot.space)
                 h.puppet.Update(actor, h.spot, now);
@@ -389,16 +394,22 @@ namespace game
         if (actor && !IsActor(actor))
             actor = nullptr;
         if (actor)
+        {
             SetGhost(actor, held.wasGhost);
+            it->second.puppet.Release(actor);
+            SetCombatOff(actor, false);
+        }
         if (nowOurCopy)
             LOG_INFO("NPCs: %08X, held, is shared by the host now", ref);
         else if (actor)
-        {
-            it->second.puppet.Release(actor);
-            SetCombatOff(actor, false);
             LOG_DEBUG("NPCs: %08X, held, is let go (gone from near us)", ref);
-        }
         m_heldActors.erase(it);
+    }
+
+    coop::HostSide Npcs::HostSideOf(uint32_t localRef, const coop::Coop& coop) const
+    {
+        return coop::WhoRuns(localRef, coop.Npcs().count(localRef) != 0, m_entries.count(localRef) != 0,
+            net::IsMadeWhilePlaying(localRef) && HostRefOf(localRef) != 0);
     }
 
     void Npcs::ReleaseHolds()

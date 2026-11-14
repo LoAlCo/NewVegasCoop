@@ -61,6 +61,7 @@ namespace game
         void UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
         void HoldUnshared(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
         void LetGoOfHold(const coop::Holds::Released& held, bool nowOurCopy);
+        coop::HostSide HostSideOf(uint32_t localRef, const coop::Coop& coop) const;
         void ReleaseHolds();
         struct Held
         {
