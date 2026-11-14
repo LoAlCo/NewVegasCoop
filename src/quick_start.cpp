@@ -155,7 +155,7 @@
             int choice = s_choice;
             s_choice = -1;
             if (choice != 2)
-                game::RunConsoleLine(choice == 1 ? "SetHardcore 1" : "SetHardcore 0");
+                game::RunConsoleLine(choice == 1 ? "SetHardcore 1" : "SetHardcore 0", game::Player());  // needs the player as its ref
             coop::Pose inside;
             g_quickStartSpace = game::GetPose(game::Player(), inside) ? inside.space : 0;
             game::ActivateByPlayer(game::ids::kDocsDoor, false);
