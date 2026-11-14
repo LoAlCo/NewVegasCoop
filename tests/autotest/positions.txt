@@ -1,0 +1,8 @@
+# The friend moves (console setpos); the host sees them get there. Coordinates fit the Autotest saves (Goodsprings).
+friend: player.setpos x -72700
+friend: player.setpos y 1600
+waitpos host 1 -72700 1600 150 10
+host: player.setpos x -73400
+host: player.setpos y 1100
+waitpos friend 0 -73400 1100 150 10
+shot both moved

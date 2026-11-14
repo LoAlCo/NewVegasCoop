@@ -2870,9 +2870,15 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
     }
 
     dev::RegisterCommands(nvse, &g_inspector, &g_mirror, &g_weather);
-    if (g_config.labChannel && g_lab.Start(L"\\\\.\\pipe\\NVCoopLab"))
-        LOG_INFO("Lab channel open (\\\\.\\pipe\\NVCoopLab): tools on this PC, for this Windows user only, can run "
-            "console lines in the game");
+    // A second copy on this PC (AllowSecondCopy) gets the next free name, NVCoopLab-2 and on, so a test tool can
+    // drive both copies
+    for (int copy = 1; g_config.labChannel && copy <= 4 && !g_lab.Running(); ++copy)
+    {
+        std::wstring name = L"\\\\.\\pipe\\NVCoopLab" + (copy == 1 ? std::wstring() : L"-" + std::to_wstring(copy));
+        if (g_lab.Start(name))
+            LOG_INFO("Lab channel open (%ls): tools on this PC, for this Windows user only, can run console lines in "
+                "the game", name.c_str());
+    }
     LOG_INFO("Hello from NVCoop! Plugin loaded");
     return true;
 }

@@ -1,0 +1,6 @@
+# Chat both ways: a line typed on one copy reaches the other
+mark
+friend: say autotest chat from the friend 7731
+waitlog host 10 autotest chat from the friend 7731
+host: say autotest chat from the host 7732
+waitlog friend 10 autotest chat from the host 7732

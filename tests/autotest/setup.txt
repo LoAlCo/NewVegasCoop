@@ -1,0 +1,6 @@
+# Start both copies, host with Autotest Host, the friend joins by IP and is let in (include first in every run)
+launch
+connect
+expect host status ~ (1 others)
+expect friend status ~ co-op joined
+shot both connected
