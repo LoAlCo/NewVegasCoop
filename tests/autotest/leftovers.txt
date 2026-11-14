@@ -1,4 +1,5 @@
-# Known issue (waiting on Zed): an NPC made during play that both saves hold under the same id (FF002DA0, a
-# Wastelander at the Autotest saves' spot) shows twice for the friend: its own, and co-op's copy of the host's.
-# Passes when the friend sees as many Wastelanders as the host.
+# An NPC made during play that both saves hold under the same id (FF002DA0, a Wastelander at the Autotest saves'
+# spot): the friend's own is a different object from the host's, and must not show beside co-op's copy of the
+# host's (fixed on fix-npc-holds-0111: the friend hides its own while the host is near). Passes when the friend
+# sees as many Wastelanders as the host.
 same coop npcs ~ Wastelander

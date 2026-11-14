@@ -1,6 +1,7 @@
 # Every scenario in order (one game session)
 include setup
 include leftovers
+include holds
 include timeweather
 include chat
 include chatedge
@@ -11,3 +12,5 @@ include doors
 include containers
 include rejoin
 include reload
+# Last: it takes the players far from the start
+include holdsask

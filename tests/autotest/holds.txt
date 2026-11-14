@@ -1,0 +1,12 @@
+# NPC holds (fix-npc-holds-0111). Both Autotest saves hold an NPC made during play, FF002DA0 (a Wastelander), under
+# the same id. The friend's own one is a different object from the host's, so it must be hidden as made in the
+# friend's game only: never taken for the host's, never left frozen, never shown beside co-op's copy of the host's.
+waitlog friend 20 Wastelander (FF002DA0) was made in our game only
+nolog friend FF002DA0, held, is shared by the host now
+nolog friend Wastelander (FF002DA0) is near us but the host's game doesn't share it
+same coop npcs ~ Wastelander
+shot friend holds
+# No copy we deleted ever comes back held as a visitor-only NPC
+nolog friend took back the rounds we gave
+# The host's game never hides or holds anything (holds are a visitor's)
+nolog host was made in our game only

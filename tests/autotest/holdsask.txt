@@ -1,0 +1,20 @@
+# The host says why it lacks an NPC a visitor holds (NpcAsk / NpcAnswers). Both players go to Easy Pete (00104C80);
+# then the host alone moves its Pete into the Prospector Saloon, next to Sunny Smiles (00104E85). A move isn't shared,
+# and the host shares only NPCs in its own place, so the friend's Pete stays by the players while the host's is
+# somewhere else: the friend must hold him, ask, and hide him; the host must not hide or hold anything.
+# Run it after leftovers: it takes the players far from the Wastelander the test saves both hold.
+both: player.moveto 00104C80
+wait 6
+mark
+host: on 00104C80 moveto 00104E85
+waitlog friend 20 Easy Pete (00104C80) is near us but the host's game doesn't share it
+waitlog host 15 asked about
+waitlog friend 15 Easy Pete (00104C80) is somewhere else in the host's game; hidden here
+nolog host hidden here
+expect friend evalon 00104C80 GetDisabled ~ 1
+shot friend pete-hidden
+# The host brings its Pete back: shared again, so the friend's shows again
+host: on 00104C80 moveto player
+waitlog friend 30 Easy Pete (00104C80), hidden while the host was near, is shown again: the host shares it now
+expect friend evalon 00104C80 GetDisabled ~ 0
+shot friend pete-back
