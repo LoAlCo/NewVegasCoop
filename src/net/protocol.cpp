@@ -1606,6 +1606,58 @@ namespace net
         return !IsMadeWhilePlaying(m.race) && !IsMadeWhilePlaying(m.hair) && !IsMadeWhilePlaying(m.eyes) && r.AtEnd();
     }
 
+    Bytes Encode(const NpcAsk& m)
+    {
+        Writer w(MsgType::NpcAsk);
+        size_t count = m.refs.size() < kMaxNpcAsks ? m.refs.size() : kMaxNpcAsks;
+        w.U8(static_cast<uint8_t>(count));
+        for (size_t i = 0; i < count; ++i)
+            w.U32(m.refs[i]);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, NpcAsk& m)
+    {
+        uint8_t count;
+        if (!r.U8(count) || count == 0 || count > kMaxNpcAsks)
+            return false;
+        m.refs.resize(count);
+        for (uint32_t& ref : m.refs)
+            if (!r.U32(ref) || !IsSharedRef(ref) || IsMadeWhilePlaying(ref))
+                return false;
+        return r.AtEnd();
+    }
+
+    Bytes Encode(const NpcAnswers& m)
+    {
+        Writer w(MsgType::NpcAnswers);
+        size_t count = m.answers.size() < kMaxNpcAsks ? m.answers.size() : kMaxNpcAsks;
+        w.U8(static_cast<uint8_t>(count));
+        for (size_t i = 0; i < count; ++i)
+        {
+            w.U32(m.answers[i].ref);
+            w.U8(static_cast<uint8_t>(m.answers[i].why));
+        }
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, NpcAnswers& m)
+    {
+        uint8_t count;
+        if (!r.U8(count) || count == 0 || count > kMaxNpcAsks)
+            return false;
+        m.answers.resize(count);
+        for (NpcAnswer& a : m.answers)
+        {
+            uint8_t why;
+            if (!r.U32(a.ref) || !IsSharedRef(a.ref) || IsMadeWhilePlaying(a.ref) || !r.U8(why) ||
+                why > static_cast<uint8_t>(NpcAbsence::Last))
+                return false;
+            a.why = static_cast<NpcAbsence>(why);
+        }
+        return r.AtEnd();
+    }
+
     Bytes Encode(const NpcPile& m)
     {
         Writer w(MsgType::NpcPile);

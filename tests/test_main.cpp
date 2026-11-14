@@ -1,6 +1,7 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
 #include "coop/coop.h"
+#include "coop/npc_why.h"
 #include "coop/deleted_copies.h"
 #include "coop/kept_off.h"
 #include "coop/objects.h"
@@ -6658,4 +6659,68 @@ TEST(a_leftover_from_a_save_is_deleted_only_once_we_are_away_from_it)
     CHECK(!coop::CanDeleteLeftover(false, 8192, 0, 8192));
     CHECK(coop::CanDeleteLeftover(false, 8193, 0, 8192));
     CHECK(coop::CanDeleteLeftover(false, 0, -20000, 8192));
+}
+
+TEST(the_host_says_why_it_does_not_share_an_npc)
+{
+    using net::NpcAbsence;
+    CHECK(coop::WhyNotShared(false, false, true, true, 0, 0, 4096) == NpcAbsence::Missing);
+    CHECK(coop::WhyNotShared(true, true, true, true, 0, 0, 4096) == NpcAbsence::Dead);
+    CHECK(coop::WhyNotShared(true, false, false, true, 0, 0, 4096) == NpcAbsence::Off);
+    CHECK(coop::WhyNotShared(true, false, true, false, 0, 0, 4096) == NpcAbsence::Elsewhere);
+    CHECK(coop::WhyNotShared(true, false, true, true, 5000, 0, 4096) == NpcAbsence::Elsewhere);
+    CHECK(coop::WhyNotShared(true, false, true, true, 100, 100, 4096) == NpcAbsence::Running);
+    CHECK(coop::ActOn(NpcAbsence::Running) == coop::AbsentAction::Keep);
+    CHECK(coop::ActOn(NpcAbsence::Dead) == coop::AbsentAction::Kill);
+    CHECK(coop::ActOn(NpcAbsence::Off) == coop::AbsentAction::Hide);
+    CHECK(coop::ActOn(NpcAbsence::Elsewhere) == coop::AbsentAction::Hide);
+    CHECK(coop::ActOn(NpcAbsence::Missing) == coop::AbsentAction::Hide);
+}
+
+TEST(held_npcs_are_asked_about_after_a_moment_and_not_too_often)
+{
+    const uint32_t nathan = 0x6003B57, ant = 0xFF00313F;
+    coop::NpcAsks asks;
+    CHECK(asks.Due({nathan, ant}, 1000).empty());
+    CHECK(asks.Due({nathan, ant}, 1000 + coop::kAskAfterHeldMs - 1).empty());
+    std::vector<uint32_t> due = asks.Due({nathan, ant}, 1000 + coop::kAskAfterHeldMs);
+    CHECK(due.size() == 1 && due[0] == nathan);
+    CHECK(asks.Due({nathan}, 1000 + coop::kAskAfterHeldMs + 100).empty());
+    CHECK(asks.Due({nathan}, 1000 + coop::kAskAfterHeldMs + coop::kAskAgainMs).size() == 1);
+    CHECK(asks.Due({}, 30000).empty());
+    CHECK(asks.Due({nathan}, 30000).empty());
+
+    std::vector<uint32_t> many;
+    for (uint32_t i = 0; i < 40; ++i)
+        many.push_back(0x6100000 + i);
+    coop::NpcAsks lots;
+    lots.Due(many, 0);
+    CHECK(lots.Due(many, coop::kAskAfterHeldMs).size() == net::kMaxNpcAsks);
+}
+
+TEST(npc_asks_and_answers_go_over_the_wire)
+{
+    using namespace net;
+    NpcAsk ask{{0x6003B57, 0x104F0A}};
+    Bytes b = Encode(ask);
+    Reader r(b);
+    MsgType t;
+    NpcAsk back;
+    CHECK(r.Type(t) && t == MsgType::NpcAsk && Decode(r, back) && back.refs == ask.refs);
+
+    NpcAsk ff{{0xFF002DA0}};
+    Bytes bf = Encode(ff);
+    Reader rf(bf);
+    CHECK(rf.Type(t) && !Decode(rf, back));
+
+    NpcAnswers answers{{{0x6003B57, NpcAbsence::Dead}, {0x104F0A, NpcAbsence::Elsewhere}}};
+    Bytes ba = Encode(answers);
+    Reader ra(ba);
+    NpcAnswers got;
+    CHECK(ra.Type(t) && t == MsgType::NpcAnswers && Decode(ra, got) && got.answers.size() == 2 &&
+        got.answers[0].why == NpcAbsence::Dead && got.answers[1].ref == 0x104F0A);
+
+    ba.back() = 9;
+    Reader bad(ba);
+    CHECK(bad.Type(t) && !Decode(bad, got));
 }

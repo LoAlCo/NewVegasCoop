@@ -2276,6 +2276,7 @@ namespace
         else if (g_coop.InGame())
         {
             g_npcs.Update(g_coop, now, me, g_standIns);
+            g_npcs.ApplyAnswers(g_coop);
             g_npcs.CheckDesyncs(g_coop, now, me);
             for (const net::NpcAttack& attack : g_coop.TakeNpcAttacks())
                 g_npcs.Attack(attack.ref, attack.shots, attack.reload, attack.release);

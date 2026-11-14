@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 78;
+    constexpr uint32_t kProtocolVersion = 79;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -98,6 +98,8 @@ namespace net
         HealAlly = 77,
         HealRefused = 78,
         QuestCommand = 79,
+        NpcAsk = 120,
+        NpcAnswers = 121,
         MineChange = 63,
         ModsMatch = 48,
     };
@@ -295,6 +297,28 @@ namespace net
     };
     bool IsSharedRef(uint32_t ref);
     bool IsMadeWhilePlaying(uint32_t id);
+
+    // A visitor asks the host why it doesn't share NPCs of its own that the visitor holds near the host; the host
+    // answers each from what its game has
+    constexpr size_t kMaxNpcAsks = 16;
+    struct NpcAsk
+    {
+        std::vector<uint32_t> refs;
+    };
+    enum class NpcAbsence : uint8_t { Running = 0, Dead = 1, Off = 2, Elsewhere = 3, Missing = 4, Last = 4 };
+    struct NpcAnswer
+    {
+        uint32_t ref = 0;
+        NpcAbsence why = NpcAbsence::Running;
+    };
+    struct NpcAnswers
+    {
+        std::vector<NpcAnswer> answers;
+    };
+    Bytes Encode(const NpcAsk& m);
+    bool Decode(Reader& r, NpcAsk& m);
+    Bytes Encode(const NpcAnswers& m);
+    bool Decode(Reader& r, NpcAnswers& m);
     struct NpcAttack
     {
         uint32_t ref = 0;

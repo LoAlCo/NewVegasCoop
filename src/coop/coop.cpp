@@ -925,6 +925,14 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::NpcAsk)
+        {
+            net::NpcAsk m;
+            if (player.joined && Decode(r, m) && m_npcAsks.size() < 8)
+                m_npcAsks.push_back({player.id, std::move(m)});
+            return;
+        }
+
         if (type == MsgType::MineChange)
         {
             net::MineChange m;
@@ -1304,6 +1312,15 @@ namespace coop
                 ++it->second.gearChanges;
             }
         }
+        else if (type == MsgType::NpcAnswers)
+        {
+            NpcAnswers m;
+            if (!Decode(r, m))
+                return;
+            for (const NpcAnswer& a : m.answers)
+                if (m_npcAnswers.size() < 4 * kMaxNpcAsks)
+                    m_npcAnswers.push_back(a);
+        }
         else if (type == MsgType::NpcAttacks)
         {
             NpcAttacks m;
@@ -1517,6 +1534,22 @@ namespace coop
             SendToJoined(Encode(m), true);
         else
             m_net->Send(1, Encode(m), true);
+    }
+
+    void Coop::AskWhyNotShared(const std::vector<uint32_t>& refs) const
+    {
+        if (m_role == Role::Friend && InGame() && !refs.empty())
+            m_net->Send(1, Encode(net::NpcAsk{refs}), true);
+    }
+
+    void Coop::AnswerNpcAsk(uint8_t playerId, const net::NpcAnswers& answers)
+    {
+        if (m_role != Role::Host || answers.answers.empty())
+            return;
+        auto peer = std::find_if(m_players.begin(), m_players.end(),
+            [&](const auto& p) { return p.second.id == playerId && p.second.joined; });
+        if (peer != m_players.end())
+            m_net->Send(peer->first, Encode(answers), true);
     }
 
     void Coop::ReportPile(uint32_t hostRef, uint8_t kind) const

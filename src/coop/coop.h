@@ -150,6 +150,13 @@ namespace coop
         bool reload = false;
     };
 
+    // A visitor's question about NPCs of the host's that it holds (see Coop::AskWhyNotShared)
+    struct NpcAskFrom
+    {
+        uint8_t playerId = 0;
+        net::NpcAsk ask;
+    };
+
     struct SessionState
     {
         struct MineFrom { uint8_t playerId; net::MineChange change; };
@@ -266,6 +273,8 @@ namespace coop
         std::vector<ChatHeard> m_chat;
         std::vector<VoiceHeard> m_voice;
         std::vector<net::NpcPile> m_piles;
+        std::vector<NpcAskFrom> m_npcAsks;
+        std::vector<net::NpcAnswer> m_npcAnswers;
         std::vector<MineFrom> m_mines;
         bool m_myLooksSent = false;
         std::map<uint8_t, net::PlayerLooks> m_looks;
@@ -368,6 +377,11 @@ namespace coop
         void ReportHit(uint32_t targetRef, float damage);
         void ReportPile(uint32_t hostRef, uint8_t kind) const;
         std::vector<net::NpcPile> TakePiles() { return std::move(m_piles); }
+        // A visitor asks the host why it doesn't share these NPCs of its own; the host answers that player
+        void AskWhyNotShared(const std::vector<uint32_t>& refs) const;
+        std::vector<NpcAskFrom> TakeNpcAsks() { return std::move(m_npcAsks); }
+        void AnswerNpcAsk(uint8_t playerId, const net::NpcAnswers& answers);
+        std::vector<net::NpcAnswer> TakeNpcAnswers() { return std::move(m_npcAnswers); }
         void ReportMine(uint32_t ref, uint8_t state);
         void SetFighting(uint8_t playerId, bool fighting);
         bool HostSaysFighting() const { return m_hostSaysFighting; }

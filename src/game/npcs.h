@@ -9,6 +9,7 @@
 #include "coop/given_rounds.h"
 #include "coop/holds.h"
 #include "coop/kept_off.h"
+#include "coop/npc_why.h"
 #include "coop/shot_counter.h"
 #include "game/game.h"
 #include "game/puppet.h"
@@ -33,6 +34,8 @@ namespace game
         void CheckDesyncs(coop::Coop& coop, uint32_t now, const coop::Pose& myPose);
         bool IsHeld(uint32_t ref) const { return m_holds.IsHeld(ref); }
         void ReleaseAll();
+        // A visitor: acts on the host's answers about NPCs we hold (kill the dead, hide the rest it doesn't run)
+        void ApplyAnswers(coop::Coop& coop);
         // Co-op characters a save still held (copies, other players' characters): switched off now, deleted later
         size_t TakeLeftovers(const std::vector<uint32_t>& ids);
         void DeleteLeftoversWhenAway(uint32_t now);
@@ -73,7 +76,12 @@ namespace game
             coop::Pose spot;
         };
         coop::Holds m_holds;
+        // Our NPCs hidden while the host is near: made in our game only, or ones the host says it has dead, switched
+        // off, elsewhere or not at all
         std::set<uint32_t> m_hiddenSpawns;
+        coop::NpcAsks m_asks;
+        void AnswerAsks(coop::Coop& coop, const coop::Pose& myPose);
+        void HideHere(TESObjectREFR* actor);
         void UnhideSpawn(uint32_t ref, const char* why);
         std::map<uint32_t, Held> m_heldActors;
         uint32_t m_nextHoldLook = 0, m_holdsStarted = 0;

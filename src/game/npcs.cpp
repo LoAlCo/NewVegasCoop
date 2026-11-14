@@ -62,6 +62,28 @@ namespace game
         }
     }
 
+    void Npcs::AnswerAsks(coop::Coop& coop, const coop::Pose& myPose)
+    {
+        const float reach = LoadedReach() / 2 + 512;
+        for (const coop::NpcAskFrom& from : coop.TakeNpcAsks())
+        {
+            net::NpcAnswers out;
+            for (uint32_t ref : from.ask.refs)
+            {
+                TESObjectREFR* actor = LookupRef(ref);
+                bool exists = actor && IsActor(actor) && !(ReadWorldItem(actor).flags & layout::kRefDeleted);
+                coop::Pose at;
+                bool placed = exists && GetPose(actor, at);
+                net::NpcAbsence why = coop::WhyNotShared(exists, exists && IsDead(actor), exists && IsEnabled(actor),
+                    placed && at.space == myPose.space, at.x - myPose.x, at.y - myPose.y, reach);
+                out.answers.push_back({ref, why});
+            }
+            coop.AnswerNpcAsk(from.playerId, out);
+            LOG_DEBUG("NPCs: player %u asked about %zu NPCs we don't share; answered", from.playerId,
+                out.answers.size());
+        }
+    }
+
     void Npcs::Share(coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
     {
         if (coop.Remotes().empty())
@@ -69,6 +91,7 @@ namespace game
             m_watched.clear();
             return;
         }
+        AnswerAsks(coop, myPose);
         if (!coop::IsDue(now, m_nextShare))
             return;
         m_nextShare = now + coop::kPoseIntervalMs;
@@ -365,11 +388,7 @@ namespace game
                 if (coop::ShouldHide(a, listFull) && !m_hiddenSpawns.count(a.ref) &&
                     m_hiddenSpawns.size() < coop::Holds::kMaxHolds)
                 {
-                    if (TopEnableParent(actor))
-                        ForceEnabled(actor, false);
-                    else
-                        SetEnabled(actor, false);
-                    m_hiddenSpawns.insert(a.ref);
+                    HideHere(actor);
                     LOG_INFO("NPCs: %s (%08X) was made in our game only (the host never had it); hidden while the host "
                         "is near", Name(actor), a.ref);
                 }
@@ -378,6 +397,12 @@ namespace game
                 nearby.push_back(a);
             }
             coop::Holds::Changes changes = m_holds.Look(nearby, listFull);
+            std::vector<uint32_t> held;
+            for (const auto& [ref, h] : m_heldActors)
+                held.push_back(ref);
+            std::vector<uint32_t> ask = m_asks.Due(held, now);
+            if (!ask.empty())
+                coop.AskWhyNotShared(ask);
             for (const coop::Holds::Released& r : changes.release)
             {
                 coop::HostSide side = HostSideOf(r.ref, coop);
@@ -453,6 +478,46 @@ namespace game
             UnhideSpawn(*m_hiddenSpawns.begin(), "co-op is over");
     }
 
+    void Npcs::HideHere(TESObjectREFR* actor)
+    {
+        if (TopEnableParent(actor))
+            ForceEnabled(actor, false);
+        else
+            SetEnabled(actor, false);
+        m_hiddenSpawns.insert(RefId(actor));
+    }
+
+    void Npcs::ApplyAnswers(coop::Coop& coop)
+    {
+        for (const net::NpcAnswer& a : coop.TakeNpcAnswers())
+        {
+            TESObjectREFR* actor = LookupRef(a.ref);
+            if (!actor || !IsActor(actor) || coop.Npcs().count(a.ref) || m_hiddenSpawns.count(a.ref))
+                continue;
+            static const char* const kWhy[] = {"running", "dead", "switched off", "somewhere else", "not there"};
+            const char* why = kWhy[static_cast<size_t>(a.why)];
+            switch (coop::ActOn(a.why))
+            {
+            case coop::AbsentAction::Keep:
+                break;
+            case coop::AbsentAction::Kill:
+                if (!IsDead(actor))
+                {
+                    Kill(actor);
+                    LOG_INFO("NPCs: %s (%08X) is dead in the host's game; killed ours to match", Name(actor), a.ref);
+                }
+                break;
+            case coop::AbsentAction::Hide:
+                if (m_hiddenSpawns.size() >= coop::Holds::kMaxHolds)
+                    break;
+                HideHere(actor);
+                LOG_INFO("NPCs: %s (%08X) is %s in the host's game; hidden here while the host is near", Name(actor),
+                    a.ref, why);
+                break;
+            }
+        }
+    }
+
     void Npcs::UnhideSpawn(uint32_t ref, const char* why)
     {
         m_hiddenSpawns.erase(ref);
@@ -463,7 +528,7 @@ namespace game
             ForceEnabled(actor, true);
         else
             SetEnabled(actor, true);
-        LOG_INFO("NPCs: %s (%08X), made in our game only, is shown again: %s", Name(actor), ref, why);
+        LOG_INFO("NPCs: %s (%08X), hidden while the host was near, is shown again: %s", Name(actor), ref, why);
     }
 
     void Npcs::UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
@@ -523,6 +588,8 @@ namespace game
             TESObjectREFR* actor = here ? Find(ref) : nullptr;
             if (actor && (!IsActor(actor) || actor == Player() || standIns.IsStandIn(actor)))
                 actor = nullptr;
+            if (actor && !made && m_hiddenSpawns.count(ref))
+                UnhideSpawn(ref, "the host shares it now");
             if (actor && !made && coop::CompareRolls(npc.rolled, RolledAs(actor)) == coop::RollMatch::Different)
             {
                 LOG_INFO("NPCs: %s (%08X) is %08X here but %08X in the host's game (each game rolls its own); "
@@ -1188,6 +1255,7 @@ namespace game
         m_holds.ReleaseAll();
         m_heldActors.clear();
         m_hiddenSpawns.clear();
+        m_asks.Clear();
         m_entries.clear();
         m_made.clear();
         m_rerolled.clear();
