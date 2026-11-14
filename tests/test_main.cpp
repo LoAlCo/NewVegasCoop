@@ -1,6 +1,7 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
 #include "coop/coop.h"
+#include "coop/deleted_copies.h"
 #include "coop/kept_off.h"
 #include "coop/objects.h"
 #include "coop/activator_uses.h"
@@ -6575,4 +6576,40 @@ TEST(our_npc_made_while_playing_is_never_the_hosts_same_numbered_one)
     own.ourCopy = s.ourCopy;
     own.sharedByHost = s.shared;
     CHECK(coop::ShouldHold(own, false));
+}
+
+TEST(a_deleted_copy_is_watched_until_it_is_really_gone)
+{
+    using coop::DeletedCopyStep;
+    const uint32_t copy = 0xFF003152;
+    coop::DeletedCopies d;
+    CHECK(!d.Contains(copy));
+    CHECK(d.Look(copy, 1000, true, true) == DeletedCopyStep::Gone);
+    d.Deleted(copy, 1000);
+    CHECK(d.Contains(copy) && d.Ids().size() == 1);
+    CHECK(d.Look(copy, 1000, true, true) == DeletedCopyStep::Wait);
+    CHECK(d.Look(copy, 1100, true, false) == DeletedCopyStep::Wait);
+    CHECK(d.Look(copy, 1000 + coop::kDeletedCopyRetryMs, true, true) == DeletedCopyStep::RemoveAgain);
+    CHECK(d.Look(copy, 1000 + coop::kDeletedCopyForceMs, true, true) == DeletedCopyStep::ForceOff);
+    CHECK(d.Look(copy, 1000 + coop::kDeletedCopyForceMs, true, false) == DeletedCopyStep::Wait);
+    CHECK(d.Contains(copy));
+    CHECK(d.Look(copy, 90000, false, false) == DeletedCopyStep::Gone);
+    CHECK(!d.Contains(copy) && d.Ids().empty());
+
+    for (uint32_t i = 0; i < coop::kMaxDeletedCopies + 10; ++i)
+        d.Deleted(0xFF100000 + i, 1);
+    CHECK(d.Ids().size() == coop::kMaxDeletedCopies);
+    d.Clear();
+    CHECK(d.Ids().empty());
+}
+
+TEST(a_copy_we_just_deleted_is_never_held_as_a_visitor_only_npc)
+{
+    const uint32_t copy = 0xFF003152;
+    coop::HostSide s = coop::WhoRuns(copy, false, false, true);
+    coop::LocalActor a;
+    a.ref = copy;
+    a.ourCopy = s.ourCopy;
+    a.sharedByHost = s.shared;
+    CHECK(!coop::ShouldHold(a, false));
 }

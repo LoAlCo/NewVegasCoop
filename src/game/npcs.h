@@ -5,6 +5,7 @@
 #include "coop/copy_kill.h"
 
 #include "coop/coop.h"
+#include "coop/deleted_copies.h"
 #include "coop/given_rounds.h"
 #include "coop/holds.h"
 #include "coop/kept_off.h"
@@ -111,6 +112,8 @@ namespace game
         std::map<uint32_t, Made> m_made;
         std::set<uint32_t> m_rerolled;
         coop::KeptOff m_keptOff;
+        coop::DeletedCopies m_deletedCopies;
+        void KeepDeletedCopiesGone(uint32_t now);
         void SwitchOffOriginal(TESObjectREFR* own);
         void PutBackOriginal(uint32_t ref);
         void KeepOriginalsOff(uint32_t now);

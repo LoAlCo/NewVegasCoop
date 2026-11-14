@@ -409,7 +409,7 @@ namespace game
     coop::HostSide Npcs::HostSideOf(uint32_t localRef, const coop::Coop& coop) const
     {
         return coop::WhoRuns(localRef, coop.Npcs().count(localRef) != 0, m_entries.count(localRef) != 0,
-            net::IsMadeWhilePlaying(localRef) && HostRefOf(localRef) != 0);
+            net::IsMadeWhilePlaying(localRef) && (HostRefOf(localRef) != 0 || m_deletedCopies.Contains(localRef)));
     }
 
     void Npcs::ReleaseHolds()
@@ -442,6 +442,7 @@ namespace game
             it = m_rerolled.erase(it);
         }
         KeepOriginalsOff(now);
+        KeepDeletedCopiesGone(now);
         auto stillHere = [&](uint32_t ref) {
             TESObjectREFR* a = Find(ref);
             coop::Pose at;
@@ -998,7 +999,10 @@ namespace game
         TESObjectREFR* actor = Find(ref);
         Release(ref);
         if (actor)
+        {
             Remove(actor);
+            m_deletedCopies.Deleted(RefId(actor), GetTickCount());
+        }
         m_made.erase(ref);
         m_killed.erase(ref);
         m_nextRevive.erase(ref);
@@ -1023,7 +1027,33 @@ namespace game
         std::vector<uint32_t> ids;
         for (auto& [_, m] : m_made)
             ids.push_back(m.localId);
+        for (uint32_t id : m_deletedCopies.Ids())
+            ids.push_back(id);
         return ids;
+    }
+
+    void Npcs::KeepDeletedCopiesGone(uint32_t now)
+    {
+        for (uint32_t id : m_deletedCopies.Ids())
+        {
+            TESObjectREFR* ref = LookupRef(id);
+            bool exists = ref && IsActor(ref) && !(ReadWorldItem(ref).flags & layout::kRefDeleted);
+            switch (m_deletedCopies.Look(id, now, exists, exists && IsEnabled(ref)))
+            {
+            case coop::DeletedCopyStep::RemoveAgain:
+                LOG_DEBUG("NPCs: our deleted copy %08X is still switched on; deleting it again", id);
+                Remove(ref);
+                break;
+            case coop::DeletedCopyStep::ForceOff:
+                LOG_INFO("NPCs: our deleted copy %08X (%s) won't go; switched it off past the game's checks", id,
+                    Name(ref));
+                ForceEnabled(ref, false);
+                break;
+            case coop::DeletedCopyStep::Wait:
+            case coop::DeletedCopyStep::Gone:
+                break;
+            }
+        }
     }
 
     void Npcs::ReleaseAll()
@@ -1050,6 +1080,7 @@ namespace game
         m_made.clear();
         m_rerolled.clear();
         m_keptOff.Clear();
+        m_deletedCopies.Clear();
         m_killed.clear();
         m_nextRevive.clear();
         m_switchedOff.clear();
