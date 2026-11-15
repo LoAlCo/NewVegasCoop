@@ -2807,8 +2807,8 @@ namespace game
         {
             NVSEArrayVarInterface::Element result;
             if (g_chatHudMade || !g_chatHud || !Player() ||
-                (g_hudHeldUntil && static_cast<int32_t>(GetTickCount() - g_hudHeldUntil) < 0))
-                return;
+                (g_hudHeldUntil && static_cast<int32_t>(GetTickCount() - g_hudHeldUntil) < 0) || InMenuMode())
+                return;  // not while another menu is up either (a message box, a level up): that crashed too
             static const char kLine[] =
                 "<rect name=\"NVCoopChat\"><visible>0</visible>"
                 "<text name=\"NVCoopChatText\">"
