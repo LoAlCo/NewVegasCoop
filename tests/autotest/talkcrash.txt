@@ -1,0 +1,27 @@
+# The crash making the nearby conversations log right after a load (seen loading "Autotest Late" alone): a fresh
+# copy loads it, NPCs talk nearby, 5 times
+launch
+kill friend
+host: load "Autotest Late"
+wait 30
+expect host status ~ world loaded
+kill host
+relaunch host
+host: load "Autotest Late"
+wait 30
+expect host status ~ world loaded
+kill host
+relaunch host
+host: load "Autotest Late"
+wait 30
+expect host status ~ world loaded
+kill host
+relaunch host
+host: load "Autotest Late"
+wait 30
+expect host status ~ world loaded
+kill host
+relaunch host
+host: load "Autotest Late"
+wait 30
+expect host status ~ world loaded

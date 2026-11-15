@@ -1,0 +1,37 @@
+# Makes "Autotest Late": the host's test save pushed far along by console (solo, no co-op). Run once with deploy on.
+launch
+keepsave Autotest Late
+host: load "Autotest Host"
+waitfor host 120 status ~ world loaded
+wait 5
+host: player.setlevel 25
+host: player.additem 0000000F 25000
+host: player.additem 00015169 60
+host: player.additem 0001CBDC 1
+host: player.additem 00004320 1
+host: tmm 1
+host: set GameDaysPassed to 140
+host: on 00104C80 kill
+host: on 00104F03 kill
+host: on 001073E8 kill
+wait 3
+host: caqs
+wait 20
+waitfor host 120 status ~ world loaded
+host: CloseAllMenus
+wait 3
+host: player.moveto 00104F0A
+wait 10
+waitfor host 60 status ~ world loaded
+host: CloseAllMenus
+say what the late save holds
+host: evalon 00000014 GetLevel
+host: evalon 00000014 GetItemCount 0000000F
+host: eval GameDaysPassed
+host: evalon 00104C80 GetDead
+host: evalon 00104F0A GetDead
+host: evalon 00104F0A GetDisabled
+host: save "Autotest Late"
+wait 8
+shot host late
+quit

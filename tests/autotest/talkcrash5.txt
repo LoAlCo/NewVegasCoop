@@ -1,0 +1,2 @@
+# The conversations log crash: 5 fresh copies load "Autotest Late" alone (host copy only)
+repeat 5 talkload

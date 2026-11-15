@@ -1,0 +1,90 @@
+# Trying to break co-op: menus open while travelling, chat floods, a big crowd, fast time, fast reloads, and deaths
+both: player.moveto 00104F0A
+wait 15
+say the friend has a container open when the host travels far
+friend: activate 0010B74B
+host: player.moveto 0010B74B
+wait 3
+friend: activate 0010B74B
+wait 1
+host: cow WastelandNV 16 5
+wait 25
+waitfor both 90 status ~ world loaded
+expect friend status ~ co-op joined
+host: player.moveto 00104F0A
+wait 25
+waitfor both 90 status ~ world loaded
+say chat flood: 40 lines and one very long line
+host: say flood 1
+friend: say flood 2
+host: say flood 3
+friend: say flood 4
+host: say flood 5
+friend: say flood 6
+host: say flood 7
+friend: say flood 8
+host: say flood 9
+friend: say flood 10
+host: say aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa %s %d %n {} \ "quotes"
+wait 5
+expect both status ~ world loaded
+say a crowd of 40 Powder Gangers, with both in god mode, fighting for a minute
+both: tgm
+host: coop spawntest 40
+wait 60
+expect both status ~ world loaded
+same coop npcs ~ Powder Ganger
+shot both big-crowd
+host: killcopies
+wait 10
+say time at 100x for 30 seconds, then back
+host: set timescale to 3000
+wait 30
+host: set timescale to 30
+wait 5
+same eval GameHour
+both: tgm
+say the host loads its save 4 times in quick succession
+host: load "Autotest Host"
+wait 4
+host: load "Autotest Host"
+wait 4
+host: load "Autotest Host"
+wait 4
+host: load "Autotest Host"
+wait 10
+waitfor host 120 status ~ (1 others)
+waitfor friend 120 status ~ co-op joined
+expect both status ~ world loaded
+say the friend's game ends while it is loading (going through a door)
+host: activate 00177D3B
+wait 1
+kill friend
+waitfor host 60 status ~ (0 others)
+relaunch friend
+connect
+waitfor friend 60 status ~ in 00105619
+say the host's game ends while the friend has a container open
+friend: activate 0010B74B
+wait 2
+kill host
+wait 15
+friend: status
+expect friend status ~ world loaded
+shot friend host-gone
+say the host comes back and the friend joins again
+relaunch host
+connect
+expect both status ~ world loaded
+say the friend dies
+friend: player.kill
+wait 10
+host: status
+friend: status
+shot both friend-dead
+say the host dies
+host: player.kill
+wait 10
+host: status
+friend: status
+shot both host-dead

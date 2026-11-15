@@ -1,0 +1,8 @@
+# The host copy's quests: how many started, and the first started quest's script variables
+host: coop quests
+host: coop questpick 0
+host: coop questvars
+host: coop questpick 1
+host: coop questvars
+host: evalon 00000014 GetLevel
+host: evalon 00104C80 GetDead

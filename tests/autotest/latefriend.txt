@@ -1,0 +1,49 @@
+# Saves far apart, the other way: the host plays its new game, the friend "Autotest Late"; then both saves are loaded alone
+launch
+say baseline: the friend's own save, loaded alone on the host copy
+host: load "Autotest Late"
+waitfor host 120 status ~ world loaded
+wait 5
+include snap
+kill host
+relaunch host
+usesave friend Autotest Late
+connect
+expect host status ~ (1 others)
+expect friend status ~ co-op joined
+wait 10
+say together in the host's late world
+both: player.moveto 00104F0A
+wait 15
+friend: evalon 00104C80 GetDead
+friend: evalon 001073E8 GetDead
+friend: evalon 00000014 GetLevel
+friend: coop npcs
+shot both together
+host: activate 00177D3B
+waitfor friend 30 status ~ in 00105619
+wait 5
+friend: save "Autotest Coop Friend Save"
+wait 8
+host: save "Autotest Coop Host Save"
+wait 8
+say the friend's co-op save, loaded alone
+kill friend
+kill host
+relaunch host
+host: load "Autotest Coop Friend Save"
+waitfor host 120 status ~ world loaded
+wait 10
+include snap
+expect host evalon 00000014 GetLevel >= 25
+expect host status ~ co-op off
+nolog host EXCEPTION
+shot host friend-save-alone
+say the host's co-op save, loaded alone
+host: load "Autotest Coop Host Save"
+waitfor host 120 status ~ world loaded
+wait 10
+include snap
+expect host evalon 00000014 GetLevel <= 5
+shot host host-save-alone
+quit

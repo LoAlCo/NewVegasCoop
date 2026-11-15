@@ -1,0 +1,17 @@
+# The conversations log crash, host copy only (works with builds that have no second lab channel): load "Autotest
+# Late" alone 3 times, each in a fresh copy
+relaunch host
+host: load "Autotest Late"
+wait 30
+expect host status ~ world loaded
+kill host
+relaunch host
+host: load "Autotest Late"
+wait 30
+expect host status ~ world loaded
+kill host
+relaunch host
+host: load "Autotest Late"
+wait 30
+expect host status ~ world loaded
+kill host

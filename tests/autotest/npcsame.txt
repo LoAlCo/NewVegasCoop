@@ -1,0 +1,8 @@
+# Goodsprings NPCs at the same place and alive/dead the same on both screens
+samepos 00104F0A 250
+samepos 00104F03 250
+samepos 001073E8 250
+samepos 00104C80 250
+samepos 0010706E 400
+samepos 00107077 400
+samepos 0015EF63 400

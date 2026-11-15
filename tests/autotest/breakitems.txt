@@ -1,0 +1,51 @@
+# Trying to duplicate items: both pick up the same dropped item at once, both take from one body at once, and a pile
+both: player.moveto 00104F0A
+wait 15
+both: player.removeitem 00015169 999
+host: player.additem 00015169 1
+host: player.drop 00015169 1
+wait 5
+capture hs host coop items ~ (FF[0-9A-F]{6}) base 00015169
+capture fs friend coop items ~ (FF[0-9A-F]{6}) base 00015169
+say both pick up the one stimpak at the same moment, each by its own ID for it
+host: activate $hs
+friend: activate $fs
+wait 5
+say one stimpak in all: the two counts must add up to 1
+host: evalon 00000014 GetItemCount 00015169
+friend: evalon 00000014 GetItemCount 00015169
+host: coop items
+friend: coop items
+say a pile of 60 items dropped one by one
+host: player.additem 00015169 60
+host: player.drop 00015169 1
+host: player.drop 00015169 1
+host: player.drop 00015169 1
+host: player.drop 00015169 1
+host: player.drop 00015169 1
+host: player.drop 00015169 1
+host: player.drop 00015169 1
+host: player.drop 00015169 1
+host: player.drop 00015169 1
+host: player.drop 00015169 1
+host: player.drop 00015169 50
+wait 8
+same coop items ~ base 00015169
+shot both pile
+say both take the last stimpak from one body at the same moment
+host: on 00104F03 additem 00015169 1
+wait 3
+host: on 00104F03 kill
+wait 6
+host: activate 00104F03
+friend: activate 00104F03
+wait 2
+host: coop boxadd -1
+friend: coop boxadd -1
+wait 1
+both: CloseAllMenus
+wait 5
+host: evalon 00104F03 GetItemCount 00015169
+friend: evalon 00104F03 GetItemCount 00015169
+same evalon 00104F03 GetItemCount 00015169
+expect both status ~ world loaded

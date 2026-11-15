@@ -1,0 +1,60 @@
+# NPC desync: Goodsprings NPCs compared on both screens after standing together, after the host leaves and comes
+# back, after an NPC is moved and hit, after a fight the host starts, and after the host reloads
+both: player.moveto 00104F0A
+wait 20
+say standing together for a minute
+wait 60
+include npcsame
+say the host goes into the house for a minute (the friend is pulled along), then both come out
+host: activate 00177D3B
+waitfor friend 30 status ~ in 00105619
+wait 60
+capture out host evalon 00177D3B GetLinkedDoor ~ ([0-9A-Fa-f]{6,8})
+host: activate $out
+waitfor friend 30 status ~ in 000DA726
+wait 15
+include npcsame
+say the host moves a settler next to itself
+host: on 00104F03 moveto player 200 0 0
+wait 10
+samepos 00104F03 250
+say the friend moves a settler (the host runs NPCs: does it stick?)
+friend: on 00104F0A moveto player 0 200 0
+wait 10
+samepos 00104F0A 250
+say a fight the host starts: the bighorners attack the friend
+both: tgm
+host: on 0010706E startcombat player
+host: on 00107077 startcombat player
+wait 45
+include npcsame
+host: on 0010706E kill
+host: on 00107077 kill
+wait 10
+samepos 0010706E 400
+samepos 00107077 400
+both: tgm
+say the friend kills a settler with its own console (co-op should undo or sync it)
+friend: on 00104F03 kill
+wait 10
+samepos 00104F03 250
+friend: evalon 00104F03 GetDead
+host: evalon 00104F03 GetDead
+say a crowd of 12 Powder Gangers the host places
+host: coop spawntest 12
+wait 15
+same coop npcs ~ Powder Ganger
+wait 60
+same coop npcs ~ Powder Ganger
+shot both crowd
+host: killcopies
+wait 10
+same coop npcs ~ Powder Ganger
+say the host reloads: everything back as saved on both
+host: load "Autotest Host"
+wait 10
+waitfor host 120 status ~ (1 others)
+waitfor friend 120 status ~ co-op joined
+wait 20
+include npcsame
+same coop npcs ~ Powder Ganger

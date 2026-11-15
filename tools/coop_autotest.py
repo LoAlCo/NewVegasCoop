@@ -321,7 +321,10 @@ class Run:
         self.started = time.time()
         self.outcome = "unknown"
         self.vars: dict[str, str] = {}
+        self.save_names = dict(SAVE_NAMES)  # usesave changes which save each copy loads
+        self.keep_saves: set[str] = set()    # keepsave: saves this run makes on purpose
         self.saves_before = set(os.listdir(save_folder())) if os.path.isdir(save_folder()) else set()
+        self.backup_rolling_saves()
 
     def log(self, msg: str) -> None:
         line = f"[{time.time() - self.started:7.1f}] {msg}"
@@ -411,7 +414,7 @@ class Run:
         time.sleep(1)
         self.log(f"host> pick 1 => {host.ask('pick 1')}")
         time.sleep(1)
-        load_host = 'load "' + SAVE_NAMES["host"] + '"'
+        load_host = 'load "' + self.save_names["host"] + '"'
         self.log(f"host> {load_host} => {host.ask(load_host)}")
         end = time.time() + 180
         while "co-op hosting" not in (got := host.ask("status")) or "world loaded" not in got:
@@ -442,7 +445,7 @@ class Run:
                 self.bad(n, "connect: the friend joins", got)
                 return False
             if not loaded and "picks one" in self.log_since_mark("friend"):
-                load_friend = 'load "' + SAVE_NAMES["friend"] + '"'
+                load_friend = 'load "' + self.save_names["friend"] + '"'
                 self.log(f"friend> {load_friend} => {friend.ask(load_friend)}")
                 loaded = True
             if "answered" in (a := host.ask("approve yes")):
@@ -582,6 +585,29 @@ class Run:
         elif c == "relaunch" and len(w) >= 2:
             if not self.launch_one(w[1]):
                 raise RuntimeError(f"relaunch {w[1]} failed")
+        elif c == "samepos" and len(w) >= 3:
+            # samepos <ref> <tolerance>: that reference stands at the same place (x, y) on both screens, and is
+            # alive or dead on both (NPC drift and death mismatches)
+            ref, tol = w[1], float(w[2])
+            where = {}
+            for each in ("host", "friend"):
+                vals = [first_number(self.ask(each, f"evalon {ref} {f}")) for f in ("GetPos X", "GetPos Y", "GetDead")]
+                where[each] = vals
+            (hx, hy, hd), (fx, fy, fd) = where["host"], where["friend"]
+            if None in (hx, hy, fx, fy):
+                self.bad(n, f"samepos {ref}", f"couldn't read it: host {where['host']} / friend {where['friend']}")
+            else:
+                gap = ((hx - fx) ** 2 + (hy - fy) ** 2) ** 0.5
+                good = gap <= tol and hd == fd
+                (self.ok if good else self.bad)(n, f"samepos {ref} within {tol:.0f}",
+                                                 f"{gap:.0f} apart; dead host {hd} / friend {fd}")
+        elif c == "usesave" and len(w) >= 3 and w[1] in ("host", "friend"):
+            # usesave <who> <save name>: connect loads that save for that copy from now on
+            self.save_names[w[1]] = s.split(None, 2)[2].strip().strip('"')
+            self.log(f"{w[1]} uses the save {self.save_names[w[1]]}")
+        elif c == "keepsave" and len(w) >= 2:
+            # keepsave <save name>: a save this run makes on purpose; not deleted at the end
+            self.keep_saves.add(s.split(None, 1)[1].strip().strip('"'))
         elif c == "mark":
             self.mark()
         elif c in ("waitlog", "nolog") and len(w) >= 3:
@@ -656,6 +682,7 @@ class Run:
         if gone and os.path.isfile(crash):
             shutil.copy2(crash, os.path.join(self.dir, "CrashLogger.log"))
         removed = self.clean_saves()
+        restored = self.restore_rolling_saves()
         if len(self.shots) > 1:
             self.sheet()
         built, deployed = sha(BUILT_DLL), sha(GAME_DLL)
@@ -672,12 +699,53 @@ class Run:
         print(f"\n{self.outcome}: passed {len(self.passed)}, failed {len(self.failed)} -> {self.dir}")
         return 0 if self.outcome == "done" and not self.failed else 1
 
+    def rolling(self, name: str) -> bool:
+        """Saves the game or its mods write over by themselves (timed autosaves, quicksaves, co-op's copies of them):
+        a run can overwrite the player's own, so they're copied aside first and put back at the end."""
+        low = name.lower()
+        return low.startswith(("autosave", "quicksave", "co-op - ")) and low.endswith((".fos", ".nvse", ".bak"))
+
+    def backup_rolling_saves(self) -> None:
+        folder = save_folder()
+        self.backup = os.path.join(self.dir, "save-backup")
+        self.backed: dict[str, tuple[int, float]] = {}
+        if not os.path.isdir(folder):
+            return
+        os.makedirs(self.backup, exist_ok=True)
+        for name in os.listdir(folder):
+            p = os.path.join(folder, name)
+            if os.path.isfile(p) and self.rolling(name):
+                shutil.copy2(p, os.path.join(self.backup, name))
+                st = os.stat(p)
+                self.backed[name] = (st.st_size, st.st_mtime)
+
+    def restore_rolling_saves(self) -> int:
+        """Puts back the player's autosaves and quicksaves a run wrote over; returns how many."""
+        folder = save_folder()
+        if not self.backed or any(p in game_pids() for p in self.launched):
+            return 0
+        n = 0
+        for name, (size, mtime) in self.backed.items():
+            p = os.path.join(folder, name)
+            try:
+                st = os.stat(p)
+                changed = (st.st_size, st.st_mtime) != (size, mtime)
+            except OSError:
+                changed = True
+            if changed:
+                shutil.copy2(os.path.join(self.backup, name), p)
+                self.log(f"put back the player's {name} (a run wrote over it)")
+                n += 1
+        shutil.rmtree(self.backup, ignore_errors=True)
+        return n
+
     def clean_saves(self) -> int:
         """Deletes the saves this run wrote (files that weren't there before it), never the test saves."""
         folder = save_folder()
         if not os.path.isdir(folder) or any(p in game_pids() for p in self.launched):
             return 0
-        keep = {n.lower() for base in SAVE_NAMES.values() for n in (base + ".fos", base + ".nvse")}
+        keep = {n.lower() for base in list(SAVE_NAMES.values()) + list(self.keep_saves)
+                for n in (base + ".fos", base + ".nvse", base + ".nvcoopid")}
         n = 0
         for name in set(os.listdir(folder)) - self.saves_before:
             p = os.path.join(folder, name)
@@ -789,7 +857,7 @@ def cmd_deploy(args) -> int:
             f.write(data)
         os.replace(tmp, dst)
 
-    with open(BUILT_DLL, "rb") as f:
+    with open(args.dll or BUILT_DLL, "rb") as f:  # --dll: another build (e.g. Zed's plain release, to compare)
         place(GAME_DLL, f.read())
     with open(os.path.join(ROOT, "data", "MCM", "NVCoop.json"), "rb") as f:
         place(os.path.join(GAME, "Data", "MCM", "NVCoop.json"), f.read())
@@ -853,6 +921,7 @@ def main() -> int:
     s.add_argument("--from", dest="source")
     d = sub.add_parser("deploy")
     d.add_argument("--yes", action="store_true")
+    d.add_argument("--dll", help="deploy this NVCoop.dll instead of the build (to compare with another version)")
     sub.add_parser("undeploy")
     args = ap.parse_args()
     return {"run": cmd_run, "lab": cmd_lab, "list": cmd_list, "check": cmd_check, "saves": cmd_saves,

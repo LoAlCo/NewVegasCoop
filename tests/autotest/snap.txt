@@ -1,0 +1,13 @@
+# What the host copy's loaded game holds (used to compare a save before and after co-op)
+host: evalon 00000014 GetLevel
+host: evalon 00000014 GetItemCount 0000000F
+host: evalon 00000014 GetItemCount 00015169
+host: evalon 00000014 GetAV Health
+host: evalon 00104C80 GetDead
+host: evalon 00104F03 GetDead
+host: evalon 001073E8 GetDead
+host: evalon 00104F0A GetDead
+host: evalon 00104F0A GetDisabled
+host: evalon 00104C80 GetDisabled
+host: status
+host: coop npcs

@@ -1,0 +1,18 @@
+# One of the user's downloaded saves (92.fos, another player's game) hosted, the friend (new game) joins and plays a minute
+usesave host 92
+launch
+connect
+expect host status ~ (1 others)
+expect friend status ~ co-op joined
+wait 20
+shot both joined
+friend: CloseAllMenus
+host: status
+friend: status
+host: coop npcs
+friend: coop npcs
+wait 40
+expect both status ~ world loaded
+nolog both EXCEPTION
+shot both after-a-minute
+quit

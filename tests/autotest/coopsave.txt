@@ -1,0 +1,49 @@
+# Save corruption check: the friend (new game) joins a far-along host, saves under its own name and quicksaves; both
+# saves are then loaded alone and compared with the friend's own save (quests, quest script variables, level, NPCs)
+launch
+say baseline: the friend's own save, alone
+host: load "Autotest Friend"
+waitfor host 120 status ~ world loaded
+wait 8
+include questsnap
+kill host
+relaunch host
+usesave host Autotest Late
+connect
+wait 15
+friend: CloseAllMenus
+wait 3
+friend: evalon 00000014 GetLevel
+friend: coop quests
+mark
+friend: save AutotestCoopMine
+wait 10
+waitlog friend 20 Saved: AutotestCoopMine
+friend: CloseAllMenus
+friend: save Quicksave
+wait 10
+waitlog friend 20 Saved: Quicksave
+host: save AutotestCoopHost
+wait 10
+waitlog host 20 Saved: AutotestCoopHost
+say the friend's own-name save from co-op, alone
+kill friend
+kill host
+relaunch host
+host: load AutotestCoopMine
+waitfor host 120 status ~ world loaded
+wait 8
+expect host status ~ co-op off
+include questsnap
+shot host coop-mine-alone
+say the friend's quicksave from co-op, alone
+host: load Quicksave
+waitfor host 120 status ~ world loaded
+wait 8
+include questsnap
+say the host's save from co-op, alone (should be just the host's game)
+host: load AutotestCoopHost
+waitfor host 120 status ~ world loaded
+wait 8
+include questsnap
+quit

@@ -1,0 +1,6 @@
+# One fresh copy loads "Autotest Late" alone and stays 30 s (talkcrash5 repeats it)
+relaunch host
+host: load "Autotest Late"
+wait 30
+expect host status ~ world loaded
+kill host
