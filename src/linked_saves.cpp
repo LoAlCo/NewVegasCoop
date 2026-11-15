@@ -97,7 +97,26 @@
         char documents[MAX_PATH];
         if (FAILED(SHGetFolderPathA(nullptr, CSIDL_PERSONAL, nullptr, 0, documents)))
             return "";
-        return std::string(documents) + "\\My Games\\FalloutNV\\Saves\\";
+        std::string game = std::string(documents) + "\\My Games\\FalloutNV\\";
+        // The game keeps saves where Fallout.ini's SLocalSavePath says (save managers set a folder per character,
+        // e.g. Saves\aeGOIvZob\); looking in plain Saves\ there found stale saves the game then couldn't load.
+        char local[MAX_PATH] = {};
+        GetPrivateProfileStringA("General", "SLocalSavePath", "Saves\\", local, sizeof(local), (game + "Fallout.ini").c_str());
+        std::string sub = local;
+        while (!sub.empty() && (sub.back() == ' ' || sub.back() == '\t'))
+            sub.pop_back();
+        if (sub.empty() || sub.find("..") != std::string::npos || sub.find(':') != std::string::npos ||
+            sub.front() == '\\' || sub.front() == '/')
+            sub = "Saves\\";
+        if (sub.back() != '\\' && sub.back() != '/')
+            sub += '\\';
+        static std::string s_logged;
+        if (sub != s_logged)
+        {
+            s_logged = sub;
+            LOG_INFO("Saves: the game's save folder is %s (SLocalSavePath)", (game + sub).c_str());
+        }
+        return game + sub;
     }
 
     std::string OurMatchOf(const std::string& host, const std::string& hostSave)
