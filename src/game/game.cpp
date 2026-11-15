@@ -2737,6 +2737,7 @@ namespace game
         coop::ChatDraft g_entryDraft;
         EntryState g_entryState = EntryState::None;
         bool g_chatHudMade = false;
+        uint32_t g_hudHeldUntil = 0;
         bool g_chatShown = false;
 
         LRESULT CALLBACK ChatWndProc(HWND window, UINT message, WPARAM w, LPARAM l)
@@ -2805,7 +2806,8 @@ namespace game
         void MakeChatHud()
         {
             NVSEArrayVarInterface::Element result;
-            if (g_chatHudMade || !g_chatHud || !Player())
+            if (g_chatHudMade || !g_chatHud || !Player() ||
+                (g_hudHeldUntil && static_cast<int32_t>(GetTickCount() - g_hudHeldUntil) < 0))
                 return;
             static const char kLine[] =
                 "<rect name=\"NVCoopChat\"><visible>0</visible>"
@@ -3931,6 +3933,12 @@ namespace game
                     FloatArg(back[1]), FloatArg(back[2]), FloatArg(back[3]), FloatArg(back[4]), FloatArg(back[5]),
                     FloatArg(back[6]));
         }
+    }
+
+    void HoldHudAfterLoad(uint32_t now)
+    {
+        if (!g_chatHudMade)
+            g_hudHeldUntil = now + 3000;
     }
 
     void ShowTalkLog(const std::vector<coop::TalkLog::Shown>& lines, const TalkLogLook& look)

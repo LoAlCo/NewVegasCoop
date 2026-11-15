@@ -960,6 +960,7 @@ namespace
 
     void OnWorldLoaded()
     {
+        game::HoldHudAfterLoad(GetTickCount());
         if (g_teleportersHad > 0)
             g_teleportersHad = 0;
         if (int dragged = g_coop.Dragging(g_coop.MyPlayerId()); g_coop.InGame() && dragged >= 0)
