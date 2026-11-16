@@ -986,6 +986,7 @@ namespace
 
     void OnWorldLoaded()
     {
+        game::HoldHudAfterLoad(GetTickCount());
         g_partyWatch.Rebaseline(GetTickCount());
         if (g_coop.InGame())
             g_chatHistory.Add("--- Game loaded ---");

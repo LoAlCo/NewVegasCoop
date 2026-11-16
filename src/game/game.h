@@ -257,6 +257,10 @@ namespace game
     void SwitchBody(TESObjectREFR* ref, bool on);
     void NoteMadeCharacters(const std::vector<uint32_t>& refIds);
     bool RunConsoleLine(const char* line, TESObjectREFR* on = nullptr);
+    // Right after a save loads, adding our pieces to the game's HUD can crash it (UI Organizer, in the game's
+    // tile code), so they're added a few seconds later, and
+    // never while another menu is open (a message box, a level up), which crashed the same way.
+    void HoldHudAfterLoad(uint32_t now);
     std::string Evaluate(const char* expression, TESObjectREFR* on = nullptr);
     std::vector<uint32_t> SavedMadeCharacters();
     void ResetAnimation(TESObjectREFR* ref, int how);
