@@ -32,6 +32,11 @@ namespace coop
         return UseCommand::AsUsual;
     }
 
+    inline UseCommand ForUseConversation(bool replaying, bool ownUse)
+    {
+        return replaying ? UseCommand::NotHere : ownUse ? UseCommand::OursAlone : UseCommand::AsUsual;
+    }
+
     constexpr uint16_t kBlockOnActivate = 2;
     inline bool ScriptHasBlock(const uint8_t* data, size_t size, uint16_t blockType)
     {

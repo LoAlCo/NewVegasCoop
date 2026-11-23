@@ -121,6 +121,9 @@ namespace game
         Script* g_controlPressed = nullptr;
         Script* g_menuMode = nullptr;
         Script* g_keyPressed = nullptr;
+        Script* g_spotOnScreen = nullptr;
+        Script* g_wouldAttack = nullptr;
+        Script* g_pingLabel[coop::kPingSlots] = {};
         Script* g_chatHud = nullptr;
         Script* g_chatShow = nullptr;
         Script* g_onScreen = nullptr;
@@ -142,6 +145,10 @@ namespace game
         Script* g_talkPlace[kTalkSlots] = {};
         Script* g_talkBack[kTalkSlots] = {};
         Script* g_talkSide[kTalkSlots] = {};
+        Script* g_feedText[kFeedSlots] = {};
+        Script* g_feedPlace[kFeedSlots] = {};
+        Script* g_feedBack[kFeedSlots] = {};
+        Script* g_feedSide[kFeedSlots] = {};
         Script* g_speedMult = nullptr;
         Script* g_actorAlpha = nullptr;
         Script* g_collision = nullptr;
@@ -724,6 +731,98 @@ namespace game
         }
         if (!g_onScreen)
             LOG_ERROR("Couldn't compile the on screen script (Johnny Guitar's WorldToScreen): no chat above heads");
+        for (const char* call : {"WorldToScreen fX fY fZ fPX fPY fPZ 0", "JGLegacyWorldToScreen \"fX\" \"fY\" \"fZ\" fPX fPY fPZ 0",
+                 "WorldToScreen \"fX\" \"fY\" \"fZ\" fPX fPY fPZ 0"})
+        {
+            if (g_spotOnScreen)
+                break;
+            g_spotOnScreen = g_scripts->CompileScript((std::string(
+                "float fX\n"
+                "float fY\n"
+                "float fZ\n"
+                "float fPX\n"
+                "float fPY\n"
+                "float fPZ\n"
+                "int iOn\n"
+                "array_var aOut\n"
+                "Begin Function {fPX, fPY, fPZ}\n"
+                "  set iOn to ") + call + "\n"
+                "  let aOut := ar_List iOn fX fY\n"
+                "  SetFunctionValue aOut\n"
+                "End\n").c_str());
+            if (g_spotOnScreen)
+            {
+                g_ourScripts.insert(g_spotOnScreen);
+                LOG_INFO("Pings: places a spot on screen with \"%s\"", call);
+            }
+        }
+        if (!g_spotOnScreen)
+            LOG_ERROR("Couldn't compile the spot on screen script (Johnny Guitar's WorldToScreen): no ping labels");
+        for (const char* test : {"GetShouldAttack PlayerRef", "GetFactionRelation PlayerRef == 1"})
+        {
+            if (g_wouldAttack)
+                break;
+            g_wouldAttack = g_scripts->CompileScript((std::string(
+                "Begin Function {}\n"
+                "  SetFunctionValue ") + test + "\n"
+                "End\n").c_str());
+            if (g_wouldAttack)
+            {
+                g_ourScripts.insert(g_wouldAttack);
+                LOG_INFO("Pings: tells enemies by \"%s\"", test);
+            }
+        }
+        if (!g_wouldAttack)
+            LOG_WARN("Pings: couldn't compile a would-attack test; only characters fighting a player count as enemies");
+        for (int slot = 0; slot < coop::kPingSlots; ++slot)
+        {
+            std::string path = "HUDMainMenu/NVCoopPing" + std::to_string(slot);
+            std::string icons;
+            for (int kind = 0; kind < static_cast<int>(net::PingKind::Count); ++kind)
+            {
+                std::string icon = "HUDMainMenu/NVCoopPingIcon" + std::to_string(slot) + "x" + std::to_string(kind);
+                static const int kOwnColours[][3] = {{255, 182, 66}, {217, 165, 255}, {108, 198, 255}, {255, 92, 76},
+                    {236, 232, 214}, {120, 230, 140}};
+                static_assert(std::size(kOwnColours) == static_cast<size_t>(net::PingKind::Count));
+                icons += "  if iShow == 2\n"
+                    "    if iIcons == 2\n"
+                    "      SetUIFloat \"" + icon + "/systemcolor\" 0\n"
+                    "      SetUIFloat \"" + icon + "/red\" " + std::to_string(kOwnColours[kind][0]) + "\n"
+                    "      SetUIFloat \"" + icon + "/green\" " + std::to_string(kOwnColours[kind][1]) + "\n"
+                    "      SetUIFloat \"" + icon + "/blue\" " + std::to_string(kOwnColours[kind][2]) + "\n"
+                    "    else\n"
+                    "      SetUIFloat \"" + icon + "/systemcolor\" 1\n"
+                    "    endif\n"
+                    "  endif\n"
+                    "  if iShow\n"
+                    "    SetUIFloat \"" + icon + "/user0\" fX\n"
+                    "    SetUIFloat \"" + icon + "/user1\" fY\n"
+                    "  endif\n"
+                    "  if iKind == " + std::to_string(kind) + " && iIcons != 0\n"
+                    "    SetUIFloat \"" + icon + "/visible\" iShow\n"
+                    "  else\n"
+                    "    SetUIFloat \"" + icon + "/visible\" 0\n"
+                    "  endif\n";
+            }
+            g_pingLabel[slot] = Compile("ping label",
+                "string_var sText\n"
+                "float fX\n"
+                "float fY\n"
+                "int iShow\n"
+                "int iKind\n"
+                "int iIcons\n"
+                "Begin Function {sText, fX, fY, iShow, iKind, iIcons}\n"
+                "  if iShow == 2\n"
+                "    SetUIStringEx \"" + path + "/string\" \"%z\" sText\n"
+                "  endif\n"
+                "  if iShow\n"
+                "    SetUIFloat \"" + path + "/user0\" fX\n"
+                "    SetUIFloat \"" + path + "/user1\" fY\n"
+                "  endif\n"
+                "  SetUIFloat \"" + path + "/visible\" iShow\n" +
+                icons +
+                "End\n");
+        }
         for (int slot = 0; slot < kMarkSlots; ++slot)
         {
             std::string path = "HUDMainMenu/NVCoopMark" + std::to_string(slot);
@@ -920,6 +1019,96 @@ namespace game
             "  endif\n"
             "  SetUIFloat \"HUDMainMenu/NVCoopRevive/visible\" iShow\n"
             "End\n");
+        for (int slot = 0; slot < kFeedSlots; ++slot)
+        {
+            std::string n = std::to_string(slot);
+            std::string text = "HUDMainMenu/NVCoopFeed" + n;
+            std::string edge = "HUDMainMenu/NVCoopFeedEdge" + n + "x";
+            std::string line = "HUDMainMenu/NVCoopFeedLine" + n;
+            std::string bar = "HUDMainMenu/NVCoopFeedBar" + n;
+            std::string setText = "  SetUIStringEx \"" + text + "/string\" \"%z\" sText\n"
+                "  SetUIFloat \"" + text + "/justify\" fJustify\n"
+                "  SetUIStringEx \"" + line + "/filename\" \"%z\" sLine\n";
+            std::string placeEdges;
+            for (int e = 0; e < kFeedEdges; ++e)
+            {
+                std::string path = edge + std::to_string(e);
+                setText += "  SetUIStringEx \"" + path + "/string\" \"%z\" sText\n"
+                    "  SetUIFloat \"" + path + "/justify\" fJustify\n";
+                placeEdges += std::string("  set fEdgeX to ") + (e % 2 ? "fX + fOff" : "fX - fOff") + "\n"
+                    "  set fEdgeY to fY " + (e / 2 ? "+" : "-") + " fOff\n"
+                    "  SetUIFloat \"" + path + "/x\" fEdgeX\n"
+                    "  SetUIFloat \"" + path + "/y\" fEdgeY\n"
+                    "  SetUIFloat \"" + path + "/wrapwidth\" fWrap\n"
+                    "  SetUIFloat \"" + path + "/alpha\" fEdge\n"
+                    "  SetUIFloat \"" + path + "/visible\" " + (e == 3 ? "iLast" : "iShow") + "\n";
+            }
+            g_feedText[slot] = Compile("chat panel text",
+                "string_var sText\n"
+                "float fJustify\n"
+                "string_var sLine\n"
+                "Begin Function {sText, fJustify, sLine}\n" + setText +
+                "End\n");
+            g_feedPlace[slot] = Compile("chat panel place",
+                "float fY\n"
+                "float fWrap\n"
+                "float fAlpha\n"
+                "float fEdge\n"
+                "float fOff\n"
+                "int iEdges\n"
+                "float fX\n"
+                "float fEdgeX\n"
+                "float fEdgeY\n"
+                "int iShow\n"
+                "int iLast\n"
+                "Begin Function {fY, fWrap, fAlpha, fEdge, fOff, iEdges, fX}\n"
+                "  set iShow to fAlpha > 0\n"
+                "  SetUIFloat \"" + text + "/x\" fX\n"
+                "  SetUIFloat \"" + text + "/y\" fY\n"
+                "  SetUIFloat \"" + text + "/wrapwidth\" fWrap\n"
+                "  SetUIFloat \"" + text + "/alpha\" fAlpha\n"
+                "  SetUIFloat \"" + text + "/visible\" iShow\n"
+                "  set iShow to 0\n"
+                "  if fEdge > 0\n"
+                "    if iEdges > 0\n"
+                "      set iShow to 1\n"
+                "    endif\n"
+                "  endif\n"
+                "  set iLast to iShow\n"
+                "  if iEdges == 2\n"
+                "    set iShow to 0\n"
+                "  endif\n" + placeEdges +
+                "End\n");
+            g_feedSide[slot] = Compile("chat panel side",
+                "float fLineX\n"
+                "float fBarX\n"
+                "Begin Function {fLineX, fBarX}\n"
+                "  SetUIFloat \"" + line + "/x\" fLineX\n"
+                "  SetUIFloat \"" + bar + "/x\" fBarX\n"
+                "End\n");
+            g_feedBack[slot] = Compile("chat panel back",
+                "float fLineY\n"
+                "float fLineWidth\n"
+                "float fLine\n"
+                "float fBarY\n"
+                "float fBarHeight\n"
+                "float fBarWidth\n"
+                "float fBar\n"
+                "int iShow\n"
+                "Begin Function {fLineY, fLineWidth, fLine, fBarY, fBarHeight, fBarWidth, fBar}\n"
+                "  set iShow to fLine > 0\n"
+                "  SetUIFloat \"" + line + "/y\" fLineY\n"
+                "  SetUIFloat \"" + line + "/width\" fLineWidth\n"
+                "  SetUIFloat \"" + line + "/alpha\" fLine\n"
+                "  SetUIFloat \"" + line + "/visible\" iShow\n"
+                "  set iShow to fBar > 0\n"
+                "  SetUIFloat \"" + bar + "/y\" fBarY\n"
+                "  SetUIFloat \"" + bar + "/height\" fBarHeight\n"
+                "  SetUIFloat \"" + bar + "/width\" fBarWidth\n"
+                "  SetUIFloat \"" + bar + "/alpha\" fBar\n"
+                "  SetUIFloat \"" + bar + "/visible\" iShow\n"
+                "End\n");
+        }
         for (int slot = 0; slot < kTalkSlots; ++slot)
         {
             std::string n = std::to_string(slot);

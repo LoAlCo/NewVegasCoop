@@ -6,6 +6,7 @@
 #include "game/addresses.h"
 #include "game/dialogue.h"
 #include "game/far_cells.h"
+#include "game/far_interior.h"
 #include "game/sleepwait.h"
 #include "game/game.h"
 #include "game/inspector.h"
@@ -149,6 +150,8 @@ namespace dev
             Say("coop body N: what actor N (decimal id; or the selected one) wears and holds");
             Say("coop hide N / coop show N: switch reference N off or on in this game only (desync lab)");
             Say("coop party: who's following us (companions not told to wait)");
+            Say("coop hardcore [0/1]: hardcore mode for our player, and the needs' last-counted marks");
+            Say("coop clock N: our clock N days on (negative: back), as co-op sets it");
             Say("coop quests: list started quests; coop questpick K: pick one; then coop queststage N (mark stage N done),");
             Say("  coop questobj N (show objective N), coop questobjdone N (complete it), coop questflags F (set its flags)");
             Say("  coop questvars (its script's variables), coop questscript 0 / 1 (detach its script / put it back)");
@@ -214,6 +217,36 @@ namespace dev
                 game::SetPitch(game::Player(), -std::atan2((at.z + 50) - (me.z + 120), flat));
                 return Say("Aiming at %08X, %.0f units away", id, flat);
             }
+            if (_stricmp(action, "reach") == 0)
+            {
+                if (!hasNumber)
+                    return Say("coop reach N (a box's or body's ref id, decimal)");
+                uint32_t id = static_cast<uint32_t>(number);
+                TESObjectREFR* box = game::LookupRef(id);
+                coop::Pose me, at;
+                if (!game::IsLootable(box) || !game::GetPose(game::Player(), me) || !game::GetPose(box, at) ||
+                    at.space != me.space)
+                    return Say("%08X: no box or body here", id);
+                float dx = me.x - at.x, dy = me.y - at.y, flat = std::sqrt(dx * dx + dy * dy);
+                if (flat < 1)
+                    dx = 0, dy = 1, flat = 1;
+                coop::Pose stand = me;
+                stand.x = at.x + dx / flat * 100;
+                stand.y = at.y + dy / flat * 100;
+                stand.z = at.z;
+                stand.heading = std::atan2(at.x - stand.x, at.y - stand.y);
+                if (flat > 1500)
+                    return Say(game::TravelTo(stand) ? "Went near %08X (%.0f units): reach again to face it" :
+                        "Couldn't go near %08X (%.0f units)", id, flat);
+                game::Move(game::Player(), stand);
+                game::SetPitch(game::Player(), -std::atan2((at.z + 15) - (stand.z + 120), 100.0f));
+                return Say("Standing 100 units from %08X, facing it", id);
+            }
+            if (_stricmp(action, "crosshair") == 0)
+            {
+                TESObjectREFR* at = game::CrosshairRef();
+                return Say("Crosshair: %08X", at ? game::RefId(at) : 0u);
+            }
             if (_strnicmp(action, "legs:", 5) == 0)
             {
                 unsigned id = 0, flags = 0;
@@ -246,6 +279,72 @@ namespace dev
                 }
                 return Say("Cell %d, %d: state %d%s", cx, cy, game::FarCellState(cx, cy),
                     game::IsGridCell(cx, cy) ? " (one of the player's grid cells)" : "");
+            }
+            if (_strnicmp(action, "los:", 4) == 0)
+            {
+                unsigned a = 0, b = 0;
+                if (sscanf_s(action + 4, "%x:%x", &a, &b) != 2)
+                    return Say("coop los:WATCHER:TARGET (hex ref ids)");
+                return Say("Sight: %s", game::SightTest(a, b).c_str());
+            }
+            if (_stricmp(action, "keepfar") == 0)
+                return Say("Far cells %s while indoors", game::KeepFarCellsIndoors(!hasNumber || number != 0) ? "kept" :
+                    "let go");
+            if (_stricmp(action, "tes") == 0)
+                return Say("%s", game::TesPlace().c_str());
+            if (_strnicmp(action, "attachgrid:", 11) == 0)
+            {
+                int cx = 0, cy = 0;
+                std::string why;
+                if (sscanf_s(action + 11, "%d:%d", &cx, &cy) != 2)
+                    return Say("coop attachgrid:X:Y (one of our grid's cells, while indoors)");
+                bool done = game::AttachFarCell(cx, cy, why);
+                return Say(done ? "Grid cell %d, %d attached" : "Grid cell %d, %d not attached: %s", cx, cy, why.c_str());
+            }
+            if (_strnicmp(action, "cellrefs:", 9) == 0)
+            {
+                int cx = 0, cy = 0;
+                if (sscanf_s(action + 9, "%d:%d", &cx, &cy) != 2)
+                    return Say("coop cellrefs:X:Y (one of ours)");
+                return Say("Cell %d, %d: %s", cx, cy, game::FarCellRefs(cx, cy).c_str());
+            }
+            if (_stricmp(action, "detstats") == 0)
+                return Say("Detection: %s; %s", game::DetectionStats().c_str(), game::FootstepStats().c_str());
+            if (_strnicmp(action, "cmdaddr:", 8) == 0)
+                return Say("Command %s: code at %08X", action + 8, static_cast<uint32_t>(game::CommandCode(action + 8)));
+            if (_strnicmp(action, "showint:", 8) == 0 || _strnicmp(action, "hideint:", 8) == 0)
+            {
+                unsigned id = 0;
+                bool show = _strnicmp(action, "showint:", 8) == 0;
+                if (sscanf_s(action + 8, "%x", &id) != 1 || !game::ShowFarInterior(id, show))
+                    return Say("coop showint:ID / hideint:ID: an interior of ours (hex)");
+                return Say("Interior %08X %s", id, show ? "shown" : "hidden");
+            }
+            if (_strnicmp(action, "attachint:", 10) == 0 || _strnicmp(action, "detachint:", 10) == 0 ||
+                _strnicmp(action, "int:", 4) == 0)
+            {
+                unsigned id = 0;
+                if (sscanf_s(strchr(action, ':') + 1, "%x", &id) != 1)
+                    return Say("coop attachint:ID, detachint:ID or int:ID (the cell's form id, hex)");
+                std::string why;
+                if (_strnicmp(action, "attachint:", 10) == 0)
+                {
+                    bool done = game::AttachFarInterior(id, why);
+                    return Say(done ? "Interior %08X attached" : "Interior %08X not attached: %s", id, why.c_str());
+                }
+                if (_strnicmp(action, "detachint:", 10) == 0)
+                {
+                    bool done = game::DetachFarInterior(id, why);
+                    return Say(done ? "Interior %08X detached" : "Interior %08X not detached: %s", id, why.c_str());
+                }
+                bool hidden = false;
+                std::vector<uint32_t> actors;
+                int state = game::FarInteriorState(id, hidden, actors);
+                std::string list;
+                for (uint32_t a : actors)
+                    list += " " + std::to_string(a);
+                return Say("Interior %08X: state %d, %s, %zu actors (decimal ids):%s", id, state,
+                    hidden ? "hidden" : "shown", actors.size(), list.c_str());
             }
             if (_stricmp(action, "menus") == 0)
             {
@@ -628,6 +727,22 @@ namespace dev
                         Say("  %08X x%d", item.id, item.count);
                     else
                         Say("  %08X x%d at %u%%, mods %u", item.id, item.count, item.health, item.mods);
+            }
+            else if (_stricmp(action, "holds") == 0)
+            {
+                TESObjectREFR* ref = hasNumber ? game::LookupRef(static_cast<uint32_t>(number)) : selected;
+                if (!ref)
+                    return Say("coop holds N: a reference's id, decimal (or select one)");
+                std::vector<game::Item> items;
+                if (!game::Contents(ref, items))
+                    return Say("%08X: COULDN'T READ its items", game::RefId(ref));
+                Say("%08X holds %u kinds of items%s", game::RefId(ref), static_cast<unsigned>(items.size()),
+                    game::Is3DLoaded(ref) ? "" : " (not loaded here)");
+                for (const game::Item& item : items)
+                    if (item.health == net::kNoCondition)
+                        Say("  has %08X x%d", item.id, item.count);
+                    else
+                        Say("  has %08X x%d at %u%%, mods %u", item.id, item.count, item.health, item.mods);
             }
             else if (_stricmp(action, "body") == 0)
             {
@@ -1018,8 +1133,8 @@ namespace dev
                             nearest = a;
                         }
                     }
-                const char* process = nearest ? *reinterpret_cast<const char* const*>(reinterpret_cast<const char*>(nearest) + 0x68) : nullptr;
-                const float* face = process ? *reinterpret_cast<const float* const*>(process + 0x178) : nullptr;
+                const char* process = nearest ? *reinterpret_cast<const char* const*>(reinterpret_cast<const char*>(nearest) + game::layout::kActorProcess) : nullptr;
+                const float* face = process ? *reinterpret_cast<const float* const*>(process + game::layout::kProcessFaceAnimData) : nullptr;
                 if (!face)
                     return Say("No face animation data on the nearest NPC");
                 uint32_t now = GetTickCount();
@@ -1084,8 +1199,8 @@ namespace dev
                             nearest = a;
                         }
                     }
-                const char* process = nearest ? *reinterpret_cast<const char* const*>(reinterpret_cast<const char*>(nearest) + 0x68) : nullptr;
-                const char* face = process ? *reinterpret_cast<const char* const*>(process + 0x178) : nullptr;
+                const char* process = nearest ? *reinterpret_cast<const char* const*>(reinterpret_cast<const char*>(nearest) + game::layout::kActorProcess) : nullptr;
+                const char* face = process ? *reinterpret_cast<const char* const*>(process + game::layout::kProcessFaceAnimData) : nullptr;
                 if (!face)
                     return Say("No face animation data on the nearest NPC");
                 if (!g_watchHandler)
@@ -1200,12 +1315,35 @@ namespace dev
                     game::LogAimSlots(dummy);
                 Say("Aim slots logged");
             }
+            else if (_stricmp(action, "hardcore") == 0)
+            {
+                auto* player = reinterpret_cast<uint8_t*>(game::Player());
+                auto* flag = reinterpret_cast<uint32_t*>(player + game::addr::kPlayerIsHardcore);
+                if (hasNumber)
+                    *flag = number != 0 ? 1 : 0;
+                LOG_INFO("Lab: hardcore %u; needs marks food %.1f water %.1f sleep %.1f", *flag,
+                    *reinterpret_cast<const float*>(game::addr::kHardcoreFoodMark),
+                    *reinterpret_cast<const float*>(game::addr::kHardcoreWaterMark),
+                    *reinterpret_cast<const float*>(game::addr::kHardcoreSleepMark));
+                Say("Hardcore %u; needs marks food %.1f water %.1f sleep %.1f", *flag,
+                    *reinterpret_cast<const float*>(game::addr::kHardcoreFoodMark),
+                    *reinterpret_cast<const float*>(game::addr::kHardcoreWaterMark),
+                    *reinterpret_cast<const float*>(game::addr::kHardcoreSleepMark));
+            }
+            else if (_stricmp(action, "clock") == 0)
+            {
+                char line[96];
+                std::snprintf(line, sizeof(line), "set GameDaysPassed to GameDaysPassed + %d", hasNumber ? number : 1);
+                game::RunConsoleLine(line);
+                *reinterpret_cast<uint8_t*>(game::addr::kGameTimeGlobals + game::addr::kGameTimeReload) = 1;
+                Say("Clock: %+d days asked", hasNumber ? number : 1);
+            }
             else if (_stricmp(action, "waittest") == 0)
             {
                 auto* player = reinterpret_cast<uint8_t*>(game::Player());
                 int hours = hasNumber && number > 0 && number <= 24 ? number : 2;
-                *reinterpret_cast<int32_t*>(player + 0x654) = hours + 1;
-                *reinterpret_cast<uint8_t*>(player + 0x658) = 0;
+                *reinterpret_cast<int32_t*>(player + game::layout::kPlayerWaitHours) = hours + 1;
+                *reinterpret_cast<uint8_t*>(player + game::layout::kPlayerWaitSleeping) = 0;
                 Say("Wait test: %d hours asked", hours);
             }
             else if (_stricmp(action, "sleepwait") == 0)

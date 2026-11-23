@@ -230,7 +230,7 @@ namespace game
         if (!pick)
             return false;
         g_pickLine = pick;
-        if (pick != 0x0061A790)
+        if (pick != addr::kPickLine)
             LOG_INFO("Dialogue: another plugin hooks the game's line picking too (%08X); ours passes on to it",
                 static_cast<unsigned>(pick));
         static const uint8_t kStart[7] = {0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC};
@@ -418,13 +418,13 @@ namespace game
             return static_cast<int32_t>(now - s.until) >= 0 || s.speaker == speaker; }), g_said.end());
         g_said.push_back({speaker, info, now + kSaidMs});
         g_armed = Armed{topic, info, speaker, response, now + kArmedMs};
-        using SayFn = void(__thiscall*)(void*, TESObjectREFR*, TESForm*, uint8_t, uint8_t, uint8_t, uint8_t);
+        using SayFn = void(__thiscall*)(void*, TESObjectREFR*, TESForm*, TESObjectREFR*, uint8_t, uint8_t, uint8_t);
         SayFn say = reinterpret_cast<SayFn>((*reinterpret_cast<void***>(process))[addr::kProcessSaySlot]);
         auto* general = reinterpret_cast<uint8_t*>(addr::kSettingGeneralSubtitles + 4);
         const auto* dialogue = reinterpret_cast<const uint8_t*>(addr::kSettingDialogueSubtitles + 4);
         uint8_t was = *general;
         *general = *dialogue;
-        say(process, speaker, topic, 0, 0, 1, 1);
+        say(process, speaker, topic, nullptr, 0, 1, 1);
         *general = was;
         std::lock_guard<std::mutex> lock(g_voicesLock);
         auto voice = g_voices.find(speaker->refID);

@@ -5,6 +5,7 @@
 #include "coop/clock.h"
 #include "game/addresses.h"
 #include "game/game.h"
+#include "game/far_interior.h"
 #include "log.h"
 
 #include "nvse/GameObjects.h"
@@ -18,6 +19,14 @@ namespace game
 {
     namespace
     {
+        uint32_t PlaceOf(const TESObjectREFR* ref)
+        {
+            const TESObjectCELL* cell = ref ? ref->parentCell : nullptr;
+            if (!cell)
+                return 0;
+            return cell->worldSpace ? cell->worldSpace->refID : cell->refID;
+        }
+
         constexpr uint32_t kLookMs = 500;
         constexpr float kMyReach = 300;
         constexpr float kMyPushReach = 600;
@@ -88,9 +97,9 @@ namespace game
         m_grabbed = grabbed;
         std::vector<TESObjectREFR*> refs, movables;
         const float range = LoadedReach();
-        ItemsNear(refs, range);
+        ItemsNear(refs, range, host);
         size_t items = refs.size();
-        MovablesNear(movables, range);
+        MovablesNear(movables, range, host);
         refs.insert(refs.end(), movables.begin(), movables.end());
         m_near = static_cast<uint32_t>(refs.size());
         if (host)
@@ -108,7 +117,7 @@ namespace game
                     Condition c = ItemCondition(ref);
                     states.push_back({RefId(ref), w.base, w.count, IsThere(w), w.x, w.y, w.z, w.rx, w.ry, w.rz,
                         RefId(ref) == m_grabbed, parent ? RefId(parent) : 0, parent && IsEnabled(parent), c.health,
-                        c.mods});
+                        c.mods, PlaceOf(ref)});
                 }
             }
             coop.SetWorldItems(states);
@@ -141,7 +150,7 @@ namespace game
             const void* world = *reinterpret_cast<const void* const*>(
                 reinterpret_cast<const char*>(player->parentCell) + layout::kCellWorldSpace);
             const void* area = world ? world : player->parentCell;
-            coop::ItemActions actions = coop.LookAtItems(local, area == m_area);
+            coop::ItemActions actions = coop.LookAtItems(local, area == m_area, PlaceOf(player));
             m_area = area;
             for (const net::ItemState& h : actions.make)
             {
@@ -229,8 +238,24 @@ namespace game
         for (const coop::Coop::ItemDropFrom& d : coop.TakeItemDrops())
         {
             const net::ItemDrop& drop = d.drop;
-            if (TESObjectREFR* placed = PlaceItem(drop.base, drop.count, drop.x, drop.y, drop.z, drop.health,
-                drop.mods))
+            uint32_t ours = PlaceOf(Player());
+            bool there = drop.space && drop.space != ours;
+            if (there && !IsFarInterior(drop.space))
+            {
+                coop.RefundItems(d.playerId, {drop.base, drop.count, drop.health, drop.mods});
+                ++m_refunds;
+                LOG_WARN("Items: %s dropped %d of %08X in place %08X, which our game isn't running; given back",
+                    coop.NameOf(d.playerId).c_str(), drop.count, drop.base, drop.space);
+                continue;
+            }
+            TESObjectREFR* placed = PlaceItem(drop.base, drop.count, drop.x, drop.y, drop.z, drop.health, drop.mods);
+            if (placed && there)
+            {
+                MoveIntoPlace(placed, {drop.space, drop.x, drop.y, drop.z, 0});
+                LOG_DEBUG("Items: %s's drop (%08X) put in the interior we run for them, %08X",
+                    coop.NameOf(d.playerId).c_str(), RefId(placed), drop.space);
+            }
+            if (placed)
             {
                 ++m_drops;
                 if (drop.health != net::kNoCondition || drop.mods)

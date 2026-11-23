@@ -76,6 +76,10 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iVoiceChatKey", voiceChatKey);
         Write(path, "iVoiceChatMode", voiceChatMode);
         Write(path, "iVoiceChatVolume", voiceChatVolume);
+        Write(path, "bPings", pings);
+        Write(path, "iPingKey", pingKey);
+        Write(path, "iPingSound", pingSound);
+        Write(path, "iPingIcons", pingIcons);
         Write(path, "bMouths", mouths);
         Write(path, "bSkipDlcPopups", skipDlcPopups);
         Write(path, "bSyncRadio", syncRadio);
@@ -100,6 +104,19 @@ void Config::LoadPlayer(const std::string& path)
         Write(path, "iTalkLogRed", talkLogRed);
         Write(path, "iTalkLogGreen", talkLogGreen);
         Write(path, "iTalkLogBlue", talkLogBlue);
+        Write(path, "bEventFeed", eventFeed);
+        Write(path, "bChatHistory", chatHistory);
+        Write(path, "bChatPopup", chatPopup);
+        Write(path, "iFeedX", feedX);
+        Write(path, "iFeedY", feedY);
+        Write(path, "iFeedWidth", feedWidth);
+        Write(path, "iFeedAlign", feedAlign);
+        Write(path, "iFeedSize", feedSize);
+        Write(path, "iFeedGap", feedGap);
+        Write(path, "iFeedStyle", feedStyle);
+        Write(path, "bFeedDividers", feedDividers);
+        Write(path, "bFeedPreview", feedPreview);
+        Write(path, "iFeedSeconds", feedSeconds);
         Write(path, "bShowAddress", showAddress);
         Write(path, "bFarAreas", farAreas);
         WriteSwitches(path);
@@ -132,6 +149,10 @@ void Config::LoadPlayer(const std::string& path)
     }
     voiceChatMode = number("iVoiceChatMode", voiceChatMode, 0, 1);
     voiceChatVolume = number("iVoiceChatVolume", voiceChatVolume, 0, 100);
+    pings = flag("bPings", pings);
+    pingKey = number("iPingKey", pingKey, 1, 255);
+    pingSound = number("iPingSound", pingSound, 0, 5);
+    pingIcons = number("iPingIcons", pingIcons, 0, 2);
     mouths = flag("bMouths", mouths);
     skipDlcPopups = flag("bSkipDlcPopups", skipDlcPopups);
     syncRadio = flag("bSyncRadio", syncRadio);
@@ -156,6 +177,19 @@ void Config::LoadPlayer(const std::string& path)
     talkLogRed = number("iTalkLogRed", talkLogRed, 0, 255);
     talkLogGreen = number("iTalkLogGreen", talkLogGreen, 0, 255);
     talkLogBlue = number("iTalkLogBlue", talkLogBlue, 0, 255);
+    eventFeed = flag("bEventFeed", eventFeed);
+    chatHistory = flag("bChatHistory", chatHistory);
+    chatPopup = flag("bChatPopup", chatPopup);
+    feedX = number("iFeedX", feedX, 0, 100);
+    feedY = number("iFeedY", feedY, 0, 100);
+    feedWidth = number("iFeedWidth", feedWidth, 200, 1200);
+    feedAlign = number("iFeedAlign", feedAlign, 0, 1);
+    feedSize = number("iFeedSize", feedSize, 40, 150);
+    feedGap = number("iFeedGap", feedGap, 0, 40);
+    feedStyle = number("iFeedStyle", feedStyle, 0, 3);
+    feedDividers = flag("bFeedDividers", feedDividers);
+    feedPreview = flag("bFeedPreview", feedPreview);
+    feedSeconds = number("iFeedSeconds", feedSeconds, 3, 60);
     showAddress = flag("bShowAddress", showAddress);
     coopBalanced = flag("bCoopBalanced", coopBalanced);
     friendlyFire = flag("bFriendlyFire", friendlyFire);
@@ -174,6 +208,12 @@ void Config::EndTalkLogPreview(const std::string& path)
 {
     talkLogPreview = false;
     Write(path, "bTalkLogPreview", 0);
+}
+
+void Config::EndFeedPreview(const std::string& path)
+{
+    feedPreview = false;
+    Write(path, "bFeedPreview", 0);
 }
 
 Config Config::Load(const std::string& iniPath)

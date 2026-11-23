@@ -2,12 +2,14 @@
 
 #pragma once
 
+#include "coop/bodies.h"
 #include "coop/containers.h"
 #include "coop/dialogue.h"
 #include "coop/loading.h"
 #include "coop/mod_transfer.h"
 #include "coop/mods.h"
 #include "coop/party_perks.h"
+#include "coop/ping.h"
 #include "coop/chat.h"
 #include "coop/voice.h"
 #include "coop/desync.h"
@@ -61,6 +63,7 @@ namespace coop
     constexpr size_t kMaxNpcs = net::kMaxNpcsPerMessage;
     constexpr size_t kMaxKnownNpcs = 2 * kMaxNpcs;
     constexpr uint32_t kNpcTimeoutMs = 3000;
+    constexpr size_t kBodyListsATime = 4;
     constexpr uint32_t kNpcGearResendMs = 5000;
     constexpr uint32_t kDoorResendMs = 2000;
     constexpr size_t kMaxQueuedDoorUses = 32;
@@ -69,6 +72,7 @@ namespace coop
     constexpr size_t kMaxQueuedActivatorUses = 16;
     constexpr size_t kMaxQueuedQuestCommands = 32;
     constexpr size_t kMaxQueuedItemChanges = 64;
+    constexpr size_t kMaxQueuedSpotAsks = 8;
     constexpr size_t kMaxQueuedQuests = 4096;
     constexpr size_t kMaxQueuedMarkers = 4096;
     constexpr uint32_t kItemResendMs = 3000;
@@ -102,6 +106,7 @@ namespace coop
         uint32_t itemMovesSince = 0, itemMoves = 0;
         net::DesyncReport desyncs;
         ChatLimiter chatLimit;
+        PingGate pingLimit{kPingRelayGapMs};
         VoiceLimiter voiceLimit;
         bool fighting = false;
         uint32_t playerHitsSince = 0, playerHits = 0;
@@ -140,6 +145,7 @@ namespace coop
         uint8_t playerId = 0;
         uint32_t targetRef = 0;
         float damage = 0;
+        bool killed = false;
     };
 
     struct AttackReport
@@ -156,12 +162,15 @@ namespace coop
         struct CompanionOrderFrom { uint8_t playerId; net::CompanionOrder order; };
         struct ChatHeard { uint8_t player = 0; std::string name, text; VoiceStyle style; };
         struct VoiceHeard { uint8_t player = 0; net::Bytes data; };
+        struct PingHeard { std::string who; net::Ping ping; };
         struct ItemChangeFrom { uint8_t playerId; net::ContainerChange change; };
         struct ItemTakeFrom { uint8_t playerId; net::ItemTake take; };
         struct ItemDropFrom { uint8_t playerId; net::ItemDrop drop; };
+        struct SpotAskFrom { uint8_t playerId; net::NpcSpotAsk ask; };
         struct ItemMoveFrom { uint8_t playerId; net::ItemMove move; };
         struct QuestCommandFrom { uint8_t playerId; net::QuestCommand command; };
         struct DialogueLineFrom { uint8_t playerId; net::DialogueLine line; };
+        struct GreetAskFrom { uint8_t playerId; uint32_t npc; };
         struct WaitEvent
         {
             enum class Kind { Asked, Start, Refused } kind;
@@ -171,7 +180,7 @@ namespace coop
             uint8_t refusedBy = net::kNobody;
         };
         struct SaveAsk { uint8_t playerId; bool load; std::string name; };
-        struct SentNpc { net::NpcState state; uint32_t at = 0; };
+        struct SentNpc { net::NpcState state; uint32_t at = 0; uint32_t space = 0; };
         struct NpcGearSent { std::vector<net::WornItem> items; uint32_t sentAt = 0; bool changed = true; };
         struct HostView
         {
@@ -214,6 +223,9 @@ namespace coop
         bool m_gameOverSent = false;
         Pose m_place;
         bool m_hasPlace = false;
+        static constexpr uint32_t kSoloTripMs = 60000;
+        uint32_t m_soloTo = 0, m_soloAt = 0;
+        bool m_splitZones = false;
         bool m_regroup = false;
         Pose m_expect;
         bool m_expecting = false;
@@ -226,6 +238,7 @@ namespace coop
         bool m_hasGroupPlace = false;
         uint32_t m_npcSpace = 0;
         std::vector<net::NpcState> m_myNpcs;
+        std::vector<uint32_t> m_myNpcSpaces;
         std::map<uint32_t, SentNpc> m_sentNpcs;
         uint32_t m_lastNpcsSent = 0;
         uint32_t m_npcUpdatesSent = 0, m_npcBytesSent = 0;
@@ -243,6 +256,9 @@ namespace coop
         std::map<uint8_t, HostView> m_views;
         std::vector<ItemChangeFrom> m_itemChanges;
         FriendContainer m_friendContainer;
+        HostBodies m_hostBodies;
+        std::vector<uint32_t> m_sharedBoxes;
+        FriendBodies m_friendBodies;
         std::vector<net::ItemCount> m_refunds;
         std::vector<net::ItemState> m_myItems;
         std::map<uint32_t, net::ItemState> m_sentItems;
@@ -250,6 +266,8 @@ namespace coop
         bool m_itemsNew = false;
         std::vector<ItemTakeFrom> m_itemTakes;
         std::vector<ItemDropFrom> m_itemDrops;
+        std::vector<SpotAskFrom> m_spotAsks;
+        std::vector<net::NpcSpot> m_spotAnswers;
         std::vector<ItemMoveFrom> m_itemMoves;
         std::map<uint32_t, uint32_t> m_lastMoveSent;
         DesyncTracker m_desyncs;
@@ -264,6 +282,7 @@ namespace coop
         uint32_t m_nextRadioResend = 0;
         std::map<uint32_t, uint32_t> m_radioStartedAt;
         std::vector<ChatHeard> m_chat;
+        std::vector<PingHeard> m_pings;
         std::vector<VoiceHeard> m_voice;
         std::vector<net::NpcPile> m_piles;
         std::vector<MineFrom> m_mines;
@@ -306,6 +325,8 @@ namespace coop
         std::vector<std::pair<uint8_t, net::ReputationGain>> m_repGains;
         TalkLock m_talk;
         std::vector<DialogueLineFrom> m_dialogueLines;
+        std::vector<GreetAskFrom> m_greetAsks;
+        std::vector<uint32_t> m_greets;
         std::vector<net::Subtitle> m_subtitles;
         LoadGate m_loads;
         bool m_frozen = false;
@@ -330,12 +351,15 @@ namespace coop
         using CompanionOrderFrom = SessionState::CompanionOrderFrom;
         using ChatHeard = SessionState::ChatHeard;
         using VoiceHeard = SessionState::VoiceHeard;
+        using PingHeard = SessionState::PingHeard;
         using ItemChangeFrom = SessionState::ItemChangeFrom;
         using ItemTakeFrom = SessionState::ItemTakeFrom;
         using ItemDropFrom = SessionState::ItemDropFrom;
+        using SpotAskFrom = SessionState::SpotAskFrom;
         using ItemMoveFrom = SessionState::ItemMoveFrom;
         using QuestCommandFrom = SessionState::QuestCommandFrom;
         using DialogueLineFrom = SessionState::DialogueLineFrom;
+        using GreetAskFrom = SessionState::GreetAskFrom;
         using WaitEvent = SessionState::WaitEvent;
         using SaveAsk = SessionState::SaveAsk;
         void SetMods(ModList mods) { m_mods = std::move(mods); m_modsPrint = ModsFingerprint(m_mods); }
@@ -364,8 +388,15 @@ namespace coop
         bool InGame() const { return m_role == Role::Host || m_friendState == FriendState::Joined; }
 
         void SetMyPose(const Pose& pose) { m_myPose = pose; m_hasPose = true; }
+        void NoteDoorTrip(uint32_t to, uint32_t now)
+        {
+            if (m_splitZones)
+                m_soloTo = to, m_soloAt = now;
+        }
+        void SetSplitZones(bool on);
+        bool SplitZones() const { return m_splitZones; }
         void SetMyGear(std::vector<uint32_t> items);
-        void ReportHit(uint32_t targetRef, float damage);
+        void ReportHit(uint32_t targetRef, float damage, bool killed = false);
         void ReportPile(uint32_t hostRef, uint8_t kind) const;
         std::vector<net::NpcPile> TakePiles() { return std::move(m_piles); }
         void ReportMine(uint32_t ref, uint8_t state);
@@ -387,6 +418,8 @@ namespace coop
         void ShareRadioLine(net::RadioLine line, uint32_t startedAt);
         void SendChat(const std::string& text, VoiceStyle style = {});
         std::vector<ChatHeard> TakeChat() { return std::move(m_chat); }
+        void SendPing(net::Ping ping);
+        std::vector<PingHeard> TakePings() { return std::move(m_pings); }
         void SendVoice(const net::Bytes& data);
         std::vector<VoiceHeard> TakeVoice() { return std::move(m_voice); }
         void SetMyLooks(const net::PlayerLooks& looks);
@@ -397,7 +430,6 @@ namespace coop
         uint8_t MyPartyPerks() const { return m_myPartyPerks; }
         const std::map<uint8_t, uint8_t>& PartyPerks() const { return m_partyPerks; }
         const std::map<uint8_t, std::string>& Anims() const { return m_anims; }
-        uint32_t AnimChanges() const { return m_animChanges; }
         void SetMyModAnims(const std::vector<std::string>& paths);
         const std::map<uint8_t, std::vector<std::string>>& ModAnims() const { return m_modAnims; }
         std::map<uint32_t, net::RadioLine> TakeRadioLines() { return std::move(m_radioLines); }
@@ -422,7 +454,7 @@ namespace coop
         bool TakeGameOver(net::GameOver& out);
         bool TakeTravel(Pose& out, uint8_t& leader);
         void ForgetMyPlace();
-        void SetNpcs(uint32_t space, std::vector<net::NpcState> npcs);
+        void SetNpcs(uint32_t space, std::vector<net::NpcState> npcs, std::vector<uint32_t> spaces = {});
         const std::map<uint32_t, RemoteNpc>& Npcs() const { return m_npcs; }
         void NpcAttacked(uint32_t ref, uint8_t shots, bool reloaded = false, bool released = false);
         void SetNpcGear(uint32_t ref, std::vector<net::WornItem> items);
@@ -433,19 +465,41 @@ namespace coop
         std::vector<uint32_t> ViewedContainers() const;
         void SetContainerContents(uint32_t ref, const std::vector<net::ItemCount>& items);
         std::vector<ItemChangeFrom> TakeContainerChanges() { return std::move(m_itemChanges); }
-        void ContainerChangeDone(uint8_t playerId, uint32_t seq, const net::ItemCount& refund);
+        void ContainerChangeDone(uint8_t playerId, uint32_t ref, uint32_t seq, const net::ItemCount& refund);
+        void SetBodyContents(uint32_t ref, std::vector<net::ItemCount> items);
+        void BodiesWaiting(std::vector<uint32_t>& refs) const { m_friendBodies.Waiting(refs); }
+        bool BodyFixes(uint32_t ref, const std::vector<net::ItemCount>& local,
+            std::vector<net::ItemCount>& fixes) const
+        {
+            return m_friendBodies.Fixes(ref, local, fixes);
+        }
+        void BodyDone(uint32_t ref) { m_friendBodies.Done(ref); }
+        void ForgetBody(uint32_t ref) { m_friendBodies.Forget(ref); }
+        bool NextBodyToCheck(uint32_t& ref) { return m_friendBodies.NextToCheck(ref); }
+        void SetSharedBoxes(std::vector<uint32_t> refs);
         void ViewContainer(uint32_t hostRef, bool open = true);
-        std::vector<net::ItemCount> LookAtContainer(const std::vector<net::ItemCount>& local);
+        std::vector<net::ItemCount> LookAtContainer(const std::vector<net::ItemCount>& local, bool mayChange = true);
         void ContainerSettled(const std::vector<net::ItemCount>& local) { m_friendContainer.Settle(local); }
         void ClosedContainer(const std::vector<net::ItemCount>& local);
+        void WatchContainers(const std::vector<coop::BoxContents>& boxes, const std::vector<net::ItemCount>& player);
+        void WatchedSettled(uint32_t hostRef, const std::vector<net::ItemCount>& local)
+        {
+            m_friendContainer.SettleWatched(hostRef, local);
+        }
         std::vector<net::ItemCount> TakeItemRefunds() { return std::move(m_refunds); }
         void SetWorldItems(const std::vector<net::ItemState>& items);
         std::vector<ItemTakeFrom> TakeItemTakes() { return std::move(m_itemTakes); }
         std::vector<ItemDropFrom> TakeItemDrops() { return std::move(m_itemDrops); }
+        void AskNpcSpots(const std::vector<uint32_t>& refs);
+        std::vector<net::NpcSpot> TakeNpcSpots() { return std::move(m_spotAnswers); }
+        std::vector<SpotAskFrom> TakeNpcSpotAsks() { return std::move(m_spotAsks); }
+        void AnswerNpcSpots(uint8_t playerId, const std::vector<net::NpcSpot>& spots);
         std::vector<ItemMoveFrom> TakeItemMoves() { return std::move(m_itemMoves); }
         void RefundItems(uint8_t playerId, const net::ItemCount& refund);
-        ItemActions LookAtItems(const std::vector<LocalItem>& local, bool sameArea);
+        ItemActions LookAtItems(const std::vector<LocalItem>& local, bool sameArea, uint32_t myPlace = 0);
         void ItemMade(uint32_t hostRef, uint32_t ourRef) { m_friendItems.Made(hostRef, ourRef); }
+        uint32_t OurItemOf(uint32_t hostRef) const { return m_friendItems.OurRefOf(hostRef); }
+        uint32_t HostItemOf(uint32_t ourRef) const { return m_friendItems.HostRefOf(ourRef); }
         void SendQuestStates(const std::vector<net::QuestState>& quests);
         uint32_t Joins() const { return m_joins; }
         void SendRefEnables(const std::vector<net::RefEnable>& changes);
@@ -488,6 +542,10 @@ namespace coop
         void ShareSubtitle(net::Subtitle s);
         std::vector<net::Subtitle> TakeSubtitles() { return std::move(m_subtitles); }
         std::vector<DialogueLineFrom> TakeDialogueLines() { return std::move(m_dialogueLines); }
+        void AskGreet(uint32_t npc);
+        std::vector<GreetAskFrom> TakeGreetAsks() { return std::move(m_greetAsks); }
+        void SendGreet(uint8_t playerId, uint32_t npc);
+        std::vector<uint32_t> TakeGreets() { return std::move(m_greets); }
         void AskToWait(uint8_t hours, bool sleep);
         void AnswerWait(bool yes);
         std::vector<WaitEvent> TakeWaitEvents() { return std::move(m_waitEvents); }
@@ -539,10 +597,12 @@ namespace coop
         void UpdateDownload();
         void RemovePlayer(net::PeerId peer);
         void SendToJoined(const net::Bytes& data, bool reliable, net::PeerId except = 0);
+        void SendToOthers(const net::Bytes& data, bool reliable = true);
         void SendMyPose(uint32_t now);
         void SendMyGear();
         void SendMyHealth(uint32_t now);
         void SendNpcs(uint32_t now);
+        void SendBodies();
         void SendDoors(uint32_t now);
         void SendItems(uint32_t now);
         void ForgetOldNpcs(uint32_t now);
@@ -594,7 +654,6 @@ namespace coop
         uint32_t m_looksChanges = 0;
         std::string m_myAnim;
         uint8_t m_myPartyPerks = 0;
-        uint32_t m_animChanges = 0;
         std::vector<std::string> m_myModAnims;
         int32_t m_myXp = 0;
         uint32_t m_joins = 0;

@@ -3,6 +3,7 @@
 #include "game/standins.h"
 
 #include "game/far_cells.h"
+#include "game/far_interior.h"
 #include "game/game.h"
 #include "coop/clock.h"
 #include "log.h"
@@ -38,7 +39,7 @@ namespace game
                 continue;
             }
             ShowOnMap(it->second, false);
-            Remove(Live(it->second));
+            Park(Live(it->second), 0);
             it = m_entries.erase(it);
         }
 
@@ -65,7 +66,9 @@ namespace game
                 LOG_INFO("%s is %s (%.0f units away; shown within %.0f)", remote.name.c_str(), tooFar ?
                     "too far away to show" : "near enough to show again", apart, LoadedReach() - kShowInside);
             }
-            if (!known || pose.space != myPose.space || tooFar)
+            bool elsewhere = known && pose.space != myPose.space;
+            bool runHere = elsewhere && InRunPlace(pose.space, pose.x, pose.y);
+            if (!known || (elsewhere && !runHere) || tooFar)
             {
                 if (auto it = m_entries.find(id); it != m_entries.end())
                     ShowOnMap(it->second, false);
@@ -92,8 +95,8 @@ namespace game
                     loaded ? "is loaded" : "still isn't loaded; carrying on", now - e.spawnedAt);
                 MakeCompanion(e.ref);
             }
-            ShowOnMap(e, true);
-            SetOnCompass(e.ref, true);
+            ShowOnMap(e, !runHere);
+            SetOnCompass(e.ref, !runHere);
 
             bool ghost = e.downed || !e.anim.empty();
             if (ghost != e.ghost)
@@ -134,7 +137,7 @@ namespace game
                 }
             }
 
-            if (!e.hasGear || e.gearChanges != remote.gearChanges)
+            if ((!e.hasGear || e.gearChanges != remote.gearChanges) && !InventoryBusy(e.ref))
             {
                 e.puppet.SetGear(e.ref, remote.gear);
                 e.hasGear = true;
@@ -169,9 +172,15 @@ namespace game
                 if (!coop::IsDue(now, e.nextBringAt))
                     continue;
                 e.nextBringAt = now + kBringEveryMs;
-                BringToPlayer(e.ref);
-                Move(e.ref, pose);
-                LOG_INFO("Brought %s's character to this place", remote.name.c_str());
+                if (runHere)
+                    MoveIntoPlace(e.ref, pose);
+                else
+                {
+                    BringToPlayer(e.ref);
+                    Move(e.ref, pose);
+                }
+                LOG_INFO("Brought %s's character to %s", remote.name.c_str(), runHere ? "the interior we run for them" :
+                    "this place");
                 continue;
             }
             auto mod = coop.ModAnims().find(id);
@@ -243,7 +252,7 @@ namespace game
         for (auto& [_, e] : m_entries)
         {
             ShowOnMap(e, false);
-            Remove(Live(e));
+            Park(Live(e), 0);
         }
         m_entries.clear();
     }

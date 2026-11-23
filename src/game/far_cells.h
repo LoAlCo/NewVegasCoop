@@ -16,8 +16,12 @@ namespace game
     bool IsGridCell(int x, int y);
     void UpdateFarCells(uint32_t now);
     bool InstallFarCellGuard();
-    int FarCellCount();
+    bool KeepFarCellsIndoors(bool keep);
+    std::string FarCellRefs(int x, int y);
+    std::string TesPlace();
     void LetGoOfFarCells();
     void UpdateFarArea(bool hosting, const std::vector<coop::FriendCell>& friends, uint32_t usedMb, uint32_t now);
     bool InFarCell(float x, float y);
+    uint32_t OutdoorWorldId();
+    bool InRunPlace(uint32_t space, float x, float y);
 }

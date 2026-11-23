@@ -104,7 +104,7 @@ namespace game
         }
         TESObjectREFR* box = LookupRef(g_rewardBox);
         std::vector<Item> mine, inBox;
-        if (!IsContainerRef(box) || !Contents(player, mine) || !Contents(box, inBox))
+        if (!IsContainerRef(box) || InventoryBusy(box) || !Contents(player, mine) || !Contents(box, inBox))
             return;
         auto count = [](const std::vector<Item>& items, uint32_t id) {
             int32_t n = 0;

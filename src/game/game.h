@@ -4,9 +4,12 @@
 
 #include "coop/given_rounds.h"
 #include "coop/smoothing.h"
+#include "coop/ping.h"
+#include "coop/chat_history.h"
 #include "coop/talk_log.h"
 #include "net/protocol.h"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -86,12 +89,17 @@ namespace game
     void KeepActivations(bool on);
     std::vector<uint32_t> TakeActivations();
     bool UsedLikeActivator(const TESObjectREFR* ref);
+    uint32_t TakeDoorTrip();
+    uintptr_t CommandCode(const char* name);
     void SendQuestCommandsOf(std::function<bool(uint32_t)> hostRuns);
     std::vector<net::QuestCommand> TakeQuestCommands();
     bool RunQuestCommand(const net::QuestCommand& command, const char** skipped);
     void HoldPlayerEffects(bool on);
     void UpdateOwnUseLock(uint32_t now, bool inConversation);
     bool OwnUseHoldsControls();
+    bool SentByOwnUse(const TESObjectREFR* actor, bool take);
+    TESObjectREFR* TakeOwnUseTalk();
+    bool OpenConversation(TESObjectREFR* npc);
     void GiveBackOwnUseControls(const char* why);
     void ActivateAsPlayer(TESObjectREFR* ref);
     bool LabActivate(TESObjectREFR* ref);
@@ -105,6 +113,7 @@ namespace game
     int GiveBackAfterReplay();
     void Move(TESObjectREFR* ref, const coop::Pose& pose);
     bool TravelTo(const coop::Pose& pose);
+    bool MoveIntoPlace(TESObjectREFR* ref, const coop::Pose& pose);
     void Turn(TESObjectREFR* ref, float heading);
     void SetPitch(TESObjectREFR* ref, float pitch);
     void LogAimSlots(TESObjectREFR* ref);
@@ -136,6 +145,11 @@ namespace game
     void PlayAttack(TESObjectREFR* ref, const std::vector<uint32_t>& worn, uint8_t shots);
     void ReleaseThrow(TESObjectREFR* ref, const std::vector<uint32_t>& worn);
     void Remove(TESObjectREFR* ref);
+    void Park(TESObjectREFR* ref, uint32_t key);
+    TESObjectREFR* TakeParked(uint32_t key);
+    std::vector<uint32_t> ParkedRefIds();
+    void ForgetParked();
+    std::tuple<size_t, uint64_t, uint64_t> ParkedCounts();
     void Notify(const char* text);
     bool AskYesNo(const std::string& text, int id);
     void ShowMessage(const std::string& text);
@@ -190,7 +204,6 @@ namespace game
     void StopFighting(TESObjectREFR* ref);
     void SetPlayerEssential(bool on);
     void SetEssential(TESObjectREFR* ref, bool on);
-    void KnockOut(TESObjectREFR* ref);
     void KillPlayer();
     void Kill(TESObjectREFR* ref, uint16_t limbs = 0);
     void Unprotect(TESObjectREFR* ref);
@@ -293,6 +306,10 @@ namespace game
     void HideTalkPromptOnFriends();
     bool IsStandIn(const TESObjectREFR* ref);
     bool InstallAllyDetectionSkip();
+    bool InstallDetectionNearFriends();
+    void SetDetectionAnchors(const std::vector<uint32_t>& refs);
+    std::string DetectionStats();
+    std::string SightTest(uint32_t watcherId, uint32_t targetId);
     struct TalkLogLook
     {
         float scale = 1;
@@ -306,6 +323,15 @@ namespace game
         uint8_t red = 255, green = 255, blue = 255;
     };
     void ShowTalkLog(const std::vector<coop::TalkLog::Shown>& lines, const TalkLogLook& look);
+    struct ChatPanelLook
+    {
+        int xPercent = 98, yPercent = 45;
+        float width = 500, scale = 0.65f, gap = 6;
+        bool alignRight = true, dividers = true;
+        int style = 1;
+    };
+    void ShowChatPanel(const std::vector<coop::ChatPanelRow>& rows, const ChatPanelLook& look);
+    int TakeChatScroll();
     void SetSpeedMult(TESObjectREFR* actor, int mult);
     float CachedRunSpeed(TESObjectREFR* actor);
     std::vector<std::string> ModAnimFiles(TESObjectREFR* actor);
@@ -326,7 +352,7 @@ namespace game
     const void* FaceNode(TESObjectREFR* standIn);
     void FaceToneFrame();
 
-    void DoorsNear(std::vector<TESObjectREFR*>& out, float range);
+    void DoorsNear(std::vector<TESObjectREFR*>& out, float range, bool alsoFarInteriors = false);
     struct DoorInfo
     {
         int open = 0;
@@ -341,7 +367,7 @@ namespace game
     void SetDoorOpen(TESObjectREFR* ref, bool open);
     void SetDoorLocked(TESObjectREFR* ref, bool locked, int level);
 
-    void ContainersNear(std::vector<TESObjectREFR*>& out, float range);
+    void ContainersNear(std::vector<TESObjectREFR*>& out, float range, bool alsoFarInteriors = false);
     void MinesNear(std::vector<TESObjectREFR*>& out, float range);
     int MineState(const TESObjectREFR* ref);
     bool TurnOffMine(TESObjectREFR* mine);
@@ -349,7 +375,31 @@ namespace game
     bool SetMineRules(TESObjectREFR* const* puppets, size_t count, bool friendGame);
     bool HoldLevelUp(bool fighting);
     TESObjectREFR* OpenContainer();
+    TESObjectREFR* MerchantContainerOf(TESObjectREFR* merchant);
     TESObjectREFR* CrosshairRef();
+    struct CrosshairPick
+    {
+        bool hit = false;
+        float at[3] = {};
+        float distance = 0;
+        char what[64] = {};
+        coop::PingThing thing = coop::PingThing::Nothing;
+        uint32_t ref = 0;
+        std::string name;
+    };
+    bool CrosshairPoint(CrosshairPick& out);
+    bool SpotOnScreen(const float (&at)[3], float& x, float& y, bool& inView);
+    bool OverHead(TESObjectREFR* ref, float (&at)[3], float fallbackHeight = 130.0f);
+    bool WouldAttackPlayer(TESObjectREFR* actor);
+    struct PingMark
+    {
+        bool active = false;
+        std::string text;
+        float at[3] = {};
+        uint8_t kind = 0;
+    };
+    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks, coop::PingIcons icons);
+    void PlayPingSound(int choice);
     struct Item { uint32_t id; int32_t count; uint8_t health = net::kNoCondition; uint8_t mods = 0; };
     constexpr size_t kMaxItemKinds = 500;
     bool Contents(TESObjectREFR* ref, std::vector<Item>& out);
@@ -357,6 +407,12 @@ namespace game
     void ChangeItem(TESObjectREFR* ref, const net::ItemCount& kind);
     void Activate(TESObjectREFR* ref);
     void RefreshItemList();
+    void UpdateInventoryGate(uint32_t now);
+    bool InventoryBusy(TESObjectREFR* ref);
+    void WhenInventoryFree(TESObjectREFR* ref, std::function<void(TESObjectREFR*)> change);
+    void CloseScreenForChange(const char* note);
+    void ForgetInventoryGate();
+    void ChangeItemNow(TESObjectREFR* ref, const net::ItemCount& kind);
     bool IsItem(uint32_t formId);
     bool IsLootable(TESObjectREFR* ref);
 
@@ -444,15 +500,14 @@ namespace game
     void QuestFingerprints(std::vector<std::pair<uint32_t, uint32_t>>& out);
     void WriteQuest(const QuestInfo& q);
     std::string QuestName(uint32_t id);
-    std::string ObjectiveText(uint32_t id, uint32_t objective);
     size_t DetachQuestScripts(bool (*accept)(uint32_t id, const void* context), const void* context);
     size_t PutBackQuestScripts();
     std::vector<std::pair<uint32_t, double>> QuestVariables(uint32_t id);
     void* SwapQuestScript(uint32_t id, void* script);
     void* QuestScript(uint32_t id);
 
-    void ItemsNear(std::vector<TESObjectREFR*>& out, float range);
-    void MovablesNear(std::vector<TESObjectREFR*>& out, float range);
+    void ItemsNear(std::vector<TESObjectREFR*>& out, float range, bool alsoFarInteriors = false);
+    void MovablesNear(std::vector<TESObjectREFR*>& out, float range, bool alsoFarInteriors = false);
     bool Get3DPosition(TESObjectREFR* ref, float& x, float& y, float& z);
     struct WorldItem
     {
@@ -473,7 +528,7 @@ namespace game
     void MoveItem(TESObjectREFR* ref, float x, float y, float z, float rx, float ry, float rz);
     uint32_t GrabbedItem();
     void RemoveWorldItem(TESObjectREFR* ref);
-    struct Hit { uint32_t targetRef; uint32_t attackerRef; float damage; };
+    struct Hit { uint32_t targetRef; uint32_t attackerRef; float damage; bool killed; };
     std::vector<Hit> TakeHits();
     void ApplyHit(TESObjectREFR* target, TESObjectREFR* by, float damage);
     uint32_t CombatTarget(TESObjectREFR* actor);

@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.1.12
+- Everyone needs 0.1.12 to play together.
+- New: go your own way. A door (or the Co-op Teleporter) now takes only the player who uses it, so friends can be
+  in different buildings, or one inside and one outside. The host's game keeps running where each friend is: the
+  NPCs there walk, talk, notice you and fight, and doors, containers and items there work for everyone. Fast travel
+  and loading a save still bring the whole group. With the host's switch for areas around far friends off (Co-op
+  Settings in the Mod Configuration Menu), doors take the whole group along, as before.
+- New: pings (by LoAlCo). Press G to mark a spot, an item or a character for your friends; the mark shows with its
+  distance for 15 seconds. Key, sound and icons under Pings in the Mod Configuration Menu.
+- New: chat history and party events (by LoAlCo). The chat panel keeps the last 200 lines (Page Up / Page Down
+  while chat is open), and shows when someone joins, leaves, goes down or is revived.
+- Looting reworked: a body holds the host's loot from the moment it dies, and boxes near the host (or in a building
+  the host's game runs for you) hold the same items in every game before anyone opens them. No more items changing
+  as you look, and nothing changes under an open loot screen any more, which is what we found behind the Take All
+  crashes. Quick-loot mods work too (tested with JAM's loot menu): what they take counts as your take.
+- More NPCs shared: up to 64 (was 40), split fairly between the places players are in, so a big fight in one spot
+  no longer leaves a friend somewhere else with frozen NPCs.
+- Boulder City: Lt. Monroe (and any NPC that walks up to start a conversation) now talks to the closest player
+  only, instead of pulling both players into his conversation.
+- A friend's game no longer crashes in big fights with many creatures (like a swarm of geckos near Goodsprings).
+- Enemies a friend kills now die in the host's game too, even ones the host's game would keep alive: Dead Money's
+  ghost people no longer get back up there and keep attacking, unseen.
+- Doctors: paying Doc Mitchell (or any doctor) to patch you up now heals you, not the host.
+- Drinking from a sink, toilet or fountain no longer makes every player drink.
+- Hardcore: joining a game that's further along no longer kills you from days of hunger, thirst and sleep at once.
+- An NPC that walks away from a friend now walks out of their sight instead of freezing at the edge of it.
+- If the game crashes, the crash report now comes with a copy of the log.
+
 ## 0.1.11
 - Everyone needs 0.1.11 to play together.
 - New: heal an ally. Hold E for two seconds on a hurt, standing friend to give them one of your Stimpaks (or a Super

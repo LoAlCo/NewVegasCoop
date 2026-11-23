@@ -3,6 +3,7 @@
 #pragma once
 
 #include "config.h"
+#include "coop/chat_history.h"
 #include "coop/coop.h"
 #include "coop/game_mode.h"
 #include "dev/lab_channel.h"
@@ -119,7 +120,11 @@ extern bool g_teleportAsked;
 extern std::vector<std::pair<uint8_t, bool>> g_teleportChoices;
 
 void UpdateChat();
+void UpdatePings();
 void UpdateVoice();
+extern coop::ChatHistory g_chatHistory;
+extern coop::EventFeed g_eventFeed;
+extern coop::PartyWatch g_partyWatch;
 extern bool g_labTalking;
 extern std::vector<std::string> g_labChat;
 

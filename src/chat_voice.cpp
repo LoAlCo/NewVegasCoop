@@ -65,6 +65,69 @@
 #include <vector>
 #include "plugin.h"
 
+    coop::ChatHistory g_chatHistory;
+    coop::EventFeed g_eventFeed;
+    coop::PartyWatch g_partyWatch;
+
+namespace
+{
+    void UpdateChatPanel(uint32_t now)
+    {
+        static bool s_wasTyping = false;
+        bool inGame = g_coop.InGame();
+        if (inGame && !g_partyWatch.InSession())
+            g_chatHistory.Add(g_coop.GetRole() == coop::Role::Host ? "--- Hosting a session ---" : "--- Joined a session ---");
+
+        std::vector<coop::PartyWatch::Member> roster;
+        if (inGame)
+            for (const auto& [id, remote] : g_coop.Remotes())
+                roster.push_back({id, remote.name, remote.maxHealth > 0, remote.Downed()});
+        for (const std::string& line : g_partyWatch.Observe(now, inGame, roster))
+        {
+            LOG_INFO("Event: %s", line.c_str());
+            g_chatHistory.Add(line);
+            if (g_config.eventFeed)
+                g_eventFeed.Add(line);
+        }
+        if (!inGame || (!g_config.eventFeed && !g_config.chatPopup))
+            g_eventFeed.Clear();
+
+        bool typing = game::ChatTyping();
+        int scroll = game::TakeChatScroll();
+        if (typing != s_wasTyping)
+        {
+            g_chatHistory.ResetScroll();
+            scroll = 0;
+        }
+        s_wasTyping = typing;
+
+        bool on = inGame && g_worldLoaded;
+        g_eventFeed.SetLineMs(static_cast<uint32_t>(g_config.feedSeconds) * 1000);
+        std::vector<coop::ChatPanelRow> feed = g_eventFeed.Update(now, on && game::InMenu());
+        g_chatHistory.SetShape(coop::ChatPanelRows(g_config.feedSize),
+            coop::ChatPanelCharsPerRow(g_config.feedWidth, g_config.feedSize));
+        static const std::vector<coop::ChatPanelRow> s_preview = coop::ChatPanelPreview();
+        std::vector<coop::ChatPanelRow> rows;
+        if (on && !g_config.feedPreview && typing && g_config.chatHistory)
+        {
+            g_chatHistory.Scroll(scroll);
+            rows = coop::HistoryPanelRows(g_chatHistory.View());
+        }
+        else if (on && !g_config.feedPreview)
+            rows = std::move(feed);
+        game::ChatPanelLook look;
+        look.xPercent = g_config.feedX;
+        look.yPercent = g_config.feedY;
+        look.width = static_cast<float>(g_config.feedWidth);
+        look.scale = g_config.feedSize / 100.0f;
+        look.alignRight = g_config.feedAlign == 1;
+        look.gap = static_cast<float>(g_config.feedGap);
+        look.style = g_config.feedStyle;
+        look.dividers = g_config.feedDividers;
+        game::ShowChatPanel(g_config.feedPreview ? s_preview : rows, look);
+    }
+}
+
     void UpdateChat()
     {
         static bool s_keyWas = false;
@@ -85,6 +148,7 @@
             if (!on || line.empty())
                 continue;
             LOG_INFO("Chat: we say \"%s\"", line.c_str());
+            g_chatHistory.Add("You: " + line);
             coop::VoiceStyle style{static_cast<uint8_t>(g_config.voice), static_cast<uint8_t>(g_config.voiceVariant),
                 static_cast<int8_t>(g_config.voicePitch), static_cast<int8_t>(g_config.voiceSpeed),
                 static_cast<uint8_t>(g_config.voiceEffect)};
@@ -97,10 +161,13 @@
             LOG_INFO("Chat: %s says \"%s\"", h.name.c_str(), h.text.c_str());
             if (!g_config.chat)
                 continue;
+            g_chatHistory.Add(h.name + ": " + h.text);
+            if (g_config.chatPopup)
+                g_eventFeed.Add(h.name + ": " + h.text, coop::ChatPopupMs(h.text.size()));
             TESObjectREFR* who = g_standIns.Character(h.player);
             if (who && game::DistanceToPlayer(who) < 2500)
                 game::ShowChatAbove(h.player, who, h.text);
-            else
+            else if (!g_config.chatPopup)
                 game::Notify((h.name + ": " + h.text).c_str(), 6);
             coop::Pose me, them;
             if (g_config.chatSpeech && who && game::GetPose(game::Player(), me) && game::GetPose(who, them) &&
@@ -142,6 +209,147 @@
         if (!g_coop.InGame())
             s_downedSince.clear();
         game::ShowFriendMarkers(friends);
+        UpdateChatPanel(now);
+    }
+
+    TESObjectREFR* PingedThing(uint8_t kind, uint32_t target)
+    {
+        if (kind == static_cast<uint8_t>(net::PingKind::Friend))
+            return target == g_coop.MyPlayerId() ? game::Player() : g_standIns.Character(static_cast<uint8_t>(target));
+        if (!target || (kind != static_cast<uint8_t>(net::PingKind::Enemy) && kind != static_cast<uint8_t>(net::PingKind::Person) &&
+                kind != static_cast<uint8_t>(net::PingKind::Loot)))
+            return nullptr;
+        if (g_coop.GetRole() == coop::Role::Host)
+            return game::LookupRef(target);
+        if (TESObjectREFR* npc = g_npcs.OurRefOf(target); npc && game::IsActor(npc))
+            return npc;
+        if (kind != static_cast<uint8_t>(net::PingKind::Loot))
+            return nullptr;
+        TESObjectREFR* item = game::LookupRef(g_coop.OurItemOf(target));
+        return item && !game::IsActor(item) ? item : nullptr;
+    }
+
+    bool PingSpotOn(TESObjectREFR* thing, float (&at)[3])
+    {
+        return game::OverHead(thing, at, game::IsActor(thing) ? 130.0f : 8.0f);
+    }
+
+    void UpdatePings()
+    {
+        static bool s_keyWas = false;
+        static coop::PingGate s_gate(coop::kPingSendGapMs);
+        static coop::PingBoard s_board;
+        uint32_t now = GetTickCount();
+        bool on = g_config.pings && g_coop.InGame() && g_worldLoaded && !g_loadingSave;
+        if (!on)
+            s_board.Clear();
+        coop::Pose me;
+        bool placed = on && game::GetPose(game::Player(), me);
+        bool key = placed && !g_cutscene && !game::ChatTyping() && game::IsKeyPressed(g_config.pingKey);
+        if (key && !s_keyWas && s_gate.Allow(now))
+        {
+            game::CrosshairPick aim;
+            bool hit = game::CrosshairPoint(aim) && aim.hit;
+            coop::PingThing chosen = hit ? aim.thing : coop::PingThing::Nothing;
+            coop::PingLook look = coop::ClassifyPing(chosen, aim.name);
+            net::Ping ping;
+            ping.kind = look.kind;
+            ping.space = me.space;
+            ping.x = hit ? aim.at[0] : me.x;
+            ping.y = hit ? aim.at[1] : me.y;
+            ping.z = hit ? aim.at[2] : me.z;
+            ping.name = look.name;
+            if (chosen == coop::PingThing::Loot)
+            {
+                bool host = g_coop.GetRole() == coop::Role::Host;
+                ping.target = coop::PingItemTarget(ping.kind, host ? aim.ref : g_coop.HostItemOf(aim.ref));
+                float above[3];
+                if (ping.target && PingSpotOn(game::LookupRef(aim.ref), above))
+                {
+                    ping.x = above[0];
+                    ping.y = above[1];
+                    ping.z = above[2];
+                }
+            }
+            TESObjectREFR* who = chosen == coop::PingThing::Actor ? game::LookupRef(aim.ref) : nullptr;
+            if (who && game::IsActor(who))
+            {
+                coop::PingCharacter c;
+                c.player = g_standIns.PlayerIdOf(who);
+                c.name = c.player >= 0 ? g_coop.NameOf(static_cast<uint8_t>(c.player)) : std::string(game::Name(who));
+                c.dead = game::IsDead(who);
+                c.hostile = c.player < 0 && !c.dead && game::WouldAttackPlayer(who);
+                c.hostRef = g_coop.GetRole() == coop::Role::Host ? game::RefId(who) : g_npcs.HostRefOf(game::RefId(who));
+                coop::PingAim pinged = coop::ClassifyCharacterPing(c);
+                ping.kind = pinged.kind;
+                ping.name = pinged.name;
+                ping.target = pinged.target;
+                float head[3];
+                if (PingSpotOn(who, head))
+                {
+                    ping.x = head[0];
+                    ping.y = head[1];
+                    ping.z = head[2];
+                }
+                coop::Pose feet;
+                float above = game::GetPose(who, feet) ? ping.z - feet.z : 0;
+                LOG_INFO("Pings: we mark character %08X (%s, host's %08X, player %d, dead %d, enemy %d), %.0f above their feet",
+                    aim.ref, ping.name.c_str(), c.hostRef, c.player, c.dead, c.hostile, above);
+            }
+            float at[3] = {ping.x, ping.y, ping.z}, sx = 0, sy = 0;
+            bool inView = false;
+            game::SpotOnScreen(at, sx, sy, inView);
+            LOG_INFO("Pings: we mark %.0f %.0f %.0f in place %08X (%s, kind %u, ref %08X thing %u, %.0f away on \"%s\"), %.3f %.3f on screen",
+                ping.x, ping.y, ping.z, ping.space, ping.name.c_str(), static_cast<unsigned>(ping.kind), aim.ref,
+                static_cast<unsigned>(aim.thing), aim.distance, aim.what, sx, sy);
+            g_coop.SendPing(ping);
+            s_board.Add(g_coop.MyPlayerId(), "You", ping.name, ping.x, ping.y, ping.z, now, static_cast<uint8_t>(ping.kind),
+                ping.target);
+            game::PlayPingSound(g_config.pingSound);
+        }
+        s_keyWas = key;
+        const auto& remotes = g_coop.Remotes();
+        for (coop::Coop::PingHeard& h : g_coop.TakePings())
+        {
+            coop::Pose sender;
+            auto remote = remotes.find(h.ping.player);
+            bool known = remote != remotes.end() && remote->second.motion.Newest(sender);
+            bool inRange = placed && h.ping.space == me.space && coop::PingInRange(&me, known ? &sender : nullptr, coop::kPingRadius);
+            uint8_t kind = static_cast<uint8_t>(h.ping.kind);
+            TESObjectREFR* who = PingedThing(kind, h.ping.target);
+            LOG_INFO("Pings: %s marks %.0f %.0f %.0f in place %08X (%s, kind %u, target %08X, ours %08X), %s", h.who.c_str(),
+                h.ping.x, h.ping.y, h.ping.z, h.ping.space, h.ping.name.c_str(), static_cast<unsigned>(kind), h.ping.target,
+                game::RefId(who), inRange ? "shown" : "out of range");
+            if (!inRange)
+                continue;
+            if (h.ping.kind == net::PingKind::Friend && h.ping.target == g_coop.MyPlayerId())
+                h.ping.name = "You";
+            s_board.Add(h.ping.player, h.who, h.ping.name, h.ping.x, h.ping.y, h.ping.z, now, kind, h.ping.target);
+            game::PlayPingSound(g_config.pingSound);
+        }
+        s_board.Expire(now);
+        std::array<game::PingMark, coop::kPingSlots> marks;
+        for (int slot = 0; slot < coop::kPingSlots; ++slot)
+        {
+            const coop::ActivePing& p = s_board.Slots()[slot];
+            if (!p.used)
+                continue;
+            if (p.player != g_coop.MyPlayerId() && !remotes.count(p.player))
+            {
+                s_board.Remove(p.player);
+                continue;
+            }
+            float head[3];
+            if (TESObjectREFR* thing = PingedThing(p.kind, p.target); thing && PingSpotOn(thing, head))
+                s_board.Follow(slot, head[0], head[1], head[2]);
+            marks[slot].active = true;
+            marks[slot].text = coop::PingLine(p.who, p.name, p.x - me.x, p.y - me.y);
+            marks[slot].at[0] = p.x;
+            marks[slot].at[1] = p.y;
+            marks[slot].at[2] = p.z;
+            marks[slot].kind = p.kind;
+        }
+        game::ShowPings(marks, static_cast<coop::PingIcons>(g_config.pingIcons));
     }
 
     bool g_labTalking = false;

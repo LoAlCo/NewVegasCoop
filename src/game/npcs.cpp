@@ -1,15 +1,22 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
 #include "game/npcs.h"
+#include "game/far_interior.h"
+#include "game/far_cells.h"
 
 #include "coop/copy_kill.h"
 #include "coop/levelled_roll.h"
+#include "coop/npc_share.h"
 
 #include "coop/clock.h"
 #include "game/addresses.h"
 #include "game/game.h"
+#include "game/internal.h"
 #include "game/standins.h"
 #include "log.h"
+
+#include "nvse/GameObjects.h"
+#include "nvse/GameForms.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +32,7 @@ namespace game
         float ShowDistance() { return LoadedReach() - 192; }
         constexpr float kShowMargin = 800;
         constexpr uint32_t kBringEveryMs = 1000;
+        constexpr uint32_t kBodyRereadMs = 2000;
         constexpr uint32_t kGearEveryMs = 2000;
         constexpr uint32_t kMaxDressings = 3;
         constexpr uint32_t kGunCheckEveryMs = 1000;
@@ -64,6 +72,7 @@ namespace game
 
     void Npcs::Share(coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
     {
+        AnswerSpotAsks(coop);
         if (coop.Remotes().empty())
         {
             m_watched.clear();
@@ -91,15 +100,16 @@ namespace game
         NearbyActors(m_nearby);
         std::vector<coop::Pose> players{myPose};
         for (const auto& [id, remote] : coop.Remotes())
-            if (coop::Pose p; remote.motion.Sample(now, p) && p.space == myPose.space)
+            if (coop::Pose p; remote.motion.Sample(now, p) && (p.space == myPose.space || InRunPlace(p.space, p.x, p.y)))
                 players.push_back(p);
         auto nearestPlayer = [&players](const coop::Pose& at) {
-            float nearest = std::hypot(at.x - players[0].x, at.y - players[0].y);
+            float nearest = 3.0e38f;
             for (const coop::Pose& p : players)
-                nearest = (std::min)(nearest, std::hypot(at.x - p.x, at.y - p.y));
+                if (p.space == at.space)
+                    nearest = (std::min)(nearest, std::hypot(at.x - p.x, at.y - p.y));
             return nearest;
         };
-        std::vector<std::pair<std::pair<bool, float>, net::NpcState>> found;
+        std::vector<std::pair<std::pair<bool, float>, std::pair<uint32_t, net::NpcState>>> found;
         std::map<uint32_t, Watched> watched;
         uint32_t notShared = 0, elsewhere = 0;
         LARGE_INTEGER actorStart = start;
@@ -131,7 +141,7 @@ namespace game
                 ++notShared;
                 continue;
             }
-            if (!GetPose(actor, at) || at.space != myPose.space)
+            if (!GetPose(actor, at) || (at.space != myPose.space && !InRunPlace(at.space, at.x, at.y)))
             {
                 ++elsewhere;
                 continue;
@@ -187,10 +197,25 @@ namespace game
                 if (!w.pile && now - w.diedAt < 4000)
                     w.pile = PileKind(actor);
                 n.pile = w.pile;
+                if (coop::IsDue(now, w.nextLootAt))
+                {
+                    w.nextLootAt = now + kBodyRereadMs + ref % 512;
+                    std::vector<Item> items;
+                    if (Contents(actor, items))
+                    {
+                        std::vector<net::ItemCount> list;
+                        for (const Item& i : items)
+                            list.push_back({i.id, i.count, i.health, i.mods});
+                        coop.SetBodyContents(ref, std::move(list));
+                    }
+                }
             }
             else
-                w.diedAt = 0, w.pile = 0;
-            found.push_back({{dead, nearestPlayer(at)}, n});
+                w.diedAt = 0, w.pile = 0, w.nextLootAt = 0;
+            w.last = n;
+            w.lastSpace = at.space;
+            w.leftAt = 0;
+            found.push_back({{dead, nearestPlayer(at)}, {at.space, n}});
             if (dead)
             {
                 watched[ref] = w;
@@ -219,11 +244,58 @@ namespace game
             }
         }
         timeNext(nullptr);
+        for (const auto& [ref, w] : m_watched)
+        {
+            if (watched.count(ref) || !w.lastSpace || (w.last.flags & net::kNpcDead))
+                continue;
+            uint32_t left = w.leftAt ? w.leftAt : now;
+            TESObjectREFR* actor = now - left <= kLeftWordMs ? LookupRef(ref) : nullptr;
+            if (!actor || !IsActor(actor) || IsDead(actor) || actor == Player() || standIns.IsStandIn(actor))
+                continue;
+            Watched& keep = watched[ref] = w;
+            keep.leftAt = left;
+            if (Is3DLoaded(actor))
+                continue;
+            net::NpcState n = w.last;
+            n.x = actor->posX;
+            n.y = actor->posY;
+            n.z = actor->posZ;
+            n.moves = 0;
+            if (!w.leftSaid)
+                LOG_DEBUG("NPCs: %s (%08X) left what we run, to %.0f, %.0f: its spot sent to friends for a moment",
+                    Name(actor), ref, n.x, n.y);
+            keep.leftSaid = true;
+            found.push_back({{false, 0.0f}, {w.lastSpace, n}});
+        }
         m_watched.swap(watched);
-        std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::vector<coop::NpcCandidate> candidates;
+        for (const auto& f : found)
+            candidates.push_back({f.second.first, f.first.first, f.first.second});
         std::vector<net::NpcState> npcs;
-        for (size_t i = 0; i < found.size() && i < coop::kMaxNpcs; ++i)
-            npcs.push_back(found[i].second);
+        std::vector<uint32_t> spaces;
+        for (size_t i : coop::PickNpcs(candidates, coop::kMaxNpcs))
+        {
+            spaces.push_back(found[i].second.first);
+            npcs.push_back(found[i].second.second);
+        }
+        if (found.size() > coop::kMaxNpcs && coop::IsDue(now, m_nextCapNote))
+        {
+            m_nextCapNote = now + 30000;
+            std::map<uint32_t, std::pair<int, int>> byPlace;
+            for (const auto& f : found)
+                ++byPlace[f.second.first].first;
+            for (uint32_t space : spaces)
+                ++byPlace[space].second;
+            std::string places;
+            for (const auto& [space, n] : byPlace)
+            {
+                char part[64];
+                snprintf(part, sizeof(part), "%s%08X %d of %d", places.empty() ? "" : ", ", space, n.second, n.first);
+                places += part;
+            }
+            LOG_INFO("NPCs: %zu near the group, more than the %zu shared at once; each place gets its share (%s)",
+                found.size(), coop::kMaxNpcs, places.c_str());
+        }
         if (found.empty() != m_foundNone)
         {
             m_foundNone = found.empty();
@@ -231,7 +303,7 @@ namespace game
                 "another place; we're in %08X)", m_foundNone ? "no one to share" : "sharing again", m_nearby.size(),
                 notShared, elsewhere, myPose.space);
         }
-        coop.SetNpcs(myPose.space, std::move(npcs));
+        coop.SetNpcs(myPose.space, std::move(npcs), std::move(spaces));
 
         double ms = MsSince(start);
         if (ms > 20 && slowest)
@@ -305,7 +377,7 @@ namespace game
         }
     }
 
-    void Npcs::Update(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
+    void Npcs::Update(coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
     {
         LARGE_INTEGER start;
         QueryPerformanceCounter(&start);
@@ -316,7 +388,83 @@ namespace game
         LogStats(now, coop.Npcs().size());
     }
 
-    void Npcs::HoldUnshared(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
+    namespace
+    {
+        uint32_t PlaceAnywhere(const TESObjectREFR* ref)
+        {
+            const TESObjectCELL* cell = ref ? ref->parentCell : nullptr;
+            if (!cell && ref)
+            {
+                const void* extra = ExtraOf(ref, kExtraData_PersistentCell);
+                cell = extra ? *reinterpret_cast<const TESObjectCELL* const*>(static_cast<const char*>(extra) + 0xC)
+                    : nullptr;
+            }
+            if (!cell)
+                return 0;
+            return cell->worldSpace ? cell->worldSpace->refID : cell->refID;
+        }
+    }
+
+    void Npcs::AnswerSpotAsks(coop::Coop& coop)
+    {
+        for (const coop::Coop::SpotAskFrom& a : coop.TakeNpcSpotAsks())
+        {
+            std::vector<net::NpcSpot> spots;
+            for (uint32_t ref : a.ask.refs)
+            {
+                net::NpcSpot s;
+                s.ref = ref;
+                TESObjectREFR* actor = LookupRef(ref);
+                if (actor && IsActor(actor) && actor != Player() && (s.space = PlaceAnywhere(actor)) != 0)
+                {
+                    s.known = true;
+                    s.x = actor->posX;
+                    s.y = actor->posY;
+                    s.z = actor->posZ;
+                }
+                spots.push_back(s);
+            }
+            coop.AnswerNpcSpots(a.playerId, spots);
+        }
+    }
+
+    void Npcs::AskWhereHeldAre(coop::Coop& coop, uint32_t now, const coop::Pose& myPose)
+    {
+        for (const net::NpcSpot& s : coop.TakeNpcSpots())
+        {
+            auto h = m_heldActors.find(s.ref);
+            TESObjectREFR* actor = h != m_heldActors.end() ? LookupRef(s.ref) : nullptr;
+            if (!actor || !IsActor(actor) || !s.known)
+                continue;
+            coop::Pose there{s.space, s.x, s.y, s.z, 0};
+            bool outOfView = s.space != myPose.space ||
+                (!IsInteriorPlace(myPose.space) && !IsGridCell(static_cast<int>(std::floor(s.x / 4096.0f)),
+                    static_cast<int>(std::floor(s.y / 4096.0f))));
+            if (!outOfView)
+                continue;
+            h->second.spot = there;
+            bool moved = s.space == myPose.space ? (Move(actor, there), true) : MoveIntoPlace(actor, there);
+            LOG_INFO("NPCs: %s (%08X): the host's game has it out of our view (%.0f, %.0f in %08X)%s", Name(actor),
+                s.ref, s.x, s.y, s.space, moved ? ": ours goes there too" : "; not a place here: held");
+        }
+        std::vector<uint32_t> ask;
+        for (const auto& [ref, h] : m_heldActors)
+        {
+            auto asked = m_spotAskedAt.find(ref);
+            if (net::IsMadeWhilePlaying(ref) || (asked != m_spotAskedAt.end() && now - asked->second < kSpotAskEveryMs))
+                continue;
+            if (ask.size() < net::kMaxNpcSpotAsks)
+            {
+                ask.push_back(ref);
+                m_spotAskedAt[ref] = now;
+            }
+        }
+        for (auto it = m_spotAskedAt.begin(); it != m_spotAskedAt.end();)
+            it = m_heldActors.count(it->first) ? std::next(it) : m_spotAskedAt.erase(it);
+        coop.AskNpcSpots(ask);
+    }
+
+    void Npcs::HoldUnshared(coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns)
     {
         if (coop.GetRole() != coop::Role::Friend || !coop.InGame())
         {
@@ -347,12 +495,25 @@ namespace game
             coop::Holds::Changes changes = m_holds.Look(nearby, coop.Npcs().size() >= coop::kMaxNpcs);
             for (const coop::Holds::Released& r : changes.release)
                 LetGoOfHold(r, coop.Npcs().count(r.ref) || m_entries.count(r.ref));
+            for (auto it = m_lastHostSpot.begin(); it != m_lastHostSpot.end();)
+                it = now - it->second.at > kHostSpotMs ? m_lastHostSpot.erase(it) : std::next(it);
             for (uint32_t ref : changes.start)
             {
                 TESObjectREFR* actor = LookupRef(ref);
                 coop::Pose spot;
                 if (!actor || !GetPose(actor, spot))
                     continue;
+                if (auto last = m_lastHostSpot.find(ref); last != m_lastHostSpot.end() &&
+                    last->second.pose.space == myPose.space && !IsInteriorPlace(myPose.space) &&
+                    !IsGridCell(static_cast<int>(std::floor(last->second.pose.x / 4096.0f)),
+                        static_cast<int>(std::floor(last->second.pose.y / 4096.0f))))
+                {
+                    LOG_DEBUG("NPCs: %s (%08X) walked out of our view in the host's game (to %.0f, %.0f): ours goes "
+                        "there too, not held", Name(actor), ref, last->second.pose.x, last->second.pose.y);
+                    Move(actor, last->second.pose);
+                    m_lastHostSpot.erase(last);
+                    continue;
+                }
                 spot.flags = 0;
                 spot.moves = 0;
                 Held& h = m_heldActors[ref];
@@ -367,6 +528,7 @@ namespace game
                 LOG_INFO("NPCs: %s (%08X) is near us but the host's game doesn't share it (not running it there); "
                     "held still", Name(actor), ref);
             }
+            AskWhereHeldAre(coop, now, myPose);
         }
         for (auto& [ref, h] : m_heldActors)
         {
@@ -417,7 +579,7 @@ namespace game
         {
             uint32_t ref = it->first;
             ++it;
-            if (!shared.count(ref) && !(Find(ref) && Find(ref) == OpenContainer()))
+            if (!shared.count(ref) && !InventoryBusy(Find(ref)))
                 Unmake(ref);
         }
         for (auto it = m_rerolled.begin(); it != m_rerolled.end();)
@@ -458,7 +620,10 @@ namespace game
         {
             coop::Pose pose;
             float reach = m_entries.count(ref) || m_made.count(ref) ? showDistance + kShowMargin : showDistance;
-            bool here = npc.motion.Sample(now, pose) && pose.space == myPose.space &&
+            bool sampled = npc.motion.Sample(now, pose);
+            if (coop::Pose newestSpot; npc.motion.Newest(newestSpot))
+                m_lastHostSpot[ref] = {newestSpot, now};
+            bool here = sampled && pose.space == myPose.space &&
                 std::hypot(pose.x - myPose.x, pose.y - myPose.y) <= reach;
             bool made = OursIsMade(ref);
             TESObjectREFR* actor = here ? Find(ref) : nullptr;
@@ -492,6 +657,18 @@ namespace game
             {
                 if (it != m_entries.end() && !stillHere(ref))
                     Release(ref);
+                else if (it != m_entries.end() && sampled && pose.space == myPose.space && !made)
+                {
+                    coop::Pose newest = pose;
+                    npc.motion.Newest(newest);
+                    if (TESObjectREFR* ours = Find(ref); ours && IsActor(ours) && newest.space == myPose.space)
+                    {
+                        LOG_DEBUG("NPCs: %s (%08X) went out of our view in the host's game (to %.0f, %.0f): ours too",
+                            Name(ours), ref, newest.x, newest.y);
+                        Release(ref);
+                        Move(ours, newest);
+                    }
+                }
                 continue;
             }
 
@@ -544,7 +721,10 @@ namespace game
                     LOG_INFO("Frame: the AI threads' flag read %d in our frame code (thread %lu)", aiRunning,
                         GetCurrentThreadId());
                 }
-                switch (aiRunning ? coop::CopyKill::Do::Nothing : kill.Step(now, IsDead(actor)))
+                bool pocketsOpen = !IsDead(actor) && InventoryBusy(actor);
+                if (pocketsOpen)
+                    CloseScreenForChange("They were killed in the host's game");
+                switch (aiRunning || pocketsOpen ? coop::CopyKill::Do::Nothing : kill.Step(now, IsDead(actor)))
                 {
                 case coop::CopyKill::Do::Unprotect:
                     Unprotect(actor);
@@ -589,7 +769,7 @@ namespace game
                 auto due = m_nextRevive.find(ref);
                 if (due == m_nextRevive.end())
                     m_nextRevive[ref] = now + kReviveAfterMs;
-                else if (coop::IsDue(now, due->second) && actor != OpenContainer())
+                else if (coop::IsDue(now, due->second) && !InventoryBusy(actor))
                 {
                     LOG_INFO("NPCs: %s (%08X) is dead here but alive on the host (health %.0f / %.0f there); bringing "
                         "it back", Name(actor), ref, npc.health, npc.maxHealth);
@@ -706,7 +886,8 @@ namespace game
                     settled = now - m->second.loadedAt >= kSettleMs;
                 }
             }
-            if (settled && npc.gearChanges && coop::IsDue(now, e.nextGearCheck))
+            bool pockets = InventoryBusy(actor);
+            if (settled && !pockets && npc.gearChanges && coop::IsDue(now, e.nextGearCheck))
             {
                 e.nextGearCheck = now + kGearEveryMs;
                 if (e.gearChanges != npc.gearChanges)
@@ -744,7 +925,7 @@ namespace game
             }
             if (npc.weapon != e.weapon)
                 e.weaponGifts = 0;
-            if (settled && (npc.weapon != e.weapon || coop::IsDue(now, e.nextWeaponCheck)))
+            if (settled && !pockets && (npc.weapon != e.weapon || coop::IsDue(now, e.nextWeaponCheck)))
             {
                 e.weapon = npc.weapon;
                 e.nextWeaponCheck = now + kWeaponCheckEveryMs;
@@ -835,7 +1016,7 @@ namespace game
             TakeBack gifts{RefId(actor), it->second.gaveWeapon, std::move(it->second.rounds)};
             if (gifts.weapon || !gifts.rounds.Empty())
             {
-                if (actor != OpenContainer())
+                if (!InventoryBusy(actor))
                     TakeBackGifts(actor, gifts);
                 else if (m_takeBacks.size() < kMaxTakeBacks)
                 {
@@ -871,7 +1052,10 @@ namespace game
             return nullptr;
         m_nextMakeAt = now + kMakeEveryMs;
         uint32_t from = coop::MakeCopyFrom(npc.base, npc.rolled);
-        TESObjectREFR* actor = PlaceActor(from);
+        TESObjectREFR* actor = TakeParked(from);
+        bool reused = actor != nullptr;
+        if (!actor)
+            actor = PlaceActor(from);
         if (!actor)
         {
             LOG_WARN("NPCs: couldn't make a copy of the host's %08X from %08X (not an NPC or creature here: mods "
@@ -882,10 +1066,11 @@ namespace game
         Move(actor, pose);
         Made m;
         m.localId = RefId(actor);
+        m.from = from;
         m_made[ref] = m;
         ++m_madeCount;
-        LOG_DEBUG("NPCs: made %08X %s, our copy of the host's %08X (from %08X)", RefId(actor), Name(actor), ref,
-            from);
+        LOG_DEBUG("NPCs: %s %08X %s, our copy of the host's %08X (from %08X)", reused ? "reused parked" : "made",
+            RefId(actor), Name(actor), ref, from);
         return actor;
     }
 
@@ -908,11 +1093,10 @@ namespace game
     {
         if (m_takeBacks.empty())
             return;
-        TESObjectREFR* open = OpenContainer();
         for (auto it = m_takeBacks.begin(); it != m_takeBacks.end();)
         {
             TESObjectREFR* actor = LookupRef(it->ourRef);
-            if (actor && actor == open)
+            if (InventoryBusy(actor))
             {
                 ++it;
                 continue;
@@ -926,16 +1110,34 @@ namespace game
     void Npcs::Unmake(uint32_t ref)
     {
         TESObjectREFR* actor = Find(ref);
+        auto made = m_made.find(ref);
+        uint32_t from = made != m_made.end() ? made->second.from : 0;
         Release(ref);
         if (actor)
-            Remove(actor);
+            Park(actor, from);
         m_made.erase(ref);
         m_killed.erase(ref);
         m_nextRevive.erase(ref);
         m_localDeaths.erase(ref);
         m_piled.erase(ref);
         ++m_unmadeCount;
-        LOG_DEBUG("NPCs: deleted our copy of %08X", ref);
+        LOG_DEBUG("NPCs: parked our copy of %08X", ref);
+    }
+
+    TESObjectREFR* Npcs::BodyOf(uint32_t hostRef, uint32_t now) const
+    {
+        if (m_entries.count(hostRef))
+            return nullptr;
+        TESObjectREFR* actor = Find(hostRef);
+        if (!actor || !IsActor(actor) || !IsDead(actor))
+            return nullptr;
+        if (auto made = m_made.find(hostRef); made != m_made.end() &&
+            (!made->second.loadedAt || now - made->second.loadedAt < kSettleMs))
+            return nullptr;
+        for (const TakeBack& gifts : m_takeBacks)
+            if (gifts.ourRef == RefId(actor))
+                return nullptr;
+        return actor;
     }
 
     uint32_t Npcs::HostRefOf(uint32_t ourRef) const
@@ -1008,8 +1210,9 @@ namespace game
                 m_updates ? m_updateMs / m_updates : 0.0);
         if (!first && (m_madeCount || m_unmadeCount || !m_made.empty()))
             LOG_INFO("NPCs: %zu copies we made of ones the host's game made while playing or rolled differently "
-                "(%zu of ours switched off for that); made %u, deleted %u, dressed %u times (in 30 s)", m_made.size(),
-                m_rerolled.size(), m_madeCount, m_unmadeCount, m_dressed);
+                "(%zu of ours switched off for that); made %u, parked %u, dressed %u times (in 30 s); %zu parked now, "
+                "%llu reused since the start", m_made.size(), m_rerolled.size(), m_madeCount, m_unmadeCount, m_dressed,
+                std::get<0>(ParkedCounts()), std::get<2>(ParkedCounts()));
         if (!first && (m_holdsStarted || !m_heldActors.empty()))
             LOG_INFO("NPCs: holding %zu still that the host's game doesn't share (%u newly held in 30 s)",
                 m_heldActors.size(), m_holdsStarted);

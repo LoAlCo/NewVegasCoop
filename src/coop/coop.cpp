@@ -144,6 +144,7 @@ namespace coop
                     m_looks.clear();
                     ++m_looksChanges;
                     m_friendContainer.Reset();
+                    m_friendBodies.Reset();
                 }
                 break;
 
@@ -201,34 +202,22 @@ namespace coop
             m_myLooksSent = true;
             net::PlayerLooks mine = m_myLooks;
             mine.player = m_myId;
-            if (m_role == Role::Host)
-                SendToJoined(Encode(mine), true);
-            else
-                m_net->Send(1, Encode(mine));
+            SendToOthers(Encode(mine));
         }
         if (InGame() && !m_myModAnimsSent)
         {
             m_myModAnimsSent = true;
-            if (m_role == Role::Host)
-                SendToJoined(Encode(PlayerModAnims{kHostPlayerId, m_myModAnims}), true);
-            else
-                m_net->Send(1, Encode(PlayerModAnims{m_myId, m_myModAnims}));
+            SendToOthers(Encode(PlayerModAnims{m_myId, m_myModAnims}));
         }
         if (InGame() && !m_myPartyPerksSent)
         {
             m_myPartyPerksSent = true;
-            if (m_role == Role::Host)
-                SendToJoined(Encode(net::PartyPerks{kHostPlayerId, m_myPartyPerks}), true);
-            else
-                m_net->Send(1, Encode(net::PartyPerks{m_myId, m_myPartyPerks}));
+            SendToOthers(Encode(net::PartyPerks{m_myId, m_myPartyPerks}));
         }
         if (InGame() && !m_myAnimSent)
         {
             m_myAnimSent = true;
-            if (m_role == Role::Host)
-                SendToJoined(Encode(PlayerAnim{kHostPlayerId, m_myAnim}), true);
-            else
-                m_net->Send(1, Encode(PlayerAnim{m_myId, m_myAnim}));
+            SendToOthers(Encode(PlayerAnim{m_myId, m_myAnim}));
         }
         SendMyPose(now);
         SendMyGear();
@@ -321,7 +310,6 @@ namespace coop
             m_anims[player] = path;
         else
             return;
-        ++m_animChanges;
         LOG_DEBUG("Animations: %s's character %s %s", NameOf(player).c_str(), path.empty() ? "stopped" : "plays",
             path.c_str());
     }
@@ -622,6 +610,17 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::Greet)
+        {
+            net::Greet m;
+            if (!Decode(r, m))
+                return;
+            if (m_greetAsks.size() >= 16)
+                return LOG_WARN("Dialogue: too many greeting asks from %s at once; dropped one", player.name.c_str());
+            m_greetAsks.push_back({player.id, m.npc});
+            return;
+        }
+
         if (type == MsgType::PlayerHit)
         {
             net::PlayerHit m;
@@ -721,6 +720,22 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::Ping)
+        {
+            net::Ping m;
+            if (!player.joined || !Decode(r, m))
+                return;
+            m.name = CleanChat(m.name);
+            if (m.name.empty() || m_pings.size() >= 32)
+                return;
+            if (!player.pingLimit.Allow(GetTickCount()))
+                return LOG_DEBUG("Pings: %s pinged too soon; dropped", player.name.c_str());
+            m.player = player.id;
+            SendToJoined(Encode(m), true, peer);
+            m_pings.push_back({NameOf(player.id), std::move(m)});
+            return;
+        }
+
         if (type == MsgType::KilledByScript)
         {
             if (r.AtEnd() && !m_gameOverSent)
@@ -813,6 +828,17 @@ namespace coop
             return;
         }
 
+        if (type == MsgType::NpcSpotAsk)
+        {
+            NpcSpotAsk m;
+            if (!Decode(r, m))
+                return;
+            if (m_spotAsks.size() >= kMaxQueuedSpotAsks)
+                return LOG_WARN("Too many NPC spot asks from %s at once, dropped one", player.name.c_str());
+            m_spotAsks.push_back({player.id, std::move(m)});
+            return;
+        }
+
         if (type == MsgType::ContainerView)
         {
             uint32_t ref;
@@ -824,6 +850,8 @@ namespace coop
                 LOG_DEBUG("%s %s container %08X", player.name.c_str(), ref ? "opened" : "closed", ref ? ref : view.ref);
                 view.ref = ref;
                 view.sent = false;
+                if (ref)
+                    m_hostBodies.Touch(player.id, ref);
             }
             return;
         }
@@ -836,7 +864,7 @@ namespace coop
             if (m_itemChanges.size() >= kMaxQueuedItemChanges)
             {
                 LOG_WARN("Too many container changes from %s at once; undoing one", player.name.c_str());
-                ContainerChangeDone(player.id, m.seq, m.change);
+                ContainerChangeDone(player.id, m.ref, m.seq, m.change);
                 return;
             }
             m_itemChanges.push_back({player.id, m});
@@ -913,7 +941,7 @@ namespace coop
                 return;
             if (m_hits.size() >= kMaxQueuedHits)
                 return LOG_WARN("Too many hits from %s at once, dropped one", player.name.c_str());
-            m_hits.push_back({player.id, hit.targetRef, hit.damage});
+            m_hits.push_back({player.id, hit.targetRef, hit.damage, hit.killed});
             return;
         }
 
@@ -1172,7 +1200,7 @@ namespace coop
             if (m_saveOrders.size() < kMaxQueuedItemChanges)
                 m_saveOrders.push_back(std::move(m));
         }
-        else if (type == MsgType::LoadRefused)
+        else if (type == MsgType::LoadRefused && r.AtEnd())
             m_loadRefused = true;
         else if (type == MsgType::Freeze)
         {
@@ -1200,6 +1228,12 @@ namespace coop
             m_talk.Clear();
             if (m.talking)
                 m_talk.Report(m.playerId, true, m.npc);
+        }
+        else if (type == MsgType::Greet)
+        {
+            net::Greet m;
+            if (Decode(r, m) && m_greets.size() < 8)
+                m_greets.push_back(m.npc);
         }
         else if (type == MsgType::Teleport)
         {
@@ -1272,11 +1306,22 @@ namespace coop
                 for (const ItemState& it : m.items)
                     m_friendItems.Heard(it, GetTickCount());
         }
+        else if (type == MsgType::NpcSpots)
+        {
+            NpcSpots m;
+            if (Decode(r, m) && m_spotAnswers.size() < kMaxQueuedItemChanges)
+                for (const NpcSpot& s : m.spots)
+                    if (m_spotAnswers.size() < kMaxQueuedItemChanges)
+                        m_spotAnswers.push_back(s);
+        }
         else if (type == MsgType::ContainerContents)
         {
             ContainerContents m;
             if (Decode(r, m))
+            {
                 m_friendContainer.Heard(m);
+                m_friendBodies.Heard(m);
+            }
         }
         else if (type == MsgType::ItemRefund)
         {
@@ -1405,6 +1450,16 @@ namespace coop
                     m_chat.push_back({m.player, NameOf(m.player), line, m.style});
             }
         }
+        else if (type == MsgType::Ping)
+        {
+            net::Ping m;
+            if (Decode(r, m) && m.player != m_myId && m_pings.size() < 32)
+            {
+                m.name = CleanChat(m.name);
+                if (!m.name.empty())
+                    m_pings.push_back({NameOf(m.player), std::move(m)});
+            }
+        }
         else if (type == MsgType::MineChange)
         {
             net::MineChange m;
@@ -1474,6 +1529,16 @@ namespace coop
                 m_drags.erase(it);
             LOG_INFO("%s %s %s", NameOf(m.dragger).c_str(), m.on ? "drags" : "lets go of", NameOf(m.target).c_str());
         }
+        else if (type == MsgType::SplitZones)
+        {
+            net::SplitZonesOn m;
+            if (!Decode(r, m))
+                return LOG_WARN("Bad split zones switch from the host");
+            if (m.on != m_splitZones)
+                LOG_INFO("Split zones: the host has them %s (doors take %s)", m.on ? "on" : "off",
+                    m.on ? "only their player" : "the group along");
+            m_splitZones = m.on;
+        }
         else if (type == MsgType::Mode)
         {
             net::ModeChange m;
@@ -1513,10 +1578,7 @@ namespace coop
         if (!InGame() || !net::IsSharedRef(ref) || net::IsMadeWhilePlaying(ref) || state < net::kMineOff ||
             state > net::kMineBlown)
             return;
-        if (m_role == Role::Host)
-            SendToJoined(Encode(m), true);
-        else
-            m_net->Send(1, Encode(m), true);
+        SendToOthers(Encode(m));
     }
 
     void Coop::ReportPile(uint32_t hostRef, uint8_t kind) const
@@ -1525,10 +1587,10 @@ namespace coop
             m_net->Send(1, Encode(net::NpcPile{hostRef, kind}), true);
     }
 
-    void Coop::ReportHit(uint32_t targetRef, float damage)
+    void Coop::ReportHit(uint32_t targetRef, float damage, bool killed)
     {
         if (m_role == Role::Friend && InGame())
-            m_net->Send(1, Encode(Hit{m_myId, targetRef, damage}), true);
+            m_net->Send(1, Encode(Hit{m_myId, targetRef, damage, killed}), true);
     }
 
     void Coop::Attack(uint8_t shots, bool release, bool reload)
@@ -1538,10 +1600,7 @@ namespace coop
             return;
         Bytes msg = Encode(net::Attack{m_myId, release ? uint8_t(0) : shots < net::kMaxShots ? shots : net::kMaxShots,
             release, reload});
-        if (m_role == Role::Host)
-            SendToJoined(msg, true);
-        else
-            m_net->Send(1, msg, true);
+        SendToOthers(msg);
     }
 
     bool Coop::WithinLimit(uint32_t& since, uint32_t& count, uint32_t most)
@@ -1657,10 +1716,17 @@ namespace coop
         if (!style.Valid())
             style = VoiceStyle{};
         Bytes data = Encode(net::ChatLine{m_myId, line, style});
-        if (m_role == Role::Host)
-            SendToJoined(data, true);
-        else
-            m_net->Send(1, data, true);
+        SendToOthers(data);
+    }
+
+    void Coop::SendPing(net::Ping ping)
+    {
+        ping.name = CleanChat(ping.name);
+        if (!InGame() || ping.name.empty())
+            return;
+        ping.player = m_myId;
+        Bytes data = Encode(ping);
+        SendToOthers(data);
     }
 
     void Coop::SendVoice(const net::Bytes& data)
@@ -1668,10 +1734,7 @@ namespace coop
         if (!InGame() || data.empty() || data.size() > net::kMaxVoiceBytes)
             return;
         Bytes message = Encode(net::VoiceData{m_myId, data});
-        if (m_role == Role::Host)
-            SendToJoined(message, false);
-        else
-            m_net->Send(1, message, false);
+        SendToOthers(message, false);
     }
 
     void Coop::SharePlayerCommand(const net::PlayerCommand& c)
@@ -1701,10 +1764,7 @@ namespace coop
     {
         if (!InGame())
             return;
-        if (m_role == Role::Host)
-            SendToJoined(Encode(e), true);
-        else
-            m_net->Send(1, Encode(e), true);
+        SendToOthers(Encode(e));
     }
 
     void Coop::QueueAttack(uint8_t playerId, uint8_t shots, bool release, bool reload)
@@ -1732,10 +1792,7 @@ namespace coop
         m_healthToSend = false;
         m_lastHealthSent = now;
         Bytes msg = Encode(PlayerHealth{m_myId, m_myHealth, m_myMaxHealth});
-        if (m_role == Role::Host)
-            SendToJoined(msg, true);
-        else
-            m_net->Send(1, msg, true);
+        SendToOthers(msg);
     }
 
     void Coop::SetFighting(uint8_t playerId, bool fighting)
@@ -1748,6 +1805,15 @@ namespace coop
                 p.fighting = fighting;
                 m_net->Send(peer, Encode(net::Fighting{fighting}), true);
             }
+    }
+
+    void Coop::SetSplitZones(bool on)
+    {
+        if (m_role != Role::Host || m_splitZones == on)
+            return;
+        m_splitZones = on;
+        SendToJoined(Encode(net::SplitZonesOn{on}), true);
+        LOG_INFO("Split zones: %s (doors take %s)", on ? "on" : "off", on ? "only their player" : "the group along");
     }
 
     void Coop::SetSessionMode(const SaveMode& mode)
@@ -2101,10 +2167,7 @@ namespace coop
         if (!m_gearToSend || !InGame())
             return;
         m_gearToSend = false;
-        if (m_role == Role::Host)
-            SendToJoined(Encode(PlayerGear{m_myId, m_myGear}), true);
-        else
-            m_net->Send(1, Encode(PlayerGear{m_myId, m_myGear}), true);
+        SendToOthers(Encode(PlayerGear{m_myId, m_myGear}));
     }
 
     void Coop::SetRemoteGear(uint8_t id, std::vector<uint32_t> items)
@@ -2170,6 +2233,7 @@ namespace coop
         if (m_welcomed.size() < 16)
             m_welcomed.push_back(player.id);
         m_net->Send(peer, Encode(Welcome{player.id, m_myName, m_questMods, m_mode, m_myXp}));
+        m_net->Send(peer, Encode(net::SplitZonesOn{m_splitZones}));
         LOG_INFO("%s joined as player %u", player.name.c_str(), player.id);
 
         m_net->Send(peer, Encode(PlayerJoined{kHostPlayerId, m_myName}));
@@ -2388,6 +2452,7 @@ namespace coop
             HeardPartyPerks(id, 0);
             HeardModAnims(id, {});
             m_views.erase(id);
+            m_hostBodies.Left(id);
             if (m_talk.Busy() && m_talk.Talker() == id)
             {
                 m_talk.Left(id);
@@ -2473,6 +2538,14 @@ namespace coop
         if (m_expecting)
             SendArrived();
         m_expecting = false;
+        bool solo = m_soloTo && m_myPose.space == m_soloTo && now - m_soloAt < kSoloTripMs;
+        m_soloTo = 0;
+        if (solo)
+        {
+            LOG_INFO("We went through a door to place %08X (%.0f, %.0f, %.0f); the others stay where they are",
+                m_myPose.space, m_myPose.x, m_myPose.y, m_myPose.z);
+            return;
+        }
         LOG_INFO("We went to place %08X (%.0f, %.0f, %.0f)", m_myPose.space, m_myPose.x, m_myPose.y, m_myPose.z);
         if (m_role == Role::Host)
             GroupTravels(kHostPlayerId, m_myPose, now);
@@ -2529,6 +2602,14 @@ namespace coop
         m_hasTravel = m_expecting = true;
     }
 
+    void Coop::SendToOthers(const Bytes& data, bool reliable)
+    {
+        if (m_role == Role::Host)
+            SendToJoined(data, reliable);
+        else
+            m_net->Send(1, data, reliable);
+    }
+
     void Coop::SendToJoined(const Bytes& data, bool reliable, PeerId except)
     {
         for (auto& [peer, p] : m_players)
@@ -2549,22 +2630,23 @@ namespace coop
             return;
 
         PlayerState state{m_myId, now, a.space, a.x, a.y, a.z, a.heading, a.flags, a.moves, a.pitch, a.runSpeed};
-        if (m_role == Role::Host)
-            SendToJoined(Encode(state), false);
-        else
-            m_net->Send(1, Encode(state), false);
+        SendToOthers(Encode(state), false);
         m_sentPose = m_myPose;
         m_lastPoseSent = now;
     }
 
-    void Coop::SetNpcs(uint32_t space, std::vector<NpcState> npcs)
+    void Coop::SetNpcs(uint32_t space, std::vector<NpcState> npcs, std::vector<uint32_t> spaces)
     {
+        if (spaces.size() != npcs.size())
+            spaces.assign(npcs.size(), space);
         if (npcs.size() > kMaxNpcs)
+        {
             npcs.resize(kMaxNpcs);
-        if (space != m_npcSpace)
-            m_sentNpcs.clear();
+            spaces.resize(kMaxNpcs);
+        }
         m_npcSpace = space;
         m_myNpcs = std::move(npcs);
+        m_myNpcSpaces = std::move(spaces);
     }
 
     void Coop::SendNpcs(uint32_t now)
@@ -2587,11 +2669,13 @@ namespace coop
                 [&](const NpcState& n) { return n.ref == it->first; });
             it = still ? std::next(it) : m_sentNpcs.erase(it);
         }
-        NpcStates msg{now, m_npcSpace, {}};
-        for (const NpcState& n : m_myNpcs)
+        std::map<uint32_t, NpcStates> msgs;
+        for (size_t i = 0; i < m_myNpcs.size(); ++i)
         {
+            const NpcState& n = m_myNpcs[i];
+            uint32_t space = i < m_myNpcSpaces.size() ? m_myNpcSpaces[i] : m_npcSpace;
             auto it = m_sentNpcs.find(n.ref);
-            if (it != m_sentNpcs.end())
+            if (it != m_sentNpcs.end() && it->second.space == space)
             {
                 const NpcState& b = it->second.state;
                 bool moved = std::fabs(n.x - b.x) > 1 || std::fabs(n.y - b.y) > 1 || std::fabs(n.z - b.z) > 1 ||
@@ -2601,10 +2685,13 @@ namespace coop
                 if (!moved && now - it->second.at < kIdlePoseIntervalMs)
                     continue;
             }
-            m_sentNpcs[n.ref] = SentNpc{n, now};
+            m_sentNpcs[n.ref] = SentNpc{n, now, space};
+            NpcStates& msg = msgs[space];
+            msg.timeMs = now;
+            msg.space = space;
             msg.npcs.push_back(n);
         }
-        if (!msg.npcs.empty())
+        for (const auto& [space, msg] : msgs)
         {
             Bytes data = Encode(msg);
             m_npcUpdatesSent += static_cast<uint32_t>(msg.npcs.size());
@@ -2641,6 +2728,59 @@ namespace coop
             m_npcBytesSent += static_cast<uint32_t>(data.size());
             SendToJoined(data, true);
         }
+        SendBodies();
+    }
+
+    void Coop::SendBodies()
+    {
+        m_hostBodies.KeepOnly([&](uint32_t ref) {
+            return std::binary_search(m_sharedBoxes.begin(), m_sharedBoxes.end(), ref) ||
+                std::any_of(m_myNpcs.begin(), m_myNpcs.end(),
+                    [&](const NpcState& n) { return n.ref == ref && (n.flags & kNpcDead); });
+        });
+        if (!m_hostBodies.Count())
+            return;
+        for (auto& [peer, p] : m_players)
+        {
+            if (!p.joined)
+                continue;
+            auto view = m_views.find(p.id);
+            uint32_t seen = view == m_views.end() ? 0 : view->second.seen;
+            for (size_t sent = 0; sent < kBodyListsATime; ++sent)
+            {
+                uint32_t ref = 0;
+                const std::vector<ItemCount>* items = m_hostBodies.Next(p.id, ref);
+                if (!items)
+                    break;
+                Bytes data = Encode(ContainerContents{ref, seen, *items});
+                m_npcBytesSent += static_cast<uint32_t>(data.size());
+                m_net->Send(peer, data, true);
+                LOG_DEBUG("Body %08X's contents (%zu kinds of items) sent to %s", ref, items->size(),
+                    p.name.c_str());
+            }
+        }
+    }
+
+    void Coop::SetSharedBoxes(std::vector<uint32_t> refs)
+    {
+        if (m_role != Role::Host)
+            return;
+        std::sort(refs.begin(), refs.end());
+        m_sharedBoxes = std::move(refs);
+    }
+
+    void Coop::SetBodyContents(uint32_t ref, std::vector<ItemCount> items)
+    {
+        if (m_role != Role::Host || !IsSharedRef(ref))
+            return;
+        items.erase(std::remove_if(items.begin(), items.end(), [](const ItemCount& i) {
+            return !IsSharedRef(i.item) || i.count < 1; }), items.end());
+        for (ItemCount& i : items)
+            if (i.count > kMaxItemCount)
+                i.count = kMaxItemCount;
+        if (items.size() > kMaxItemKinds)
+            items.resize(kMaxItemKinds);
+        m_hostBodies.Set(ref, items);
     }
 
     void Coop::SetNpcGear(uint32_t ref, std::vector<WornItem> items)
@@ -2813,6 +2953,8 @@ namespace coop
 
     void Coop::SetContainerContents(uint32_t ref, const std::vector<ItemCount>& items)
     {
+        if (m_hostBodies.Has(ref))
+            return SetBodyContents(ref, items);
         for (auto& [id, view] : m_views)
         {
             if (view.ref != ref || (view.sent && view.sentSeen == view.seen && view.sentItems == items))
@@ -2828,15 +2970,19 @@ namespace coop
         }
     }
 
-    void Coop::ContainerChangeDone(uint8_t playerId, uint32_t seq, const ItemCount& refund)
+    void Coop::ContainerChangeDone(uint8_t playerId, uint32_t ref, uint32_t seq, const ItemCount& refund)
     {
-        auto view = m_views.find(playerId);
-        if (view != m_views.end() && static_cast<int32_t>(seq - view->second.seen) > 0)
-            view->second.seen = seq;
-        if (refund.count == 0)
-            return;
         auto peer = std::find_if(m_players.begin(), m_players.end(),
             [&](const auto& p) { return p.second.id == playerId && p.second.joined; });
+        if (peer != m_players.end())
+        {
+            HostView& view = m_views[playerId];
+            if (static_cast<int32_t>(seq - view.seen) > 0)
+                view.seen = seq;
+        }
+        m_hostBodies.Touch(playerId, ref);
+        if (refund.count == 0)
+            return;
         if (peer != m_players.end())
             m_net->Send(peer->first, EncodeItemRefund(refund), true);
     }
@@ -2847,12 +2993,12 @@ namespace coop
             m_net->Send(1, EncodeContainerView(hostRef), true);
     }
 
-    std::vector<ItemCount> Coop::LookAtContainer(const std::vector<ItemCount>& local)
+    std::vector<ItemCount> Coop::LookAtContainer(const std::vector<ItemCount>& local, bool mayChange)
     {
         if (m_role != Role::Friend || !InGame())
             return {};
         std::vector<ContainerChange> changes;
-        std::vector<ItemCount> fixes = m_friendContainer.Look(local, changes);
+        std::vector<ItemCount> fixes = m_friendContainer.Look(local, changes, mayChange);
         SendContainerChanges(changes);
         return fixes;
     }
@@ -2866,6 +3012,18 @@ namespace coop
         SendContainerChanges(changes);
     }
 
+    void Coop::WatchContainers(const std::vector<coop::BoxContents>& boxes, const std::vector<ItemCount>& player)
+    {
+        if (m_role != Role::Friend || !InGame())
+            return;
+        std::vector<ContainerChange> changes;
+        m_friendContainer.Watch(boxes, player, changes);
+        for (const ContainerChange& c : changes)
+            LOG_INFO("Containers: %d of %08X moved between container %08X and our player without the loot screen; "
+                "sent to the host like a take from it", c.change.count, c.change.item, c.ref);
+        SendContainerChanges(changes);
+    }
+
     void Coop::SendContainerChanges(const std::vector<ContainerChange>& changes)
     {
         for (const ContainerChange& c : changes)
@@ -2873,6 +3031,7 @@ namespace coop
             LOG_DEBUG("I %s %d of %08X %s container %08X", c.change.count < 0 ? "took" : "put",
                 c.change.count < 0 ? -c.change.count : c.change.count, c.change.item,
                 c.change.count < 0 ? "from" : "into", c.ref);
+            m_friendBodies.OurChange(c.ref, c.seq);
             m_net->Send(1, Encode(c), true);
         }
     }
@@ -2937,6 +3096,29 @@ namespace coop
         m_sentItems = std::move(now_);
     }
 
+    void Coop::AskNpcSpots(const std::vector<uint32_t>& refs)
+    {
+        if (m_role != Role::Friend || !InGame() || refs.empty())
+            return;
+        NpcSpotAsk m;
+        for (uint32_t ref : refs)
+            if (m.refs.size() < kMaxNpcSpotAsks && IsSharedRef(ref) && !IsMadeWhilePlaying(ref) &&
+                std::find(m.refs.begin(), m.refs.end(), ref) == m.refs.end())
+                m.refs.push_back(ref);
+        if (!m.refs.empty())
+            m_net->Send(1, Encode(m), true);
+    }
+
+    void Coop::AnswerNpcSpots(uint8_t playerId, const std::vector<NpcSpot>& spots)
+    {
+        if (m_role != Role::Host || spots.empty())
+            return;
+        auto peer = std::find_if(m_players.begin(), m_players.end(),
+            [&](const auto& p) { return p.second.id == playerId && p.second.joined; });
+        if (peer != m_players.end())
+            m_net->Send(peer->first, Encode(NpcSpots{spots}), true);
+    }
+
     void Coop::RefundItems(uint8_t playerId, const ItemCount& refund)
     {
         if (refund.count == 0)
@@ -2947,10 +3129,11 @@ namespace coop
             m_net->Send(peer->first, EncodeItemRefund(refund), true);
     }
 
-    ItemActions Coop::LookAtItems(const std::vector<LocalItem>& local, bool sameArea)
+    ItemActions Coop::LookAtItems(const std::vector<LocalItem>& local, bool sameArea, uint32_t myPlace)
     {
         if (m_role != Role::Friend || !InGame())
             return {};
+        m_friendItems.SetMyPlace(myPlace);
         ItemActions actions = m_friendItems.Look(local, sameArea, GetTickCount());
         for (const Disagreement& d : actions.differ)
             m_desyncs.Saw(d, GetTickCount());
@@ -3094,10 +3277,7 @@ namespace coop
         if (!xp && !karma)
             return;
         Progress m{m_myId, xp, karma};
-        if (m_role == Role::Host)
-            SendToJoined(Encode(m), true);
-        else
-            m_net->Send(1, Encode(m), true);
+        SendToOthers(Encode(m));
     }
 
     void Coop::SendReputations(const std::vector<Reputation>& reps)
@@ -3154,10 +3334,7 @@ namespace coop
         {
             std::vector<uint32_t> part(refs.begin() + i,
                 refs.begin() + (i + kMaxMarkersPerMessage < refs.size() ? i + kMaxMarkersPerMessage : refs.size()));
-            if (m_role == Role::Host)
-                SendToJoined(EncodeTravelMarkers(part), true);
-            else
-                m_net->Send(1, EncodeTravelMarkers(part), true);
+            SendToOthers(EncodeTravelMarkers(part));
         }
     }
 
@@ -3388,6 +3565,20 @@ namespace coop
             SendToJoined(Encode(m), true);
     }
 
+    void Coop::AskGreet(uint32_t npc)
+    {
+        if (m_role == Role::Friend && InGame() && IsSharedRef(npc) && !IsMadeWhilePlaying(npc))
+            m_net->Send(1, Encode(net::Greet{npc}), true);
+    }
+
+    void Coop::SendGreet(uint8_t playerId, uint32_t npc)
+    {
+        if (m_role != Role::Host || !IsSharedRef(npc) || IsMadeWhilePlaying(npc))
+            return;
+        if (PeerId peer = PeerOfPlayer(playerId))
+            m_net->Send(peer, Encode(net::Greet{npc}), true);
+    }
+
     void Coop::SendDialogueLine(const DialogueLine& line)
     {
         if (m_role == Role::Friend && InGame())
@@ -3404,9 +3595,6 @@ namespace coop
                 c = ' ';
         if (m.text.size() > kMaxSubtitleLength)
             m.text.resize(kMaxSubtitleLength);
-        if (m_role == Role::Host)
-            SendToJoined(Encode(m), true);
-        else
-            m_net->Send(1, Encode(m), true);
+        SendToOthers(Encode(m));
     }
 }

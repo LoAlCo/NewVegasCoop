@@ -37,6 +37,19 @@ struct Config
     int talkLogStyle = 1;
     bool talkLogHudColor = true;
     int talkLogRed = 255, talkLogGreen = 255, talkLogBlue = 255;
+    bool eventFeed = true;
+    bool chatHistory = true;
+    bool chatPopup = true;
+    int feedX = 98;
+    int feedY = 45;
+    int feedWidth = 500;
+    int feedAlign = 1;
+    int feedSize = 65;
+    int feedGap = 6;
+    int feedStyle = 1;
+    bool feedDividers = true;
+    bool feedPreview = false;
+    int feedSeconds = 8;
     bool coopBalanced = false;
     bool friendlyFire = false;
     bool farAreas = true;
@@ -58,6 +71,10 @@ struct Config
     int voiceChatKey = 48;
     int voiceChatMode = 0;
     int voiceChatVolume = 100;
+    bool pings = true;
+    int pingKey = 34;
+    int pingSound = 1;
+    int pingIcons = 1;
     bool mouths = true;
     bool skipDlcPopups = true;
     bool farCells = true;
@@ -73,4 +90,5 @@ struct Config
     void LoadPlayer(const std::string& path);
     void WriteSwitches(const std::string& path) const;
     void EndTalkLogPreview(const std::string& path);
+    void EndFeedPreview(const std::string& path);
 };

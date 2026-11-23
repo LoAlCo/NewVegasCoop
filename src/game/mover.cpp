@@ -5,6 +5,7 @@
 #include "game/addresses.h"
 #include "game/game.h"
 #include "log.h"
+#include "net/protocol.h"
 
 #include "nvse/GameObjects.h"
 
@@ -71,7 +72,7 @@ namespace game
             std::atomic<uint32_t> flags{0};
             std::atomic<uint32_t> until{0};
         };
-        constexpr size_t kMaxHolds = 64;
+        constexpr size_t kMaxHolds = net::kMaxNpcsPerMessage + 16;
         Hold g_holds[kMaxHolds];
         bool g_hooked = false;
         bool g_warnedFull = false;

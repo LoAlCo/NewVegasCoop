@@ -1,12 +1,15 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
 #include "game/game.h"
+#include "game/far_interior.h"
 #include "game/internal.h"
 #include "game/level_up.h"
 #include "game/perk_menu.h"
 #include "coop/gear_lockers.h"
+#include "coop/inventory_gate.h"
 #include "coop/activator_uses.h"
 #include "coop/chat.h"
+#include "coop/chat_history.h"
 #include "coop/quests.h"
 #include "coop/talk_log.h"
 #include "coop/vats_feel.h"
@@ -26,6 +29,7 @@
 #include <intrin.h>
 
 #include "coop/attack_versions.h"
+#include "coop/parked_actors.h"
 #include "coop/clock.h"
 #include "coop/shot_counter.h"
 #include "game/addresses.h"
@@ -157,7 +161,7 @@ namespace game
     bool Wear(TESObjectREFR* ref, const net::WornItem& item)
     {
         TESForm* form = LookupForm(item.item);
-        if (!g_wearAt || !IsActor(ref) || !form || !form->IsArmor())
+        if (!g_wearAt || !IsActor(ref) || !form || !form->IsArmor() || RefusedByGate(ref, "Wear"))
             return false;
         uint32_t health = item.health <= 100 ? item.health : 100;
         g_scripts->CallFunctionAlt(g_wearAt, ref, 2, form, health);
@@ -270,6 +274,22 @@ namespace game
         if (g_compiled && ref)
             g_scripts->CallFunctionAlt(g_move, ref, 4, FloatArg(pose.x), FloatArg(pose.y), FloatArg(pose.z),
                 FloatArg(pose.heading * kRadToDeg));
+    }
+
+    bool MoveIntoPlace(TESObjectREFR* ref, const coop::Pose& pose)
+    {
+        TESForm* place = LookupForm(pose.space);
+        if (place && place->typeID == kFormType_TESWorldSpace)
+        {
+            using CellAtFn = TESForm*(__thiscall*)(void*, int, int);
+            place = reinterpret_cast<CellAtFn>(layout::kWorldSpaceCellAt)(place,
+                static_cast<int>(std::floor(pose.x / 4096.0f)), static_cast<int>(std::floor(pose.y / 4096.0f)));
+        }
+        if (!g_compiled || !ref || !place || place->typeID != kFormType_TESObjectCELL)
+            return false;
+        g_scripts->CallFunctionAlt(g_travel, ref, 5, place, FloatArg(pose.x), FloatArg(pose.y), FloatArg(pose.z),
+            FloatArg(pose.heading * kRadToDeg));
+        return true;
     }
 
     bool TravelTo(const coop::Pose& pose)
@@ -447,7 +467,7 @@ namespace game
 
     void RemoveAllItems(TESObjectREFR* ref)
     {
-        if (g_compiled && ref)
+        if (g_compiled && ref && !RefusedByGate(ref, "RemoveAllItems"))
             g_scripts->CallFunctionAlt(g_removeAllItems, ref, 0);
     }
 
@@ -649,7 +669,7 @@ namespace game
     bool AddAndEquip(TESObjectREFR* ref, uint32_t formId, coop::GivenRounds* given)
     {
         TESForm* item = LookupForm(formId);
-        if (!g_compiled || !ref || !item || !(item->IsArmor() || item->IsWeapon()))
+        if (!g_compiled || !ref || !item || !(item->IsArmor() || item->IsWeapon()) || RefusedByGate(ref, "AddAndEquip"))
             return false;
         if (item->IsWeapon() && !(item = HarmlessCopy(item)))
             return false;
@@ -677,7 +697,7 @@ namespace game
             auto it = g_harmless.find(formId);
             item = it == g_harmless.end() ? nullptr : it->second;
         }
-        if (g_compiled && ref && item)
+        if (g_compiled && ref && item && !RefusedByGate(ref, "RemoveItem"))
             g_scripts->CallFunctionAlt(g_removeItem, ref, 1, item);
     }
 
@@ -894,7 +914,7 @@ namespace game
 
     void Resurrect(TESObjectREFR* ref)
     {
-        if (g_compiled && g_resurrect && ref)
+        if (g_compiled && g_resurrect && ref && !RefusedByGate(ref, "Resurrect"))
             g_scripts->CallFunctionAlt(g_resurrect, ref, 0);
     }
 
@@ -1044,6 +1064,72 @@ namespace game
 
     namespace
     {
+        coop::ParkedActors g_parked;
+        bool g_saidManyParked = false;
+        uint64_t g_parkedCount = 0, g_reusedCount = 0;
+
+        TESObjectREFR* ParkedRef(uint32_t id)
+        {
+            TESObjectREFR* ref = LookupRef(id);
+            return ref && IsActor(ref) && ref != Player() && !(ref->flags & layout::kRefDeleted) ? ref : nullptr;
+        }
+    }
+
+    void Park(TESObjectREFR* ref, uint32_t key)
+    {
+        if (!g_compiled || !ref)
+            return;
+        if (!IsActor(ref) || ref == Player())
+        {
+            Remove(ref);
+            return;
+        }
+        if (g_disable)
+            g_scripts->CallFunctionAlt(g_disable, ref, 0);
+        g_parked.Park(ref->refID, key, key != 0 && !IsDead(ref));
+        ++g_parkedCount;
+        if (g_parked.Size() >= coop::ParkedActors::kWarnAt && !g_saidManyParked)
+        {
+            g_saidManyParked = true;
+            LOG_WARN("Parked: %zu actors of ours switched off, waiting to be reused or deleted at the next load",
+                g_parked.Size());
+        }
+    }
+
+    TESObjectREFR* TakeParked(uint32_t key)
+    {
+        if (!g_compiled || !Player())
+            return nullptr;
+        uint32_t id = g_parked.Take(key, [](uint32_t id) {
+            TESObjectREFR* ref = ParkedRef(id);
+            return ref && !IsDead(ref);
+        });
+        TESObjectREFR* ref = id ? ParkedRef(id) : nullptr;
+        if (!ref)
+            return nullptr;
+        if (g_enable)
+            g_scripts->CallFunctionAlt(g_enable, ref, 0);
+        BringToPlayer(ref);
+        ++g_reusedCount;
+        return ref;
+    }
+
+    std::vector<uint32_t> ParkedRefIds()
+    {
+        g_parked.Prune([](uint32_t id) { return ParkedRef(id) != nullptr; });
+        return g_parked.Ids();
+    }
+
+    void ForgetParked()
+    {
+        g_parked.Clear();
+        g_saidManyParked = false;
+    }
+
+    std::tuple<size_t, uint64_t, uint64_t> ParkedCounts() { return {g_parked.Size(), g_parkedCount, g_reusedCount}; }
+
+    namespace
+    {
         std::string Safe(const char* text)
         {
             std::string safe(text ? text : "");
@@ -1117,13 +1203,17 @@ namespace game
 
     }
 
-    void RefsNear(TypeTest test, uint8_t baseType, std::vector<TESObjectREFR*>& out, float range)
+    void RefsNear(TypeTest test, uint8_t baseType, std::vector<TESObjectREFR*>& out, float range, bool alsoFarInteriors)
     {
         out.clear();
         TESObjectREFR* player = Player();
         TESObjectCELL* cell = player ? player->parentCell : nullptr;
         if (!cell)
             return;
+        if (alsoFarInteriors)
+            for (const TESObjectCELL* room : FarInteriorCells())
+                if (room != cell)
+                    AddRefs(room, test, baseType, out, nullptr, 0, false);
         const void* world = At<const void*>(cell, layout::kCellWorldSpace);
         if (!world)
         {
@@ -1296,10 +1386,10 @@ namespace game
         }
     }
 
-    void MovablesNear(std::vector<TESObjectREFR*>& out, float range)
+    void MovablesNear(std::vector<TESObjectREFR*>& out, float range, bool alsoFarInteriors)
     {
         std::vector<TESObjectREFR*> candidates;
-        RefsNear(MovableType, 0, candidates, range);
+        RefsNear(MovableType, 0, candidates, range, alsoFarInteriors);
         out.clear();
         for (TESObjectREFR* ref : candidates)
             if ((ref->refID >> 24) != 0xFF && IsMovable(ref))
@@ -1318,14 +1408,14 @@ namespace game
         return true;
     }
 
-    void DoorsNear(std::vector<TESObjectREFR*>& out, float range)
+    void DoorsNear(std::vector<TESObjectREFR*>& out, float range, bool alsoFarInteriors)
     {
-        RefsNear(SameType, kFormType_TESObjectDOOR, out, range);
+        RefsNear(SameType, kFormType_TESObjectDOOR, out, range, alsoFarInteriors);
     }
 
-    void ContainersNear(std::vector<TESObjectREFR*>& out, float range)
+    void ContainersNear(std::vector<TESObjectREFR*>& out, float range, bool alsoFarInteriors)
     {
-        RefsNear(SameType, kFormType_TESObjectCONT, out, range);
+        RefsNear(SameType, kFormType_TESObjectCONT, out, range, alsoFarInteriors);
     }
 
     namespace
@@ -1491,19 +1581,6 @@ namespace game
     {
         TESForm* quest = QuestById(id);
         return quest ? GameString(reinterpret_cast<char*>(quest) + layout::kQuestName) : std::string();
-    }
-
-    std::string ObjectiveText(uint32_t id, uint32_t objective)
-    {
-        std::string text;
-        if (TESForm* quest = QuestById(id))
-            ForEachIn(reinterpret_cast<char*>(quest) + layout::kQuestObjectives, [&](void* item)
-            {
-                if (*static_cast<uintptr_t*>(item) == addr::kQuestObjectiveVtbl &&
-                    At<uint32_t>(item, layout::kObjectiveId) == objective)
-                    text = GameString(static_cast<char*>(item) + layout::kObjectiveText);
-            });
-        return text;
     }
 
     namespace
@@ -1974,9 +2051,9 @@ namespace game
         return quest ? quest->refID : 0;
     }
 
-    void ItemsNear(std::vector<TESObjectREFR*>& out, float range)
+    void ItemsNear(std::vector<TESObjectREFR*>& out, float range, bool alsoFarInteriors)
     {
-        RefsNear(ItemType, 0, out, range);
+        RefsNear(ItemType, 0, out, range, alsoFarInteriors);
     }
 
     WorldItem ReadWorldItem(TESObjectREFR* ref)
@@ -1993,11 +2070,17 @@ namespace game
         w.rx = std::remainder(ref->rotX, 6.2831853f);
         w.ry = std::remainder(ref->rotY, 6.2831853f);
         w.rz = std::remainder(ref->rotZ, 6.2831853f);
-        using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
-        if (const void* count = reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&ref->extraDataList,
-            layout::kExtraCount))
+        if (const void* count = ExtraOf(ref, layout::kExtraCount))
             w.count = At<int16_t>(count, layout::kCountValue);
         return w;
+    }
+
+    TESObjectREFR* MerchantContainerOf(TESObjectREFR* merchant)
+    {
+        if (!merchant)
+            return nullptr;
+        const void* extra = ExtraOf(merchant, layout::kExtraMerchantContainer);
+        return extra ? At<TESObjectREFR*>(extra, layout::kMerchantContainerRef) : nullptr;
     }
 
     TESObjectREFR* OpenContainer()
@@ -2006,13 +2089,7 @@ namespace game
         if (menu)
             return At<TESObjectREFR*>(menu, layout::kContainerMenuRef);
         const void* barter = *reinterpret_cast<const void* const*>(addr::kBarterMenu);
-        TESObjectREFR* merchant = barter ? At<TESObjectREFR*>(barter, layout::kBarterMenuMerchant) : nullptr;
-        if (!merchant)
-            return nullptr;
-        using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
-        const void* extra = reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&merchant->extraDataList,
-            layout::kExtraMerchantContainer);
-        return extra ? At<TESObjectREFR*>(extra, layout::kMerchantContainerRef) : nullptr;
+        return MerchantContainerOf(barter ? At<TESObjectREFR*>(barter, layout::kBarterMenuMerchant) : nullptr);
     }
 
     TESObjectREFR* CrosshairRef()
@@ -2058,21 +2135,149 @@ namespace game
         return out.size() <= kMaxItemKinds;
     }
 
+    namespace
+    {
+        coop::InventoryGate g_gate;
+        bool g_gateSaidNote = false;
+        uint32_t g_gateNextClose = 0;
+        uint32_t g_gateNextLog = 0, g_gateMade = 0, g_gateCloses = 0, g_gateRefused = 0;
+        bool g_gateCloseTalk = false;
+
+        bool ConversationOpen() { return *reinterpret_cast<const void* const*>(addr::kDialogMenu) != nullptr; }
+
+        bool LootScreenOpen()
+        {
+            return *reinterpret_cast<const void* const*>(addr::kContainerMenu) ||
+                *reinterpret_cast<const void* const*>(addr::kBarterMenu);
+        }
+
+        void CloseTalkUnderClosedScreen()
+        {
+            if (!g_gateCloseTalk || LootScreenOpen())
+                return;
+            g_gateCloseTalk = false;
+            if (!ConversationOpen())
+                return;
+            CloseMenu();
+            GiveBackOwnUseControls("a trade screen was closed on us");
+            LOG_INFO("Inventory gate: closed the conversation the closed screen came out of too (its topics don't "
+                "come back otherwise)%s", ConversationOpen() ? "; it's still up" : "");
+        }
+
+        void LookAtScreens()
+        {
+            TESObjectREFR* player = Player();
+            bool open = player && LootScreenOpen();
+            TESObjectREFR* box = open ? OpenContainer() : nullptr;
+            const void* barter = open ? *reinterpret_cast<const void* const*>(addr::kBarterMenu) : nullptr;
+            TESObjectREFR* merchant = barter ? At<TESObjectREFR*>(barter, layout::kBarterMenuMerchant) : nullptr;
+            g_gate.Frame(open, {box ? RefId(box) : 0, merchant ? RefId(merchant) : 0, player ? RefId(player) : 0});
+            if (!open)
+                g_gateSaidNote = false;
+        }
+    }
+
+    void UpdateInventoryGate(uint32_t now)
+    {
+        LookAtScreens();
+        CloseTalkUnderClosedScreen();
+        g_gateMade += static_cast<uint32_t>(g_gate.Flush());
+        if (g_gate.TooMany())
+            CloseScreenForChange("Your items need updating: the screen was closed");
+        if (coop::IsDue(now, g_gateNextLog))
+        {
+            auto [kept, dropped] = g_gate.TakeCounts();
+            if (g_gateNextLog && (kept || dropped || g_gateMade || g_gateCloses || g_gateRefused))
+                LOG_INFO("Inventory gate: %u changes kept while a loot screen was open, %u made once it closed (%zu "
+                    "waiting), %u screens closed for a change, %u refused, %u dropped", kept, g_gateMade,
+                    g_gate.Waiting(), g_gateCloses, g_gateRefused, dropped);
+            g_gateNextLog = now + 60000;
+            g_gateMade = g_gateCloses = g_gateRefused = 0;
+        }
+    }
+
+    bool InventoryBusy(TESObjectREFR* ref)
+    {
+        if (!ref)
+            return false;
+        LookAtScreens();
+        return g_gate.Busy(RefId(ref));
+    }
+
+    bool RefusedByGate(TESObjectREFR* ref, const char* what)
+    {
+        if (!InventoryBusy(ref))
+            return false;
+        ++g_gateRefused;
+        LOG_DEBUG("Inventory gate: %s on %08X refused (it's listed on the open loot screen)", what, RefId(ref));
+        return true;
+    }
+
+    void WhenInventoryFree(TESObjectREFR* ref, std::function<void(TESObjectREFR*)> change)
+    {
+        if (!ref || !change)
+            return;
+        LookAtScreens();
+        uint32_t id = RefId(ref);
+        bool made = g_gate.Do(id, [id, change = std::move(change)] {
+            if (TESObjectREFR* now = LookupRef(id))
+                change(now);
+        });
+        if (!made)
+            LOG_DEBUG("Inventory gate: a change to %08X waits for the loot screen to close (%zu waiting)", id,
+                g_gate.Waiting());
+    }
+
+    void CloseScreenForChange(const char* note)
+    {
+        uint32_t now = GetTickCount();
+        if (!LootScreenOpen() || !coop::IsDue(now, g_gateNextClose))
+            return;
+        g_gateNextClose = now + 500;
+        g_gateCloseTalk = ConversationOpen();
+        CloseMenu();
+        CloseTalkUnderClosedScreen();
+        if (g_gateSaidNote)
+            return;
+        g_gateSaidNote = true;
+        ++g_gateCloses;
+        LOG_INFO("Inventory gate: closed the open loot screen for a change to what it lists (%s)",
+            note ? note : "no note");
+        if (note)
+            Notify(note);
+    }
+
+    void ForgetInventoryGate()
+    {
+        if (g_gate.Waiting())
+            LOG_INFO("Inventory gate: %zu kept changes forgotten (a save is loading)", g_gate.Waiting());
+        g_gate.Clear();
+    }
+
+    void ChangeItemNow(TESObjectREFR* ref, const net::ItemCount& kind)
+    {
+        TESForm* item = LookupForm(kind.item);
+        if (!ref || !item || !kind.count)
+            return;
+        if (kind.health == net::kNoCondition || !g_changeKind)
+        {
+            if (g_addItem)
+                g_scripts->CallFunctionAlt(g_addItem, ref, 2, item, static_cast<uint32_t>(kind.count));
+        }
+        else
+            g_scripts->CallFunctionAlt(g_changeKind, ref, 4, item, static_cast<uint32_t>(kind.count),
+                static_cast<uint32_t>(kind.health), static_cast<uint32_t>(kind.mods));
+    }
+
     void ChangeItem(TESObjectREFR* ref, uint32_t itemId, int32_t delta)
     {
-        TESForm* item = LookupForm(itemId);
-        if (g_addItem && ref && item && delta)
-            g_scripts->CallFunctionAlt(g_addItem, ref, 2, item, static_cast<uint32_t>(delta));
+        ChangeItem(ref, net::ItemCount{itemId, delta, net::kNoCondition, 0});
     }
 
     void ChangeItem(TESObjectREFR* ref, const net::ItemCount& kind)
     {
-        if (kind.health == net::kNoCondition || !g_changeKind)
-            return ChangeItem(ref, kind.item, kind.count);
-        TESForm* item = LookupForm(kind.item);
-        if (ref && item && kind.count)
-            g_scripts->CallFunctionAlt(g_changeKind, ref, 4, item, static_cast<uint32_t>(kind.count),
-                static_cast<uint32_t>(kind.health), static_cast<uint32_t>(kind.mods));
+        if (ref && kind.count && LookupForm(kind.item))
+            WhenInventoryFree(ref, [kind](TESObjectREFR* now) { ChangeItemNow(now, kind); });
     }
 
     void Activate(TESObjectREFR* ref)
@@ -2097,12 +2302,10 @@ namespace game
 
     TESObjectREFR* TopEnableParent(TESObjectREFR* ref)
     {
-        using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
         TESObjectREFR* top = nullptr;
         for (int depth = 0; ref && depth < 8; ++depth)
         {
-            const void* extra = reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&ref->extraDataList,
-                layout::kExtraEnableStateParent);
+            const void* extra = ExtraOf(ref, layout::kExtraEnableStateParent);
             TESObjectREFR* parent = extra ? At<TESObjectREFR*>(extra, layout::kEnableParentRef) : nullptr;
             if (!parent || parent == ref)
                 break;
@@ -2143,9 +2346,7 @@ namespace game
                     mods &= ~(1u << slot);
             if (!mods)
                 return;
-            using GetByTypeFn = void*(__thiscall*)(void* list, uint8_t type);
-            if (void* extra = reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&ref->extraDataList,
-                layout::kExtraWeaponModFlags))
+            if (void* extra = ExtraOf(ref, layout::kExtraWeaponModFlags))
                 *(static_cast<uint8_t*>(extra) + layout::kWeaponModFlagsValue) = mods;
             else
             {
@@ -2352,14 +2553,12 @@ namespace game
         bool box = ref && ref->baseForm && ref->baseForm->typeID == kFormType_TESObjectCONT;
         if (!ref || !ref->baseForm || (ref->baseForm->typeID != kFormType_TESObjectDOOR && !box))
             return info;
-        using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
-        auto getByType = reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType);
         if (box)
             info.open = 3;
         else if (g_openState)
             info.open = static_cast<int>(Number(g_openState, ref));
-        info.leadsAway = getByType(&ref->extraDataList, layout::kExtraTeleport) != nullptr;
-        if (const void* lock = getByType(&ref->extraDataList, layout::kExtraLock))
+        info.leadsAway = ExtraOf(ref, layout::kExtraTeleport) != nullptr;
+        if (const void* lock = ExtraOf(ref, layout::kExtraLock))
         {
             auto* data = *reinterpret_cast<const uint8_t* const*>(static_cast<const char*>(lock) + layout::kLockData);
             if (data)
@@ -2449,9 +2648,7 @@ namespace game
         info.baseType = ref->baseForm->typeID;
         if (!IsActor(ref) || (info.base >> 24) != 0xFF)
             return info;
-        using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
-        const void* extra = reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&ref->extraDataList,
-            layout::kExtraLeveledCreature);
+        const void* extra = ExtraOf(ref, layout::kExtraLeveledCreature);
         if (!extra)
             return info;
         auto form = [&](uint32_t offset)
@@ -2572,7 +2769,7 @@ namespace game
     int ThinAmmo(TESObjectREFR* body, int keptPercent)
     {
         NVSEArrayVarInterface::Element result;
-        if (!g_compiled || !g_thinAmmo || !body ||
+        if (!g_compiled || !g_thinAmmo || !body || RefusedByGate(body, "ThinAmmo") ||
             !g_scripts->CallFunction(g_thinAmmo, body, nullptr, &result, 1, static_cast<uint32_t>(keptPercent)))
             return 0;
         return static_cast<int>(result.GetNumber());
@@ -2638,11 +2835,6 @@ namespace game
             g_scripts->CallFunctionAlt(g_kill, Player(), 1, static_cast<uint32_t>(-1));
     }
 
-    void KnockOut(TESObjectREFR* ref)
-    {
-        ChangeHealth(ref, -(Health(ref) + 10));
-    }
-
     void SetGhost(TESObjectREFR* ref, bool on)
     {
         if (g_compiled && ref)
@@ -2656,8 +2848,7 @@ namespace game
         BaseProcess* process = static_cast<Actor*>(ref)->baseProcess;
         if (const void* cached = process ? At<const void*>(process, process::kCachedValues) : nullptr)
             return (At<uint32_t>(cached, process::kCachedFlags) & 0x10000000) != 0;
-        using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
-        return reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&ref->extraDataList, layout::kExtraGhost) !=
+        return ExtraOf(ref, layout::kExtraGhost) !=
             nullptr;
     }
 
@@ -2738,6 +2929,7 @@ namespace game
         EntryState g_entryState = EntryState::None;
         bool g_chatHudMade = false;
         bool g_chatShown = false;
+        int g_chatScroll = 0;
 
         LRESULT CALLBACK ChatWndProc(HWND window, UINT message, WPARAM w, LPARAM l)
         {
@@ -2759,6 +2951,18 @@ namespace game
                 }
                 if (g_chatTyping)
                 {
+                    if (message == WM_KEYDOWN)
+                    {
+                        constexpr int kPage = 10;
+                        if (w == VK_PRIOR)
+                            g_chatScroll += kPage;
+                        else if (w == VK_NEXT)
+                            g_chatScroll -= kPage;
+                        else if (w == VK_UP)
+                            ++g_chatScroll;
+                        else if (w == VK_DOWN)
+                            --g_chatScroll;
+                    }
                     if (message == WM_CHAR)
                     {
                         coop::ChatDraft::Done done = g_chatDraft.Type(static_cast<unsigned char>(w));
@@ -2864,6 +3068,54 @@ namespace game
                     "<y><copy src=\"screen()\" trait=\"height\"/><mul src=\"me()\" trait=\"user1\"/><sub>75</sub></y>"
                     "<font>2</font><justify>&center;</justify><wrapwidth>400</wrapwidth>"
                     "<systemcolor>1</systemcolor><string> </string></text>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+            }
+            for (int slot = 0; slot < coop::kPingSlots; ++slot)
+            {
+                std::string xml = "<text name=\"NVCoopPing" + std::to_string(slot) + "\"><visible>0</visible>"
+                    "<user0>0.5</user0><user1>0.5</user1>"
+                    "<x><copy src=\"screen()\" trait=\"width\"/><mul src=\"me()\" trait=\"user0\"/></x>"
+                    "<y><copy src=\"screen()\" trait=\"height\"/><mul src=\"me()\" trait=\"user1\"/><add>16</add></y>"
+                    "<font>2</font><justify>&center;</justify><wrapwidth>500</wrapwidth>"
+                    "<systemcolor>1</systemcolor><string> </string></text>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                static const char* const kIconFiles[] = {"ping_spot", "ping_loot", "ping_tool", "ping_enemy", "ping_friend",
+                    "ping_friend"};
+                static_assert(std::size(kIconFiles) == static_cast<size_t>(net::PingKind::Count));
+                for (int kind = 0; kind < static_cast<int>(net::PingKind::Count); ++kind)
+                {
+                    xml = "<image name=\"NVCoopPingIcon" + std::to_string(slot) + "x" + std::to_string(kind) + "\"><visible>0</visible>"
+                        "<filename>interface\\nvcoop\\" + kIconFiles[kind] + ".dds</filename>"
+                        "<user0>0.5</user0><user1>0.5</user1>"
+                        "<x><copy src=\"screen()\" trait=\"width\"/><mul src=\"me()\" trait=\"user0\"/><sub>16</sub></x>"
+                        "<y><copy src=\"screen()\" trait=\"height\"/><mul src=\"me()\" trait=\"user1\"/><sub>16</sub></y>"
+                        "<width>32</width><height>32</height><zoom>-1</zoom><systemcolor>1</systemcolor></image>";
+                    g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                }
+            }
+            for (int slot = 0; slot < kFeedSlots; ++slot)
+            {
+                std::string n = std::to_string(slot);
+                std::string text = "<locus>1</locus><x>0</x><y>0</y><alpha>0</alpha><font>3</font><justify>4</justify>"
+                    "<wrapwidth>769</wrapwidth><string> </string>";
+                std::string xml = "<image name=\"NVCoopFeedBar" + n + "\"><visible>0</visible>"
+                    "<filename>interface\\shared\\solid_black.dds</filename>"
+                    "<x>0</x><y>0</y><depth>1</depth><width>516</width><height>20</height><zoom>-1</zoom>"
+                    "<alpha>0</alpha></image>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                for (int e = 0; e < kFeedEdges; ++e)
+                {
+                    xml = "<text name=\"NVCoopFeedEdge" + n + "x" + std::to_string(e) + "\"><visible>0</visible>"
+                        "<depth>2</depth>" + text + "<brightness>-1</brightness><red>0</red><green>0</green><blue>0</blue></text>";
+                    g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                }
+                xml = "<text name=\"NVCoopFeed" + n + "\"><visible>0</visible><depth>3</depth>" + text +
+                    "<systemcolor>1</systemcolor></text>";
+                g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
+                xml = "<image name=\"NVCoopFeedLine" + n + "\"><visible>0</visible>"
+                    "<filename>interface\\shared\\line\\glow_tip_line_horizontal.dds</filename>"
+                    "<x>0</x><y>0</y><depth>4</depth><width>616</width><height>8</height><zoom>-1</zoom><alpha>0</alpha>"
+                    "<brightness>-1</brightness><red>255</red><green>255</green><blue>255</blue></image>";
                 g_scripts->CallFunction(g_chatHud, Player(), nullptr, &result, 1, xml.c_str());
             }
             g_chatHudMade = true;
@@ -3575,6 +3827,323 @@ namespace game
         return sent;
     }
 
+    namespace
+    {
+        constexpr float kHavokUnitsPerGameUnit = 1.0f / 7.0f;
+        constexpr float kPingRayLength = 50000.0f;
+        constexpr int kPickSize = 0xB0;
+        constexpr int kPickFrom = 0x00, kPickTo = 0x10, kPickFilter = 0x24, kPickFraction = 0x40, kPickExtra = 0x44,
+            kPickShapeKey = 0x50;
+        constexpr uint32_t kPickLayer = 6;
+
+        uint32_t PlayerCollisionGroup()
+        {
+            __try
+            {
+                uintptr_t p = reinterpret_cast<uintptr_t>(Player());
+                for (uint32_t offset : {layout::kActorProcess, 0x138u, 0x594u, 8u})
+                {
+                    if (!p)
+                        return 0;
+                    p = *reinterpret_cast<uintptr_t*>(p + offset);
+                }
+                return p ? *reinterpret_cast<uint32_t*>(p + 0x2C) & 0xFFFF0000u : 0;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return 0;
+            }
+        }
+
+        bool RunPick(void* pick, void*& node)
+        {
+            __try
+            {
+                void* tes = *reinterpret_cast<void**>(layout::kTesSingleton);
+                if (!tes)
+                    return false;
+                node = reinterpret_cast<void*(__thiscall*)(void*, void*, bool)>(addr::kTesPick)(tes, pick, true);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        TESObjectREFR* RefFromNode(void* node)
+        {
+            __try
+            {
+                return node ? reinterpret_cast<TESObjectREFR*(__cdecl*)(void*)>(addr::kRefFromNode)(node) : nullptr;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return nullptr;
+            }
+        }
+
+        void RefName(TESObjectREFR* ref, char (&out)[64])
+        {
+            out[0] = 0;
+            __try
+            {
+                const char* name = reinterpret_cast<const char*(__thiscall*)(TESObjectREFR*)>(addr::kRefFullName)(ref);
+                if (name)
+                    strncpy_s(out, name, _TRUNCATE);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                out[0] = 0;
+            }
+        }
+
+        coop::PingThing ThingOf(TESObjectREFR* ref, std::string& name)
+        {
+            name.clear();
+            if (!ref)
+                return coop::PingThing::Scenery;
+            if (IsActor(ref))
+                return coop::PingThing::Actor;
+            TESForm* base = ref->baseForm;
+            if (!base)
+                return coop::PingThing::Scenery;
+            coop::PingThing thing = coop::PingThing::Scenery;
+            switch (base->typeID)
+            {
+            case kFormType_TESObjectCONT:
+            case kFormType_TESObjectARMO:
+            case kFormType_TESObjectBOOK:
+            case kFormType_TESObjectMISC:
+            case kFormType_TESObjectWEAP:
+            case kFormType_TESAmmo:
+            case kFormType_TESKey:
+            case kFormType_AlchemyItem:
+            case kFormType_BGSNote:
+            case kFormType_TESObjectIMOD:
+            case kFormType_TESCaravanCard:
+            case kFormType_TESCaravanMoney:
+                thing = coop::PingThing::Loot;
+                break;
+            case kFormType_TESObjectACTI:
+            case kFormType_BGSTerminal:
+            case kFormType_TESFurniture:
+                thing = coop::PingThing::Device;
+                break;
+            case kFormType_TESObjectDOOR:
+                thing = coop::PingThing::Door;
+                break;
+            default:
+                return thing;
+            }
+            char text[64];
+            RefName(ref, text);
+            name = text;
+            return thing;
+        }
+
+        void NodeName(const void* node, char (&out)[64])
+        {
+            out[0] = 0;
+            __try
+            {
+                const char* name = node ? *reinterpret_cast<const char* const*>(static_cast<const char*>(node) + 8) : nullptr;
+                if (name)
+                    strncpy_s(out, name, _TRUNCATE);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                out[0] = 0;
+            }
+        }
+
+        bool CameraRay(float (&from)[3], float (&forward)[3])
+        {
+            __try
+            {
+                uintptr_t scene = *reinterpret_cast<uintptr_t*>(addr::kWorldSceneGraph);
+                uintptr_t camera = scene ? *reinterpret_cast<uintptr_t*>(scene + addr::kSceneGraphCamera) : 0;
+                if (!camera)
+                    return false;
+                const auto* place = reinterpret_cast<const float*>(camera + layout::kNodeWorldTranslate);
+                const auto* turn = reinterpret_cast<const float*>(camera + layout::kNodeWorldRotate);
+                for (int i = 0; i < 3; ++i)
+                {
+                    from[i] = place[i];
+                    forward[i] = turn[i * 3];
+                }
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+    }
+
+    bool CrosshairPoint(CrosshairPick& out)
+    {
+        float from[3], forward[3];
+        if (!Player() || !CameraRay(from, forward))
+            return false;
+        alignas(16) unsigned char pick[kPickSize] = {};
+        auto* start = reinterpret_cast<float*>(pick + kPickFrom);
+        auto* end = reinterpret_cast<float*>(pick + kPickTo);
+        for (int i = 0; i < 3; ++i)
+        {
+            start[i] = from[i] * kHavokUnitsPerGameUnit;
+            end[i] = (from[i] + forward[i] * kPingRayLength) * kHavokUnitsPerGameUnit;
+        }
+        *reinterpret_cast<uint32_t*>(pick + kPickFilter) = PlayerCollisionGroup() | kPickLayer;
+        *reinterpret_cast<float*>(pick + kPickFraction) = 1.0f;
+        *reinterpret_cast<int32_t*>(pick + kPickExtra) = -1;
+        *reinterpret_cast<int32_t*>(pick + kPickShapeKey) = -1;
+        void* node = nullptr;
+        if (!RunPick(pick, node))
+            return false;
+        float fraction = *reinterpret_cast<float*>(pick + kPickFraction);
+        out.hit = fraction >= 0 && fraction < 1;
+        out.distance = fraction * kPingRayLength;
+        for (int i = 0; i < 3; ++i)
+            out.at[i] = from[i] + forward[i] * out.distance;
+        NodeName(node, out.what);
+        TESObjectREFR* hitRef = out.hit ? RefFromNode(node) : nullptr;
+        TESObjectREFR* aimed = CrosshairRef();
+        if (aimed && !IsActor(aimed) && aimed != hitRef)
+        {
+            hitRef = aimed;
+            out.hit = true;
+            out.at[0] = aimed->posX;
+            out.at[1] = aimed->posY;
+            out.at[2] = aimed->posZ;
+        }
+        out.ref = RefId(hitRef);
+        out.thing = out.hit ? ThingOf(hitRef, out.name) : coop::PingThing::Nothing;
+        return true;
+    }
+
+    bool SpotOnScreen(const float (&at)[3], float& x, float& y, bool& inView)
+    {
+        NVSEArrayVarInterface::Element result;
+        x = y = 0;
+        inView = false;
+        if (!g_spotOnScreen || !g_arrays || !Player())
+            return false;
+        if (!g_scripts->CallFunction(g_spotOnScreen, Player(), nullptr, &result, 3, *reinterpret_cast<const uint32_t*>(&at[0]),
+                *reinterpret_cast<const uint32_t*>(&at[1]), *reinterpret_cast<const uint32_t*>(&at[2])) ||
+            !result.GetArray() || g_arrays->GetArraySize(result.GetArray()) != 3)
+            return false;
+        NVSEArrayVarInterface::Element e[3];
+        if (!g_arrays->GetElements(result.GetArray(), e, nullptr))
+            return false;
+        inView = e[0].GetNumber() != 0;
+        x = static_cast<float>(e[1].GetNumber());
+        y = static_cast<float>(e[2].GetNumber());
+        return true;
+    }
+
+    namespace
+    {
+        bool BoundOf(TESObjectREFR* ref, float (&sphere)[4])
+        {
+            __try
+            {
+                const auto* node = ref ? reinterpret_cast<const uint8_t*>(ref->GetNiNode()) : nullptr;
+                const float* bound = node ? *reinterpret_cast<const float* const*>(node + layout::kNodeWorldBound) : nullptr;
+                if (!bound)
+                    return false;
+                std::copy_n(bound, 4, sphere);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+    }
+
+    bool OverHead(TESObjectREFR* ref, float (&at)[3], float fallbackHeight)
+    {
+        constexpr float kAbove = 12.0f;
+        if (!ref || !ref->GetNiNode())
+            return false;
+        at[0] = ref->posX;
+        at[1] = ref->posY;
+        at[2] = ref->posZ + fallbackHeight;
+        float sphere[4];
+        if (BoundOf(ref, sphere) && std::isfinite(sphere[0] + sphere[1] + sphere[2] + sphere[3]) && sphere[3] > 4 &&
+            sphere[3] < 1500 && std::fabs(sphere[0] - ref->posX) < 1500 && std::fabs(sphere[1] - ref->posY) < 1500 &&
+            std::fabs(sphere[2] - ref->posZ) < 1500)
+        {
+            at[0] = sphere[0];
+            at[1] = sphere[1];
+            at[2] = (std::max)(sphere[2] + sphere[3] * 0.85f, ref->posZ) + kAbove;
+        }
+        return true;
+    }
+
+    bool WouldAttackPlayer(TESObjectREFR* actor)
+    {
+        if (!actor || !IsActor(actor) || IsTeammate(actor))
+            return false;
+        uint32_t target = CombatTarget(actor);
+        if (target && Player() && target == Player()->refID)
+            return true;
+        return g_wouldAttack && Number(g_wouldAttack, actor) != 0;
+    }
+
+    void ShowPings(const std::array<PingMark, coop::kPingSlots>& marks, coop::PingIcons icons)
+    {
+        static coop::PingIcons s_icons = coop::PingIcons::HudColour;
+        bool iconsChanged = icons != s_icons;
+        s_icons = icons;
+        static std::string s_text[coop::kPingSlots];
+        static bool s_shown[coop::kPingSlots] = {};
+        std::array<coop::PingLabelSpot, coop::kPingSlots> spots;
+        std::array<bool, coop::kPingSlots> shown = {};
+        for (int slot = 0; slot < coop::kPingSlots; ++slot)
+        {
+            float x = 0, y = 0;
+            bool inView = false;
+            shown[slot] = marks[slot].active && SpotOnScreen(marks[slot].at, x, y, inView);
+            if (shown[slot])
+                spots[slot] = coop::PlacePingLabel(x, y);
+        }
+        coop::SpreadPingLabels(spots, shown);
+        for (int slot = 0; slot < coop::kPingSlots; ++slot)
+        {
+            const PingMark& m = marks[slot];
+            bool show = shown[slot];
+            if ((!show && !s_shown[slot]) || !g_pingLabel[slot] || !Player())
+                continue;
+            MakeChatHud();
+            coop::PingLabelSpot spot = spots[slot];
+            bool changed = show && (iconsChanged || !s_shown[slot] || s_text[slot] != m.text);
+            g_scripts->CallFunction(g_pingLabel[slot], Player(), nullptr, nullptr, 6, m.text.empty() ? " " : m.text.c_str(),
+                *reinterpret_cast<uint32_t*>(&spot.x), *reinterpret_cast<uint32_t*>(&spot.y),
+                static_cast<uint32_t>(!show ? 0 : changed ? 2 : 1), static_cast<uint32_t>(m.kind), static_cast<uint32_t>(icons));
+            s_text[slot] = show ? m.text : std::string();
+            s_shown[slot] = show;
+        }
+    }
+
+    void PlayPingSound(int choice)
+    {
+        struct SoundHandle { uint32_t id = 0xFFFFFFFF; uint8_t assumeSuccess = 0; uint32_t state = 0; };
+        static const char* const kSounds[] = {"UIPopUpMapMarkerAdded", "UIPopUpMessageGeneral", "UIPopUpQuestNew",
+            "UIRadioSignalFound", "UIMenuOK"};
+        if (choice < 1 || choice > static_cast<int>(std::size(kSounds)))
+            return;
+        void* audio = reinterpret_cast<void*(__cdecl*)()>(addr::kAudioSingleton)();
+        if (!audio)
+            return;
+        SoundHandle sound;
+        reinterpret_cast<void*(__thiscall*)(void*, SoundHandle*, const char*, uint32_t)>(addr::kSoundHandleByEditorId)(audio,
+            &sound, kSounds[choice - 1], 0x121);
+        if (sound.id != 0xFFFFFFFF)
+            reinterpret_cast<bool(__thiscall*)(SoundHandle*, bool)>(addr::kSoundHandlePlay)(&sound, false);
+    }
+
     float DistanceToPlayer(const TESObjectREFR* ref)
     {
         TESObjectREFR* player = Player();
@@ -3615,7 +4184,7 @@ namespace game
             float lost = ref ? p.healthAtHit - Health(ref) : 0;
             LOG_DEBUG("%08X hit %08X for %.1f", p.attackerId, p.refId, lost);
             if (lost > 0)
-                hits.push_back({p.refId, p.attackerId, lost});
+                hits.push_back({p.refId, p.attackerId, lost, ref && IsDead(ref)});
         }
         g_myHits.clear();
         return hits;
@@ -3656,9 +4225,7 @@ namespace game
     {
         const void* MarkerData(const TESObjectREFR* marker)
         {
-            using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
-            const void* extra = marker ? reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(
-                &marker->extraDataList, layout::kExtraMapMarker) : nullptr;
+            const void* extra = marker ? ExtraOf(marker, layout::kExtraMapMarker) : nullptr;
             return extra ? At<const void*>(extra, layout::kMapMarkerData) : nullptr;
         }
     }
@@ -3825,6 +4392,161 @@ namespace game
         if (was != addr::kActorIsTeammate)
             LOG_INFO("Sneak: another plugin hooks the sneak meter's teammate check too (%08X); ours passes on to it",
                 static_cast<unsigned>(was));
+        return true;
+    }
+
+    namespace
+    {
+        constexpr size_t kMaxAnchors = 8;
+        std::atomic<uint32_t> g_anchors[kMaxAnchors] = {};
+        constexpr int kGates = 4;
+        uintptr_t g_nearPlayerCall[kGates] = {};
+        std::atomic<uint32_t> g_gateCalls[kGates] = {}, g_gateHelped[kGates] = {};
+        std::atomic<uint32_t> g_ownCellPicks{0};
+
+        template <int I>
+        float __fastcall NearPlayerDistance(TESObjectREFR* from, void*, TESObjectREFR* player, char a, char b)
+        {
+            using Fn = float(__thiscall*)(TESObjectREFR*, TESObjectREFR*, char, char);
+            float d = reinterpret_cast<Fn>(g_nearPlayerCall[I])(from, player, a, b);
+            float before = d;
+            ++g_gateCalls[I];
+            for (const std::atomic<uint32_t>& id : g_anchors)
+                if (uint32_t ref = id.load(std::memory_order_relaxed))
+                    if (TESObjectREFR* other = LookupRef(ref))
+                    {
+                        if (other == from)
+                        {
+                            d = 0;
+                            break;
+                        }
+                        float e = reinterpret_cast<Fn>(addr::kRefGetDistance)(from, other, a, b);
+                        if (e < d)
+                            d = e;
+                    }
+            if (before >= 8192 && d < 8192)
+                ++g_gateHelped[I];
+            return d;
+        }
+    }
+
+    std::string SightTest(uint32_t watcherId, uint32_t targetId)
+    {
+        TESObjectREFR* watcher = LookupRef(watcherId);
+        TESObjectREFR* target = LookupRef(targetId);
+        if (!IsActor(watcher) || !IsActor(target))
+            return "both must be actors here";
+        int how = 3;
+        using SightFn = bool(__thiscall*)(TESObjectREFR*, bool, TESObjectREFR*, bool, int*, bool);
+        bool ray = reinterpret_cast<SightFn>(addr::kActorSightTest)(watcher, true, target, true, &how, true);
+        bool cached = reinterpret_cast<SightFn>(addr::kActorSightTest)(watcher, false, target, true, nullptr, false);
+        bool detected = false, visible = false;
+        using ScoreFn = int(__thiscall*)(TESObjectREFR*, bool, TESObjectREFR*, bool*, bool, bool, int, bool*);
+        int score = reinterpret_cast<ScoreFn>(addr::kActorDetectionScore)(watcher, true, target, &detected, false,
+            false, 0, &visible);
+        char text[200];
+        snprintf(text, sizeof(text), "%08X -> %08X: ray %d (how %d), cached %d; score %d, detected %d, visible %d",
+            watcherId, targetId, ray, how, cached, score, detected, visible);
+        return text;
+    }
+
+    std::string DetectionStats()
+    {
+        char text[320];
+        snprintf(text, sizeof(text), "detection passes %u (near a friend only: %u); candidates %u (%u); scores: "
+            "watchers %u (%u), targets %u (%u); sight rays in the NPC's own cell %u", g_gateCalls[0].load(),
+            g_gateHelped[0].load(), g_gateCalls[1].load(), g_gateHelped[1].load(), g_gateCalls[2].load(),
+            g_gateHelped[2].load(), g_gateCalls[3].load(), g_gateHelped[3].load(), g_ownCellPicks.load());
+        return text;
+    }
+
+    namespace
+    {
+        uintptr_t g_pickNext[2] = {};
+
+        void* __cdecl PickInCell(void* tes, void* pick, const TESObjectCELL* cell, int which)
+        {
+            using PickFn = void*(__thiscall*)(void*, void*);
+            TESObjectREFR* player = Player();
+            const TESObjectCELL* here = player ? player->parentCell : nullptr;
+            if (cell && here && cell != here)
+            {
+                uint8_t state = At<uint8_t>(cell, layout::kCellStateByte);
+                bool cellInside = (At<uint8_t>(cell, layout::kCellFlags) & 1) != 0;
+                bool weInside = (At<uint8_t>(here, layout::kCellFlags) & 1) != 0;
+                if ((state == 5 || state == 6) && (cellInside || weInside))
+                {
+                    ++g_ownCellPicks;
+                    return reinterpret_cast<PickFn>(addr::kCellPick)(const_cast<TESObjectCELL*>(cell), pick);
+                }
+            }
+            return reinterpret_cast<PickFn>(g_pickNext[which])(tes, pick);
+        }
+
+        __declspec(naked) void PickStubSight()
+        {
+            __asm {
+                push 0
+                push dword ptr [ebp - 0x2C]
+                push dword ptr [esp + 12]
+                push ecx
+                call PickInCell
+                add esp, 16
+                ret 4
+            }
+        }
+        __declspec(naked) void PickStubVisible()
+        {
+            __asm {
+                push 1
+                push dword ptr [ebp - 0x20]
+                push dword ptr [esp + 12]
+                push ecx
+                call PickInCell
+                add esp, 16
+                ret 4
+            }
+        }
+    }
+
+    void SetDetectionAnchors(const std::vector<uint32_t>& refs)
+    {
+        for (size_t i = 0; i < kMaxAnchors; ++i)
+            g_anchors[i].store(i < refs.size() ? refs[i] : 0, std::memory_order_relaxed);
+    }
+
+    bool InstallDetectionNearFriends()
+    {
+        if (g_nearPlayerCall[0])
+            return true;
+        const uintptr_t sites[kGates] = {addr::kDetectionNearPlayerCall, addr::kDetectionTargetNearPlayerCall,
+            addr::kScoreWatcherNearPlayerCall, addr::kScoreTargetNearPlayerCall};
+        const void* hooks[kGates] = {reinterpret_cast<const void*>(&NearPlayerDistance<0>),
+            reinterpret_cast<const void*>(&NearPlayerDistance<1>), reinterpret_cast<const void*>(&NearPlayerDistance<2>),
+            reinterpret_cast<const void*>(&NearPlayerDistance<3>)};
+        for (uintptr_t site : sites)
+            if (*reinterpret_cast<const uint8_t*>(site) != 0xE8)
+                return false;
+        const uintptr_t pickSites[2] = {addr::kTesPickCallSight, addr::kTesPickCallVisible};
+        const void* pickStubs[2] = {reinterpret_cast<const void*>(&PickStubSight),
+            reinterpret_cast<const void*>(&PickStubVisible)};
+        for (uintptr_t site : pickSites)
+            if (*reinterpret_cast<const uint8_t*>(site) != 0xE8)
+                return false;
+        for (int i = 0; i < 2; ++i)
+        {
+            g_pickNext[i] = HookCall(pickSites[i], pickStubs[i]);
+            if (g_pickNext[i] != addr::kTesPickPlain)
+                LOG_INFO("Detection: another plugin hooks the game's pick call at %08X too (%08X); ours passes on to it",
+                    static_cast<unsigned>(pickSites[i]), static_cast<unsigned>(g_pickNext[i]));
+        }
+        for (int i = 0; i < kGates; ++i)
+        {
+            g_nearPlayerCall[i] = HookCall(sites[i], hooks[i]);
+            if (g_nearPlayerCall[i] != addr::kRefGetDistance)
+                LOG_INFO("Detection: another plugin hooks the game's call at %08X too (%08X); ours passes on to it",
+                    static_cast<unsigned>(sites[i]), static_cast<unsigned>(g_nearPlayerCall[i]));
+        }
         return true;
     }
 
@@ -4070,6 +4792,151 @@ namespace game
                 PlaceTalkSlot(slot, hidden, hiddenBack, side);
             }
         s_showing = !lines.empty();
+    }
+
+    namespace
+    {
+        struct FeedSlot
+        {
+            const void* tile = nullptr;
+            bool filled = false;
+            std::string text;
+            bool alignRight = false;
+            float place[7] = {-1, -1, -1, -1, -1, -1, -1};
+            float back[7] = {-1, -1, -1, -1, -1, -1, -1};
+            float side[2] = {-1, -1};
+        };
+        FeedSlot g_feedSlots[kFeedSlots];
+
+        void PlaceFeedSlot(int slot, const float (&place)[7], const float (&back)[7], const float (&side)[2])
+        {
+            FeedSlot& s = g_feedSlots[slot];
+            if (g_feedSide[slot] && Changed(s.side, side))
+                g_scripts->CallFunction(g_feedSide[slot], Player(), nullptr, nullptr, 2, FloatArg(side[0]), FloatArg(side[1]));
+            if (g_feedPlace[slot] && Changed(s.place, place))
+                g_scripts->CallFunction(g_feedPlace[slot], Player(), nullptr, nullptr, 7, FloatArg(place[0]),
+                    FloatArg(place[1]), FloatArg(place[2]), FloatArg(place[3]), FloatArg(place[4]),
+                    static_cast<uint32_t>(place[5]), FloatArg(place[6]));
+            if (g_feedBack[slot] && Changed(s.back, back))
+                g_scripts->CallFunction(g_feedBack[slot], Player(), nullptr, nullptr, 7, FloatArg(back[0]),
+                    FloatArg(back[1]), FloatArg(back[2]), FloatArg(back[3]), FloatArg(back[4]), FloatArg(back[5]),
+                    FloatArg(back[6]));
+        }
+    }
+
+    void ShowChatPanel(const std::vector<coop::ChatPanelRow>& rows, const ChatPanelLook& look)
+    {
+        constexpr float kAlpha = 235, kLineAlpha = 150, kBarAlpha = 120, kBarPad = 6, kBarSide = 8;
+        constexpr float kDividerPerWidth = 740.0f / 600, kDividerHeight = 8, kTextLine = 32, kUnderLetters = 0.2f;
+        constexpr uint32_t kHeight = 0xFB0, kWidthTrait = 0xFB1;
+        constexpr float kJustifyLeft = 1, kJustifyRight = 4;
+        static const char kLeftLine[] = "interface\\shared\\line\\glow_tip_line_horizontal.dds";
+        static const char kRightLine[] = "interface\\nvcoop\\talk_divider_right.dds";
+        static bool s_showing = false;
+        const int count = (std::min)(static_cast<int>(rows.size()), kFeedSlots);
+        if (!Player() || !g_feedText[0] || !g_feedPlace[0] || !g_feedBack[0] || !g_feedSide[0] || !g_chatHud ||
+            (count == 0 && !s_showing))
+            return;
+        MakeChatHud();
+        auto* manager = *reinterpret_cast<const uint8_t* const*>(addr::kInterfaceManager);
+        const void* root = manager ? At<const void*>(manager, layout::kInterfaceMenuRoot) : nullptr;
+        const void* hud = ChildTile(root, "HUDMainMenu");
+        if (!hud)
+            return;
+        const void* text[kFeedSlots] = {};
+        const void* edges[kFeedSlots][kFeedEdges] = {};
+        int guard = 0;
+        for (const void* node = At<const void*>(hud, layout::kTileFirstChild); node && guard < 4096;
+             node = At<const void*>(node, layout::kChildNodeNext), ++guard)
+        {
+            const void* child = At<const void*>(node, layout::kChildNodeTile);
+            const char* name = child ? At<const char*>(child, layout::kTileName) : nullptr;
+            if (!name || std::strncmp(name, "NVCoopFeed", 10) != 0)
+                continue;
+            bool isEdge = std::strncmp(name + 10, "Edge", 4) == 0;
+            char* end = nullptr;
+            const char* digits = name + (isEdge ? 14 : 10);
+            if (*digits < '0' || *digits > '9')
+                continue;
+            long slot = std::strtol(digits, &end, 10);
+            if (slot < 0 || slot >= kFeedSlots)
+                continue;
+            if (!isEdge)
+                text[slot] = child;
+            else if (*end == 'x' && end[1] >= '0' && end[1] < '0' + kFeedEdges)
+                edges[slot][end[1] - '0'] = child;
+        }
+
+        const float scale = std::clamp(look.scale, 0.2f, 3.0f);
+        const float width = std::clamp(look.width, 200.0f, 1200.0f);
+        const int style = std::clamp(look.style, 0, 3);
+        float heights[kFeedSlots] = {};
+        float total = 0;
+        for (int slot = 0; slot < count; ++slot)
+        {
+            FeedSlot& s = g_feedSlots[slot];
+            if (s.tile != text[slot])
+                s = FeedSlot{text[slot]};
+            if (!text[slot])
+                continue;
+            const std::string& line = rows[slot].text;
+            if (!s.filled || s.text != line || s.alignRight != look.alignRight)
+            {
+                g_scripts->CallFunction(g_feedText[slot], Player(), nullptr, nullptr, 3, line.empty() ? " " : line.c_str(),
+                    FloatArg(look.alignRight ? kJustifyRight : kJustifyLeft), look.alignRight ? kRightLine : kLeftLine);
+                s.filled = true;
+                s.text = line;
+                s.alignRight = look.alignRight;
+            }
+            ScaleTile(text[slot], scale);
+            for (const void* edge : edges[slot])
+                ScaleTile(edge, scale);
+            float measured = TileValue(text[slot], kHeight);
+            heights[slot] = (measured > 0 ? measured : kTextLine) * scale;
+            total += heights[slot] + look.gap;
+        }
+        float screenHeight = TileValue(root, kHeight), screenWidth = TileValue(root, kWidthTrait);
+        if (screenHeight < 200)
+            screenHeight = static_cast<float>(*reinterpret_cast<const int32_t*>(addr::kDisplayHeightSetting + 4)) *
+                *reinterpret_cast<const float*>(addr::kMenuUnitsPerPixel);
+        if (screenWidth < 200)
+            screenWidth = screenHeight * 16 / 9;
+        coop::FeedCorner corner = coop::PlaceFeed(look.xPercent, look.yPercent, screenWidth, screenHeight, width, total,
+            look.alignRight);
+        const float textX = look.alignRight ? corner.left + width : corner.left;
+        const float lineWidth = width * kDividerPerWidth;
+        const float side[2] = {look.alignRight ? corner.left + width - lineWidth : corner.left, corner.left - kBarSide};
+        float y = corner.top;
+        for (int slot = 0; slot < kFeedSlots; ++slot)
+        {
+            if (slot >= count || !text[slot])
+            {
+                g_feedSlots[slot].filled = false;
+                const float hidden[7] = {corner.top, width / scale, 0, 0, 1, 0, textX};
+                const float hiddenBack[7] = {corner.top, lineWidth, 0, corner.top, 1, width + 2 * kBarSide, 0};
+                PlaceFeedSlot(slot, hidden, hiddenBack, side);
+                continue;
+            }
+            const float fade = std::clamp(rows[slot].alpha, 0.0f, 1.0f);
+            const float alpha = kAlpha * fade;
+            const float height = heights[slot];
+            const float place[7] = {y, width / scale, alpha, style == 1 || style == 2 ? alpha : 0, style == 2 ? 2.0f : 1.0f,
+                style == 1 ? 1.0f : style == 2 ? 2.0f : 0.0f, textX};
+            const float divider = y + height + look.gap / 2 - kTextLine * kUnderLetters * scale;
+            const float back[7] = {divider - kDividerHeight / 2, lineWidth, look.dividers ? kLineAlpha * fade : 0,
+                y - kBarPad / 2, height + kBarPad, width + 2 * kBarSide, style == 3 ? kBarAlpha * fade : 0};
+            PlaceFeedSlot(slot, place, back, side);
+            y += height + look.gap;
+        }
+        s_showing = count > 0;
+    }
+
+    int TakeChatScroll()
+    {
+        std::lock_guard<std::mutex> lock(g_chatMutex);
+        int scroll = g_chatScroll;
+        g_chatScroll = 0;
+        return scroll;
     }
 
     void SetSpeedMult(TESObjectREFR* actor, int mult)

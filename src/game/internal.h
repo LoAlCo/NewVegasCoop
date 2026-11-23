@@ -7,6 +7,7 @@
 #include "log.h"
 #include "coop/attack_versions.h"
 #include "coop/shot_counter.h"
+#include "coop/chat_history.h"
 #include "coop/talk_log.h"
 #include "coop/gear_lockers.h"
 #include "nvse/PluginAPI.h"
@@ -29,14 +30,24 @@ namespace game
     constexpr int kMarkSlots = 4;
     constexpr int kTalkSlots = static_cast<int>(coop::TalkLog::kMostLines);
     constexpr int kTalkEdges = 4;
+    constexpr int kFeedSlots = static_cast<int>(coop::kChatPanelMostRows);
+    constexpr int kFeedEdges = 4;
     constexpr int kMaxWholeArgs[2] = {3, 5};
     struct PendingHit { uint32_t refId; uint32_t attackerId; float healthAtHit; };
     constexpr float kRadToDeg = 57.2957795f;
     constexpr int kPuppetAmmo = 500;
 
+    bool RefusedByGate(TESObjectREFR* ref, const char* what);
+
     template <typename T> T At(const void* base, uint32_t offset)
     {
         return *reinterpret_cast<const T*>(static_cast<const char*>(base) + offset);
+    }
+
+    inline void* ExtraOf(const TESObjectREFR* ref, uint8_t type)
+    {
+        using GetByTypeFn = void*(__thiscall*)(const void* list, uint8_t type);
+        return ref ? reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&ref->extraDataList, type) : nullptr;
     }
 
     Script* Compile(const char* what, const std::string& text);
@@ -58,7 +69,8 @@ namespace game
     void NoteThread(const char* hook, std::atomic<int>& said);
     extern DWORD g_mainThread;
     using TypeTest = bool (*)(uint8_t type, uint8_t wanted);
-    void RefsNear(TypeTest test, uint8_t baseType, std::vector<TESObjectREFR*>& out, float range);
+    void RefsNear(TypeTest test, uint8_t baseType, std::vector<TESObjectREFR*>& out, float range,
+        bool alsoFarInteriors = false);
 
     extern NVSEScriptInterface* g_scripts;
     extern NVSEEventManagerInterface* g_events;
@@ -141,6 +153,9 @@ namespace game
     extern Script* g_controlPressed;
     extern Script* g_menuMode;
     extern Script* g_keyPressed;
+    extern Script* g_spotOnScreen;
+    extern Script* g_wouldAttack;
+    extern Script* g_pingLabel[coop::kPingSlots];
     extern Script* g_chatHud;
     extern Script* g_chatShow;
     extern Script* g_onScreen;
@@ -162,6 +177,10 @@ namespace game
     extern Script* g_talkPlace[kTalkSlots];
     extern Script* g_talkBack[kTalkSlots];
     extern Script* g_talkSide[kTalkSlots];
+    extern Script* g_feedText[kFeedSlots];
+    extern Script* g_feedPlace[kFeedSlots];
+    extern Script* g_feedBack[kFeedSlots];
+    extern Script* g_feedSide[kFeedSlots];
     extern Script* g_speedMult;
     extern Script* g_actorAlpha;
     extern Script* g_collision;

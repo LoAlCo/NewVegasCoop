@@ -67,6 +67,7 @@ add_library(NVCoop SHARED
     src/dev/second_copy.cpp
     src/dev/dump_game.cpp
     src/dev/commands.cpp
+    src/dev/reg_watch.cpp
     src/speech.cpp
     src/voice_out.cpp
     src/display.cpp
@@ -85,6 +86,7 @@ add_library(NVCoop SHARED
     src/game/standins.cpp
     src/game/npcs.cpp
     src/game/far_cells.cpp
+    src/game/far_interior.cpp
     src/game/doors.cpp
     src/game/objects.cpp
     src/game/terminals.cpp

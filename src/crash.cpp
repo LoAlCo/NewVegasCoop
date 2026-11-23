@@ -30,6 +30,28 @@ namespace
     DWORD g_dumpThread = 0;
     char g_dumpPath[MAX_PATH];
 
+    bool CopyLog(const char* from, const char* to)
+    {
+        HANDLE in = CreateFileA(from, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, 0, nullptr);
+        if (in == INVALID_HANDLE_VALUE)
+            return false;
+        HANDLE out = CreateFileA(to, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+        if (out == INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(in);
+            return false;
+        }
+        static char buffer[64 * 1024];
+        DWORD got = 0, wrote = 0;
+        bool ok = true;
+        while (ok && ReadFile(in, buffer, sizeof(buffer), &got, nullptr) && got)
+            ok = WriteFile(out, buffer, got, &wrote, nullptr) && wrote == got;
+        CloseHandle(out);
+        CloseHandle(in);
+        return ok;
+    }
+
     void Dump(EXCEPTION_POINTERS* info, DWORD thread)
     {
         HANDLE file = CreateFileA(g_dumpPath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
@@ -46,6 +68,13 @@ namespace
         else
             LOG_ERROR("Couldn't write the crash dump %s (error %08lX); the stack above is in the log", g_dumpPath,
                 error);
+        char logCopy[MAX_PATH];
+        std::snprintf(logCopy, sizeof(logCopy), "%s", g_dumpPath);
+        if (char* dot = std::strrchr(logCopy, '.'))
+            std::snprintf(dot, sizeof(logCopy) - (dot - logCopy), ".log");
+        Log::Flush();
+        if (Log::FilePath()[0] && !CopyLog(Log::FilePath(), logCopy))
+            LOG_ERROR("Couldn't copy the log to %s (error %lu)", logCopy, GetLastError());
     }
 
     DWORD WINAPI DumpThread(void*)

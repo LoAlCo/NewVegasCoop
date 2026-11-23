@@ -22,6 +22,7 @@ namespace
     std::vector<std::string> g_pending;
     size_t g_dropped = 0;
     bool g_console = false;
+    char g_path[MAX_PATH] = "";
     std::atomic<int> g_minLevel{static_cast<int>(LogLevel::Debug)};
     constexpr size_t kMaxPending = 20000;
 
@@ -81,6 +82,8 @@ void Log::Open(const char* folder)
             std::snprintf(previous, sizeof(previous), "%sNVCoop%s.previous.log", folder, suffix);
             MoveFileExA(path, previous, MOVEFILE_REPLACE_EXISTING);
             g_file = _fsopen(path, "w", _SH_DENYWR);
+            if (g_file)
+                std::snprintf(g_path, sizeof(g_path), "%s", path);
         }
         if (!g_file)
             return;
@@ -108,6 +111,11 @@ void Log::SetLevel(LogLevel level)
 void Log::Flush()
 {
     WriteWaiting();
+}
+
+const char* Log::FilePath()
+{
+    return g_path;
 }
 
 void Log::Write(LogLevel level, const char* fmt, ...)

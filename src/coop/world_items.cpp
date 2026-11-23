@@ -75,6 +75,24 @@ namespace coop
         m_started = false;
     }
 
+    uint32_t FriendItems::OurRefOf(uint32_t hostRef) const
+    {
+        auto it = m_copies.find(hostRef);
+        if (it != m_copies.end())
+            return it->second;
+        return net::IsMadeWhilePlaying(hostRef) ? 0 : hostRef;
+    }
+
+    uint32_t FriendItems::HostRefOf(uint32_t ourRef) const
+    {
+        if (!ourRef)
+            return 0;
+        for (const auto& [hostRef, ours] : m_copies)
+            if (ours == ourRef)
+                return hostRef;
+        return net::IsMadeWhilePlaying(ourRef) ? 0 : ourRef;
+    }
+
     ItemActions FriendItems::Look(const std::vector<LocalItem>& local, bool sameArea, uint32_t now)
     {
         ItemActions out;
@@ -165,7 +183,7 @@ namespace coop
             if (made && !hostRef)
             {
                 if (m_started && l.nearMe && !net::IsMadeWhilePlaying(l.base) && m_dropped.insert(l.ref).second)
-                    out.drops.push_back({l.base, l.count, l.x, l.y, l.z, l.health, l.mods});
+                    out.drops.push_back({l.base, l.count, l.x, l.y, l.z, l.health, l.mods, m_myPlace});
                 out.remove.push_back(l.ref);
                 continue;
             }
@@ -246,7 +264,8 @@ namespace coop
                 continue;
             }
             auto copy = m_copies.find(h.ref);
-            if (h.present && copy == m_copies.end())
+            bool elsewhere = m_myPlace && h.space && h.space != m_myPlace;
+            if (h.present && copy == m_copies.end() && !elsewhere)
             {
                 m_copies[h.ref] = 0;
                 out.make.push_back(h);

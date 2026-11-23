@@ -7,6 +7,7 @@
 #include "coop/activator_uses.h"
 #include "coop/clock.h"
 #include "coop/coop.h"
+#include "coop/copy_kill.h"
 #include "coop/vats_feel.h"
 #include "coop/game_mode.h"
 #include "coop/quests.h"
@@ -24,10 +25,12 @@
 #include "dev/commands.h"
 #include "dev/lab_channel.h"
 #include "dev/dump_game.h"
+#include "dev/reg_watch.h"
 #include "dev/second_copy.h"
 #include "coop/party_perks.h"
 #include "game/addresses.h"
 #include "game/far_cells.h"
+#include "game/far_interior.h"
 #include "game/game.h"
 #include "game/escape_menu.h"
 #include "game/level_up.h"
@@ -131,6 +134,10 @@
 
     struct HeldTo { uint8_t player; TESObjectREFR* target; };
     std::map<uint32_t, HeldTo> g_forced;
+    struct FriendKill { coop::CopyKill kill; uint32_t since = 0; };
+    std::map<uint32_t, FriendKill> g_friendKills;
+    constexpr size_t kMaxFriendKills = 64;
+    constexpr uint32_t kFriendKillWaitMs = 1000;
     uint32_t g_nextThreatLook = 0;
     std::set<uint32_t> g_bodiesThinned;
     uint32_t g_nextThinLook = 0;
@@ -960,6 +967,9 @@ namespace
 
     void OnWorldLoaded()
     {
+        g_partyWatch.Rebaseline(GetTickCount());
+        if (g_coop.InGame())
+            g_chatHistory.Add("--- Game loaded ---");
         if (g_teleportersHad > 0)
             g_teleportersHad = 0;
         if (int dragged = g_coop.Dragging(g_coop.MyPlayerId()); g_coop.InGame() && dragged >= 0)
@@ -970,9 +980,15 @@ namespace
             g_config.EndTalkLogPreview(PlayerSettingsPath());
             LOG_INFO("Talk log: preview off (a game loaded)");
         }
+        if (g_config.feedPreview)
+        {
+            g_config.EndFeedPreview(PlayerSettingsPath());
+            LOG_INFO("Chat panel: preview off (a game loaded)");
+        }
         g_forced.clear();
         g_threats.Clear();
         g_killCredits.Clear();
+        g_friendKills.clear();
         g_fightersSeen.clear();
         g_bodiesThinned.clear();
         g_extras.clear();
@@ -1204,6 +1220,54 @@ namespace
         }
     }
 
+    void KillFriendsKills(uint32_t now)
+    {
+        if (g_friendKills.empty() || game::AiThreadsRunning())
+            return;
+        for (auto it = g_friendKills.begin(); it != g_friendKills.end();)
+        {
+            TESObjectREFR* npc = game::LookupRef(it->first);
+            if (!npc || !game::IsActor(npc))
+            {
+                it = g_friendKills.erase(it);
+                continue;
+            }
+            bool dead = game::IsDead(npc);
+            if (!dead && now - it->second.since < kFriendKillWaitMs)
+            {
+                ++it;
+                continue;
+            }
+            coop::CopyKill& kill = it->second.kill;
+            switch (kill.Step(now, dead))
+            {
+            case coop::CopyKill::Do::Unprotect:
+                game::Unprotect(npc);
+                LOG_INFO("Hits: %s (%08X) died of a friend's hit in their game but lives here (life state %d); killing it "
+                    "(try %d of %d)", game::Name(npc), it->first, game::LifeState(npc), kill.Tries(),
+                    coop::CopyKill::kMaxTries);
+                break;
+            case coop::CopyKill::Do::Kill:
+                game::KillPlain(npc);
+                break;
+            case coop::CopyKill::Do::GiveUp:
+                LOG_WARN("Hits: %s (%08X) doesn't stay dead here; left alone", game::Name(npc), it->first);
+                it = g_friendKills.erase(it);
+                continue;
+            default:
+                break;
+            }
+            if (dead)
+            {
+                if (kill.Tries() > 0)
+                    LOG_INFO("Hits: %s (%08X) dead here too", game::Name(npc), it->first);
+                it = g_friendKills.erase(it);
+                continue;
+            }
+            ++it;
+        }
+    }
+
     void ApplyFriendHit(const coop::HitReport& hit)
     {
         TESObjectREFR* by = g_standIns.Character(hit.playerId);
@@ -1228,6 +1292,8 @@ namespace
         g_killCredits.Hit(hit.targetRef, hit.playerId, GetTickCount());
         game::ApplyHit(target, by, hit.damage);
         g_threats.Hurt(hit.targetRef, hit.playerId, hit.damage, GetTickCount());
+        if (hit.killed && g_friendKills.size() < kMaxFriendKills)
+            g_friendKills.try_emplace(hit.targetRef, FriendKill{{}, GetTickCount()});
     }
 
     std::string LabStatus()
@@ -1285,10 +1351,11 @@ namespace
             LOG_INFO("Mode: %s (changed in the menu)", coop::Describe(g_ourMode).c_str());
         }
         LOG_INFO("Settings: changed in the menu (chat %d, key %d, speech %d at %d%%, voice %d/%d pitch %d speed %d "
-            "effect %d, voice chat %d key %d mode %d at %d%%, radio %d, desync notices %d)", g_config.chat,
+            "effect %d, voice chat %d key %d mode %d at %d%%, radio %d, desync notices %d, pings %d key %d sound %d icons %d)", g_config.chat,
             g_config.chatKey, g_config.chatSpeech, g_config.chatSpeechVolume, g_config.voice, g_config.voiceVariant,
             g_config.voicePitch, g_config.voiceSpeed, g_config.voiceEffect, g_config.voiceChat, g_config.voiceChatKey,
-            g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.desyncNotices);
+            g_config.voiceChatMode, g_config.voiceChatVolume, g_config.syncRadio, g_config.desyncNotices, g_config.pings,
+            g_config.pingKey, g_config.pingSound, g_config.pingIcons);
     }
 
     double QpcMs(const LARGE_INTEGER& from, const LARGE_INTEGER& to)
@@ -1449,7 +1516,8 @@ namespace
         for (TESObjectREFR* a : actors)
         {
             uint32_t id = game::RefId(a);
-            if (a == game::Player() || !game::IsDead(a) || g_standIns.IsStandIn(a) || g_bodiesThinned.count(id))
+            if (a == game::Player() || !game::IsDead(a) || g_standIns.IsStandIn(a) || g_bodiesThinned.count(id) ||
+                game::InventoryBusy(a))
                 continue;
             g_bodiesThinned.insert(id);
             if (game::IsGeneric(a))
@@ -1829,6 +1897,24 @@ namespace
             g_loadWatch = !g_loadWatch;
             return g_loadWatch ? "watching loads" : "not watching loads";
         }
+        if (line == "regwatch" || _strnicmp(line.c_str(), "regwatch ", 9) == 0)
+        {
+            std::string answer;
+            const char* p = line.c_str() + 8;
+            char* end = nullptr;
+            for (unsigned long site = std::strtoul(p, &end, 16); end != p; site = std::strtoul(p, &end, 16))
+            {
+                std::string why;
+                char at[16];
+                std::snprintf(at, sizeof(at), "%08lX", site);
+                if (!dev::WatchCallSite(site, why))
+                    answer += std::string("not ") + at + ": " + why + "; ";
+                p = end;
+            }
+            answer += dev::RegisterWatchReport();
+            LOG_INFO("Register watch: %s", answer.c_str());
+            return answer;
+        }
         if (_strnicmp(line.c_str(), "eval ", 5) == 0)
             return g_worldLoaded ? game::Evaluate(line.c_str() + 5) : "no world loaded";
         if (_strnicmp(line.c_str(), "note ", 5) == 0)
@@ -1853,6 +1939,8 @@ namespace
         if (_strnicmp(line.c_str(), "activate ", 9) == 0 && g_worldLoaded)
         {
             TESObjectREFR* on = game::LookupRef(std::strtoul(line.c_str() + 9, nullptr, 16));
+            if (on)
+                game::Dialogue::LabOwnActivate();
             return !on ? "activate <ref id, hex>: no such reference here" :
                 game::LabActivate(on) ? "activated" : "not activated";
         }
@@ -2097,6 +2185,7 @@ namespace
             return;
 
         uint32_t now = GetTickCount();
+        game::UpdateInventoryGate(now);
         UpdateFreeze(now);
         g_mirror.Update(now);
         g_inspector.Update(now);
@@ -2134,7 +2223,7 @@ namespace
                     uint32_t hostRef = g_npcs.HostRefOf(hit.targetRef);
                     if (!hostRef)
                         continue;
-                    g_coop.ReportHit(hostRef, hit.damage);
+                    g_coop.ReportHit(hostRef, hit.damage, hit.killed);
                     if (g_coop.GetRole() == coop::Role::Friend)
                         g_tally.sent.Add(hit.damage);
                 }
@@ -2196,6 +2285,9 @@ namespace
             g_coop.SetMyModAnims(game::ModAnimFiles(game::Player()));
         }
         me.runSpeed = s_runSpeed;
+        g_coop.SetSplitZones(g_config.farCells && g_config.farAreas);
+        if (uint32_t to = game::TakeDoorTrip())
+            g_coop.NoteDoorTrip(to, now);
         g_coop.SetMyPose(me);
         if (g_coop.InGame())
             FollowGroup(now);
@@ -2264,23 +2356,41 @@ namespace
         g_partClock.Done(kPartPlayers);
         game::UpdateFarCells(now);
         {
-            std::vector<coop::FriendCell> farFriends;
-            bool hosting = g_config.farCells && g_config.farAreas && g_coop.GetRole() == coop::Role::Host &&
-                g_coop.InGame();
-            if (hosting)
+            static std::vector<coop::FriendCell> farFriends;
+            static std::vector<coop::FriendPlace> inside;
+            static std::vector<uint32_t> anchors;
+            farFriends.clear();
+            inside.clear();
+            anchors.clear();
+            bool host = g_coop.GetRole() == coop::Role::Host;
+            bool hosting = g_config.farCells && g_config.farAreas && host && g_coop.InGame();
+            if (host)
                 for (const auto& [id, remote] : g_coop.Remotes())
-                    if (coop::Pose p; remote.motion.Sample(now, p) && p.space == me.space)
-                        farFriends.push_back({id, static_cast<int>(std::floor(p.x / 4096.0f)),
-                            static_cast<int>(std::floor(p.y / 4096.0f))});
+                {
+                    if (coop::Pose p; hosting && remote.motion.Sample(now, p))
+                    {
+                        if (p.space == game::OutdoorWorldId())
+                            farFriends.push_back({id, static_cast<int>(std::floor(p.x / 4096.0f)),
+                                static_cast<int>(std::floor(p.y / 4096.0f))});
+                        else if (p.space != me.space && game::IsInteriorPlace(p.space))
+                            inside.push_back({id, p.space});
+                    }
+                    if (TESObjectREFR* who = g_standIns.Character(id))
+                        anchors.push_back(game::RefId(who));
+                }
             static uint32_t s_usedMb = 0, s_nextMemoryLook = 0;
-            if (hosting && !farFriends.empty() && coop::IsDue(now, s_nextMemoryLook))
+            if (hosting && (!farFriends.empty() || !inside.empty()) && coop::IsDue(now, s_nextMemoryLook))
             {
                 AddressSpace a = GetAddressSpace();
                 s_usedMb = a.totalMb > a.freeMb ? a.totalMb - a.freeMb : 0;
                 s_nextMemoryLook = now + 2000;
             }
             game::UpdateFarArea(hosting, farFriends, s_usedMb, now);
+            game::UpdateFarInteriors(hosting, inside, s_usedMb, now);
+            game::SetDetectionAnchors(anchors);
         }
+        if (g_coop.GetRole() == coop::Role::Host)
+            KillFriendsKills(now);
         if (g_coop.GetRole() == coop::Role::Host)
             g_npcs.Share(g_coop, now, me, g_standIns);
         else if (g_coop.InGame())
@@ -2361,6 +2471,7 @@ namespace
         UpdateQuickStart(now);
         g_partClock.Done(kPartModes);
         UpdateChat();
+        UpdatePings();
         g_partClock.Done(kPartChat);
         UpdateVoice();
         g_partClock.Done(kPartVoice);
@@ -2418,6 +2529,8 @@ namespace
             std::vector<uint32_t> made = g_standIns.RefIds();
             for (uint32_t id : g_npcs.MadeRefIds())
                 made.push_back(id);
+            for (uint32_t id : game::ParkedRefIds())
+                made.push_back(id);
             for (uint32_t id : g_extras)
                 made.push_back(id);
             std::sort(made.begin(), made.end());
@@ -2470,6 +2583,9 @@ namespace
             g_dialogue.Install(g_coop, g_npcs, g_progress);
             g_terminals.Install(g_coop, g_progress);
             game::InstallFarCellGuard();
+            game::InstallFarInteriorGuard();
+            if (!game::InstallDetectionNearFriends())
+                LOG_WARN("Detection: the game's code isn't as expected; NPCs near a friend far away won't notice them");
             if (game::InstallAllyDetectionSkip())
                 LOG_INFO("Sneak: other players' characters don't count as seeing you (hooked the sneak meter's teammate check)");
             else
@@ -2516,19 +2632,24 @@ namespace
             else
             {
                 LOG_INFO("Back to the main menu");
+                g_partyWatch.Forget();
                 if (g_coop.GetRole() != coop::Role::None)
                     g_coop.Stop();
             }
             g_loadingSave = msg->type == NVSEMessagingInterface::kMessage_PreLoadGame;
             g_worldLoaded = false;
             game::ForgetHolds();
+            game::ForgetParked();
             game::LetGoOfFarCells();
+            game::LetGoOfFarInteriors();
             g_gameOver = false;
+            game::ForgetInventoryGate();
             g_standIns.Forget();
             g_npcs.Forget();
             g_doors.Forget();
             g_mines.Forget();
             g_progress.Forget();
+            g_partyWatch.Rebaseline(GetTickCount());
             g_quests.Forget();
             g_objects.Forget();
             g_coop.ForgetMyPlace();

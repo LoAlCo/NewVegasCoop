@@ -7,6 +7,14 @@
 namespace game::addr
 {
     constexpr uintptr_t kThePlayer = 0x011DEA3C;
+    constexpr uintptr_t kWorldSceneGraph = 0x011DEB7C;
+    constexpr uint32_t kSceneGraphCamera = 0xAC;
+    constexpr uintptr_t kTesPick = 0x00458440;
+    constexpr uintptr_t kRefFromNode = 0x0056F930;
+    constexpr uintptr_t kRefFullName = 0x0055D520;
+    constexpr uintptr_t kAudioSingleton = 0x00453A70;
+    constexpr uintptr_t kSoundHandleByEditorId = 0x00AD7550;
+    constexpr uintptr_t kSoundHandlePlay = 0x00AD8830;
     constexpr uintptr_t kFormMap = 0x011C54C0;
     constexpr uintptr_t kFormHeapFree = 0x00401030;
     constexpr uintptr_t kFormHeapAllocate = 0x00401000;
@@ -42,6 +50,10 @@ namespace game::addr
     constexpr uintptr_t kAlwaysActiveSetting = 0x011DEED8;
     constexpr uintptr_t kGameTimeGlobals = 0x011DE7B8;
     constexpr uint32_t kGameTimeReload = 0x1C;
+    constexpr uintptr_t kHardcoreSleepMark = 0x011E0D74;
+    constexpr uintptr_t kHardcoreWaterMark = 0x011E0D78;
+    constexpr uintptr_t kHardcoreFoodMark = 0x011E0D7C;
+    constexpr uint32_t kPlayerIsHardcore = 0x7BC;
     constexpr uintptr_t kMessageMenu = 0x011DA4F0;
     constexpr uint32_t kMessageMenuText = 0x34;
     constexpr uint32_t kMessageMenuButtons = 0x40;
@@ -75,8 +87,22 @@ namespace game::addr
     constexpr uintptr_t kShowSubtitle = 0x00705210;
     constexpr int kProcessSaySlot = 0x2A4 / 4;
     constexpr uintptr_t kPickLineCall = 0x0061B361;
+    constexpr uintptr_t kPickLine = 0x0061A790;
     constexpr uintptr_t kDetectionTeammateCall = 0x00973817;
     constexpr uintptr_t kActorIsTeammate = 0x00566950;
+    constexpr uintptr_t kRefGetDistance = 0x005723B0;
+    constexpr uintptr_t kDetectionNearPlayerCall = 0x008E4168;
+    constexpr uintptr_t kDetectionTargetNearPlayerCall = 0x008E48AD;
+    constexpr uintptr_t kScoreWatcherNearPlayerCall = 0x008A0D6C;
+    constexpr uintptr_t kScoreTargetNearPlayerCall = 0x008A0D8C;
+    constexpr uintptr_t kActorSightTest = 0x0088B880;
+    constexpr uintptr_t kTesPickCallSight = 0x0088C16A;
+    constexpr uintptr_t kTesPickCallVisible = 0x0088C498;
+    constexpr uintptr_t kTesPickPlain = 0x00458420;
+    constexpr uintptr_t kCellPick = 0x00553EE0;
+    constexpr uintptr_t kFootstepEffectCall = 0x008968B0;
+    constexpr uintptr_t kFootstepEffect = 0x008391B0;
+    constexpr uintptr_t kActorDetectionScore = 0x008A0D10;
     constexpr uintptr_t kRadioSetOn = 0x008324E0;
     constexpr uintptr_t kRadioSetStation = 0x00832240;
     constexpr uintptr_t kRadioOn = 0x011DD434;
@@ -284,6 +310,8 @@ namespace game::layout
     constexpr uint32_t kLeveledActorBase = 0x10;
     constexpr uint8_t kExtraLock = 0x2A;
     constexpr uint8_t kExtraTeleport = 0x2B;
+    constexpr uint8_t kExtraScript = 0x0D;
+    constexpr uint32_t kExtraScriptEventList = 0x10;
     constexpr uint8_t kExtraMerchantContainer = 0x3C;
     constexpr uint32_t kMerchantContainerRef = 0x0C;
     constexpr uint32_t kLockData = 0x0C;
@@ -301,7 +329,6 @@ namespace game::layout
     constexpr uintptr_t kTesFillGridSlot = 0x00451A50;
     constexpr uintptr_t kTesFillGridSlotCall = 0x00453121;
     constexpr uint32_t kTesExteriorBuffer = 0x3C;
-    constexpr uintptr_t kExteriorBufferSetting = 0x011C3C90;
     constexpr uintptr_t kDataHandlerDeleteCell = 0x00462290;
     constexpr uint32_t kTesGridCentre = 0x24;
     constexpr uint32_t kTesWorldSpace = 0x88;
@@ -317,13 +344,19 @@ namespace game::layout
     constexpr uintptr_t kCellNode = 0x00545CF0;
     constexpr uintptr_t kNodeAfterAttach = 0x00A5A040;
     constexpr uintptr_t kNodeIsUpdated = 0x00453470;
-    constexpr uintptr_t kNodeUpdate = 0x00A59C60;
     constexpr uintptr_t kUpdateDataMake = 0x0043D410;
     constexpr uintptr_t kTesAddCellToBuffer = 0x00454B90;
     constexpr uintptr_t kListPushFront = 0x005AE3D0;
     constexpr uintptr_t kOutdoorHavokWorld = 0x00451010;
     constexpr uintptr_t kHavokBeforeAttach = 0x00C66300;
     constexpr uintptr_t kHavokAfterAttach = 0x00C6B540;
+    constexpr uintptr_t kCellLoadRefs = 0x00550340;
+    constexpr uintptr_t kTesEnterInterior = 0x00453DC0;
+    constexpr uintptr_t kTesEnterInteriorCalls[] = {0x00455ED3, 0x0093C3D4, 0x0087709C};
+    constexpr uintptr_t kCellHavokWorld = 0x004543C0;
+    constexpr uint32_t kCellFlags = 0x24;
+    constexpr uint32_t kCellStateByte = 0x26;
+    constexpr uint32_t kNiFlags = 0x30;
     constexpr uint8_t kFormTypeArmor = 0x18;
     constexpr uint8_t kFormTypeAlchemy = 0x2F;
     constexpr uint8_t kFormTypeLevItem = 0x34;
@@ -355,6 +388,7 @@ namespace game::layout
     constexpr uint32_t kIdleChildren = 0x40;
     constexpr uint32_t kNodeWorldRotate = 0x68;
     constexpr uint32_t kNodeWorldTranslate = 0x8C;
+    constexpr uint32_t kNodeWorldBound = 0x20;
     constexpr uint32_t kRefPersistent = 0x400;
     constexpr uint32_t kRefDeleted = 0x20;
     constexpr uint32_t kRefDisabled = 0x800;
@@ -397,6 +431,9 @@ namespace game::layout
     constexpr uint32_t kIsTalking = 0x7D;
     constexpr uint32_t kDialogueItemInfo = 0x0C;
     constexpr uint32_t kActorProcess = 0x68;
+    constexpr uint32_t kProcessFaceAnimData = 0x178;
+    constexpr uint32_t kPlayerWaitHours = 0x654;
+    constexpr uint32_t kPlayerWaitSleeping = 0x658;
     constexpr uint32_t kHudSubtitles = 0x198;
     constexpr uint32_t kHudSubtitleShown = 0x1A8;
     constexpr uint32_t kSubtitleShowFor = 0x108;
@@ -440,7 +477,6 @@ namespace game::layout
     constexpr uint32_t kReputationFame = 0x44;
     constexpr uint32_t kReputationInfamy = 0x48;
     constexpr uint32_t kQuestName = 0x34;
-    constexpr uint32_t kObjectiveText = 0x08;
     constexpr uint32_t kQuestLocals = 0x5C;
     constexpr uint32_t kLocalsVars = 0x0C;
     constexpr uint32_t kVarId = 0x00;

@@ -1,0 +1,244 @@
+// New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
+
+#pragma once
+
+#include "coop/smoothing.h"
+#include "net/protocol.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <cctype>
+#include <cstdint>
+#include <string>
+
+namespace coop
+{
+    constexpr uint32_t kPingLifeMs = 15000;
+    constexpr uint32_t kPingSendGapMs = 1000;
+    constexpr uint32_t kPingRelayGapMs = 500;
+    constexpr int kPingSlots = 5;
+    constexpr float kPingUnitsPerMetre = 70.0f;
+    constexpr int kPingRadius = 8000;
+
+    class PingGate
+    {
+    public:
+        explicit PingGate(uint32_t gapMs) : m_gap(gapMs) {}
+        bool Allow(uint32_t now)
+        {
+            if (m_used && now - m_last < m_gap)
+                return false;
+            m_used = true;
+            m_last = now;
+            return true;
+        }
+
+    private:
+        uint32_t m_gap;
+        uint32_t m_last = 0;
+        bool m_used = false;
+    };
+
+    inline bool PingInRange(const Pose* me, const Pose* sender, int radius)
+    {
+        if (!me || !sender || me->space != sender->space)
+            return false;
+        if (radius <= 0)
+            return true;
+        float dx = sender->x - me->x, dy = sender->y - me->y, dz = sender->z - me->z;
+        return dx * dx + dy * dy + dz * dz <= static_cast<float>(radius) * static_cast<float>(radius);
+    }
+
+    struct ActivePing
+    {
+        bool used = false;
+        uint8_t player = 0;
+        std::string who, name;
+        float x = 0, y = 0, z = 0;
+        uint32_t until = 0;
+        uint8_t kind = 0;
+        uint32_t target = 0;
+    };
+
+    class PingBoard
+    {
+    public:
+        void Add(uint8_t player, const std::string& who, const std::string& name, float x, float y, float z, uint32_t now,
+            uint8_t kind = 0, uint32_t target = 0)
+        {
+            ActivePing* slot = nullptr;
+            for (ActivePing& p : m_slots)
+                if (p.used && p.player == player)
+                    slot = &p;
+            for (ActivePing& p : m_slots)
+                if (!slot && !p.used)
+                    slot = &p;
+            if (!slot)
+            {
+                slot = &m_slots[0];
+                for (ActivePing& p : m_slots)
+                    if (static_cast<int32_t>(p.until - slot->until) < 0)
+                        slot = &p;
+            }
+            *slot = ActivePing{true, player, who, name, x, y, z, now + kPingLifeMs, kind, target};
+        }
+        void Expire(uint32_t now)
+        {
+            for (ActivePing& p : m_slots)
+                if (p.used && static_cast<int32_t>(now - p.until) >= 0)
+                    p = ActivePing{};
+        }
+        void Remove(uint8_t player)
+        {
+            for (ActivePing& p : m_slots)
+                if (p.used && p.player == player)
+                    p = ActivePing{};
+        }
+        void Follow(int slot, float x, float y, float z)
+        {
+            ActivePing& p = m_slots[slot];
+            p.x = x;
+            p.y = y;
+            p.z = z;
+        }
+        void Clear() { m_slots.fill(ActivePing{}); }
+        const std::array<ActivePing, kPingSlots>& Slots() const { return m_slots; }
+
+    private:
+        std::array<ActivePing, kPingSlots> m_slots;
+    };
+
+    enum class PingThing : uint8_t
+    {
+        Nothing,
+        Scenery,
+        Actor,
+        Loot,
+        Device,
+        Door
+    };
+    constexpr size_t kMaxPingThingName = 48;
+
+    inline bool IsUtilityName(std::string name)
+    {
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        for (const char* word : {"workbench", "work bench", "reloading bench", "campfire", "vending"})
+            if (name.find(word) != std::string::npos)
+                return true;
+        return false;
+    }
+
+    struct PingLook
+    {
+        net::PingKind kind = net::PingKind::Spot;
+        std::string name;
+    };
+
+    struct PingCharacter
+    {
+        std::string name;
+        int player = -1;
+        uint32_t hostRef = 0;
+        bool dead = false;
+        bool hostile = false;
+    };
+
+    struct PingAim
+    {
+        net::PingKind kind = net::PingKind::Spot;
+        std::string name;
+        uint32_t target = 0;
+    };
+
+    inline PingAim ClassifyCharacterPing(const PingCharacter& c)
+    {
+        std::string name = c.name.substr(0, kMaxPingThingName);
+        if (c.player >= 0 && c.player < 256)
+            return {net::PingKind::Friend, name.empty() ? "Friend" : name, static_cast<uint32_t>(c.player)};
+        if (c.dead)
+        {
+            std::string body = name.empty() ? "Body" : name + " (dead)";
+            return {net::PingKind::Loot, body.substr(0, kMaxPingThingName), c.hostRef};
+        }
+        if (c.hostile)
+            return {net::PingKind::Enemy, name.empty() ? "Enemy" : name, c.hostRef};
+        return {net::PingKind::Person, name.empty() ? "Someone" : name, c.hostRef};
+    }
+
+    enum class PingIcons : uint8_t
+    {
+        Off,
+        HudColour,
+        OwnColours
+    };
+
+    inline uint32_t PingItemTarget(net::PingKind kind, uint32_t hostRef)
+    {
+        return kind == net::PingKind::Loot ? hostRef : 0;
+    }
+
+    inline PingLook ClassifyPing(PingThing thing, const std::string& name)
+    {
+        std::string shown = name.substr(0, kMaxPingThingName);
+        switch (thing)
+        {
+        case PingThing::Nothing:
+            return {net::PingKind::Spot, "Over here"};
+        case PingThing::Loot:
+            return {net::PingKind::Loot, shown.empty() ? "Loot" : shown};
+        case PingThing::Device:
+            if (IsUtilityName(shown))
+                return {net::PingKind::Utility, shown};
+            [[fallthrough]];
+        case PingThing::Door:
+            return {net::PingKind::Spot, shown.empty() ? "Marked spot" : shown};
+        default:
+            return {net::PingKind::Spot, "Marked spot"};
+        }
+    }
+
+    inline std::string PingLine(const std::string& who, const std::string& name, float dx, float dy)
+    {
+        int metres = static_cast<int>(std::sqrt(dx * dx + dy * dy) / kPingUnitsPerMetre + 0.5f);
+        std::string line = who + ": " + name + " (" + std::to_string(metres) + " m)";
+        if (line[0] == '<' || line[0] == '{')
+            line[0] = '(';
+        return line;
+    }
+
+    struct PingLabelSpot
+    {
+        float x = 0.5f, y = 0.5f;
+    };
+
+    inline PingLabelSpot PlacePingLabel(float x, float y)
+    {
+        constexpr float kEdgeX = 0.14f, kEdgeTop = 0.04f, kEdgeBottom = 0.1f;
+        return {std::clamp(x, kEdgeX, 1.0f - kEdgeX), std::clamp(y, kEdgeTop, 1.0f - kEdgeBottom)};
+    }
+
+    inline void SpreadPingLabels(std::array<PingLabelSpot, kPingSlots>& spots, const std::array<bool, kPingSlots>& shown)
+    {
+        constexpr float kWidth = 0.2f, kHeight = 0.09f;
+        for (int slot = 1; slot < kPingSlots; ++slot)
+        {
+            if (!shown[slot])
+                continue;
+            for (int tries = 0; tries < kPingSlots; ++tries)
+            {
+                bool clear = true;
+                for (int other = 0; other < slot; ++other)
+                    if (shown[other] && std::abs(spots[slot].x - spots[other].x) < kWidth &&
+                        std::abs(spots[slot].y - spots[other].y) < kHeight)
+                    {
+                        spots[slot].y = spots[other].y - kHeight;
+                        clear = false;
+                    }
+                if (clear)
+                    break;
+            }
+        }
+    }
+}

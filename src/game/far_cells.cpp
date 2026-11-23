@@ -6,6 +6,7 @@
 
 #include "game/addresses.h"
 #include "game/game.h"
+#include "game/far_interior.h"
 #include "log.h"
 
 #include <windows.h>
@@ -40,9 +41,16 @@ namespace game
             return Field<void*>(player->parentCell, layout::kCellWorldSpace);
         }
 
+        void* OutdoorWorld()
+        {
+            if (void* world = WorldSpace())
+                return world;
+            return Tes() ? Field<void*>(Tes(), layout::kTesWorldSpace) : nullptr;
+        }
+
         void* CellAt(int x, int y, bool create)
         {
-            void* world = WorldSpace();
+            void* world = OutdoorWorld();
             if (!world)
                 return nullptr;
             using CellAtFn = void*(__thiscall*)(void*, int, int);
@@ -86,20 +94,31 @@ namespace game
         using FillSlotFn = void(__thiscall*)(void* tes, uint32_t gridX, uint32_t gridY, int cellX, int cellY);
         FillSlotFn g_fillSlot = nullptr;
         uint32_t g_nextLook = 0;
+        bool g_keepIndoors = true;
 
         bool TakeOutOfBuffer(void* cell)
         {
             void** buffer = Tes() ? Field<void**>(Tes(), layout::kTesExteriorBuffer) : nullptr;
-            unsigned size = *reinterpret_cast<const unsigned*>(layout::kExteriorBufferSetting + 4);
+            unsigned size = *reinterpret_cast<const unsigned*>(addr::kSettingExteriorCellBuffer + addr::kSettingValue);
             return size <= 1024 && coop::TakeOutOfList(buffer, size, cell);
         }
 
-        void LetGo(const std::pair<int, int>& at, const Ours& o)
+        bool InGrid(void* cell);
+
+        void LetGo(std::pair<int, int> at, Ours o, bool slotFill = false)
         {
             int state = StateOf(o.cell);
+            if (!slotFill && state == 6 && WorldSpace() && o.world == WorldSpace() && InGrid(o.cell))
+            {
+                reinterpret_cast<void(__thiscall*)(void*, void*)>(layout::kTesAddCellToBuffer)(Tes(), o.cell);
+                LOG_INFO("Far cells: cell %d, %d is one of the player's grid cells now: handed to the grid, still "
+                    "attached", at.first, at.second);
+                g_ours.erase(at);
+                return;
+            }
             if (state == 6 || state == 5)
                 reinterpret_cast<void(__thiscall*)(void*, bool)>(layout::kCellDetach)(o.cell, true);
-            if (o.world == WorldSpace())
+            if (o.world == OutdoorWorld() || InGrid(o.cell))
                 reinterpret_cast<void(__thiscall*)(void*, void*)>(layout::kTesAddCellToBuffer)(Tes(), o.cell);
             else
                 reinterpret_cast<void(__thiscall*)(void*, void*)>(layout::kDataHandlerDeleteCell)(
@@ -155,9 +174,13 @@ namespace game
     {
         if (!g_fillSlot)
             return why = "the grid's guard isn't in (InstallFarCellGuard)", false;
-        if (!Tes() || !WorldSpace())
-            return why = "not outdoors", false;
-        if (NearGrid(x, y))
+        void* world = OutdoorWorld();
+        bool indoors = !WorldSpace();
+        if (!Tes() || !world)
+            return why = "no worldspace", false;
+        if (indoors && !g_keepIndoors)
+            return why = "indoors", false;
+        if (!indoors && NearGrid(x, y))
             return why = "in or next to the player's grid (the grid's to attach)", false;
         void* cell = CellAt(x, y, true);
         if (!cell)
@@ -182,7 +205,7 @@ namespace game
                         alignas(16) uint8_t update[16] = {};
                         reinterpret_cast<void(__thiscall*)(void*, float, int, int)>(layout::kUpdateDataMake)(update, 0.0f,
                             0, 0);
-                        reinterpret_cast<void(__thiscall*)(void*, void*)>(layout::kNodeUpdate)(node, update);
+                        reinterpret_cast<void(__thiscall*)(void*, void*)>(addr::kNiAVObjectUpdate)(node, update);
                     }
                 }
             }
@@ -193,7 +216,7 @@ namespace game
         LOG_INFO("Far cells: cell %d, %d attached (state %d, was %d)", x, y, state, before);
         if (state != 6)
             return why = "its state is " + std::to_string(state) + " after attaching", false;
-        g_ours[{x, y}] = {cell, WorldSpace()};
+        g_ours[{x, y}] = {cell, world};
         if (TakeOutOfBuffer(cell))
             LOG_DEBUG("Far cells: cell %d, %d taken out of the cell buffer", x, y);
         return true;
@@ -214,7 +237,51 @@ namespace game
             LetGo(g_ours.begin()->first, Ours(g_ours.begin()->second));
     }
 
-    int FarCellCount() { return static_cast<int>(g_ours.size()); }
+    bool KeepFarCellsIndoors(bool keep)
+    {
+        g_keepIndoors = keep;
+        LOG_INFO("Far cells: %s while our player is indoors (lab)", keep ? "kept" : "let go");
+        return keep;
+    }
+
+    std::string FarCellRefs(int x, int y)
+    {
+        auto it = g_ours.find({x, y});
+        if (it == g_ours.end())
+            return "not one of ours";
+        const auto* cell = static_cast<const TESObjectCELL*>(it->second.cell);
+        std::string actors, others;
+        int n = 0;
+        for (auto* node = &cell->objectList.m_listHead; node; node = node->next)
+        {
+            TESObjectREFR* ref = node->data;
+            if (!ref)
+                continue;
+            char id[12];
+            snprintf(id, sizeof(id), " %08X", ref->refID);
+            if (IsActor(ref))
+                actors += id;
+            else if (n++ < 8)
+                others += id;
+        }
+        return "state " + std::to_string(StateOf(it->second.cell)) + "; actors:" + (actors.empty() ? " none" : actors) +
+            "; others:" + others;
+    }
+
+    std::string TesPlace()
+    {
+        void* tes = Tes();
+        if (!tes)
+            return "no TES";
+        char text[200];
+        snprintf(text, sizeof(text), "TES +0x34 current interior %08X, +0x88 worldspace %08X, grid centre %d, %d, "
+            "saved grid %d, %d; our player's worldspace %08X",
+            Field<void*>(tes, 0x34) ? static_cast<TESForm*>(Field<void*>(tes, 0x34))->refID : 0,
+            Field<void*>(tes, layout::kTesWorldSpace) ? static_cast<TESForm*>(Field<void*>(tes, layout::kTesWorldSpace))->refID : 0,
+            Field<int>(tes, layout::kTesGridCentre), Field<int>(tes, layout::kTesGridCentre + 4), Field<int>(tes, 0x48),
+            Field<int>(tes, 0x4C), WorldSpace() ? static_cast<TESForm*>(WorldSpace())->refID : 0);
+        return text;
+    }
 
     void UpdateFarCells(uint32_t now)
     {
@@ -226,6 +293,16 @@ namespace game
             auto [at, o] = *it;
             ++it;
             int state = StateOf(o.cell);
+            if (g_keepIndoors && !WorldSpace() && o.world == OutdoorWorld())
+            {
+                if (state != 6)
+                {
+                    LOG_WARN("Far cells: cell %d, %d (kept while indoors) isn't attached any more (state %d)",
+                        at.first, at.second, state);
+                    g_ours.erase(at);
+                }
+                continue;
+            }
             if (o.world != WorldSpace())
             {
                 LOG_INFO("Far cells: cell %d, %d is in a worldspace we left", at.first, at.second);
@@ -237,6 +314,8 @@ namespace game
                     state);
                 g_ours.erase(at);
             }
+            else if (InGrid(o.cell))
+                LetGo(at, o);
             else if (NearGrid(at.first, at.second))
             {
                 LOG_INFO("Far cells: cell %d, %d is next to the player's grid now: the grid's to attach", at.first,
@@ -250,7 +329,7 @@ namespace game
 
         static uint32_t s_nextSummary = 0, s_looks = 0, s_beyond = 0;
         void** buffer = Field<void**>(Tes(), layout::kTesExteriorBuffer);
-        unsigned size = *reinterpret_cast<const unsigned*>(layout::kExteriorBufferSetting + 4);
+        unsigned size = *reinterpret_cast<const unsigned*>(addr::kSettingExteriorCellBuffer + addr::kSettingValue);
         int cx, cy, half;
         if (buffer && size <= 1024 && GridAround(cx, cy, half))
         {
@@ -284,6 +363,17 @@ namespace game
 
     bool InFarCell(float x, float y) { return g_ours.count({CellOf(x), CellOf(y)}) != 0; }
 
+    uint32_t OutdoorWorldId()
+    {
+        void* world = OutdoorWorld();
+        return world ? static_cast<TESForm*>(world)->refID : 0;
+    }
+
+    bool InRunPlace(uint32_t space, float x, float y)
+    {
+        return IsFarInterior(space) || (space && space == OutdoorWorldId() && InFarCell(x, y));
+    }
+
     void UpdateFarArea(bool hosting, const std::vector<coop::FriendCell>& friends, uint32_t usedMb, uint32_t now)
     {
         if (static_cast<int32_t>(now - g_nextAreaLook) < 0)
@@ -293,7 +383,10 @@ namespace game
             it = g_ours.count(*it) ? std::next(it) : g_area.erase(it);
 
         int cx, cy, half;
-        if (!hosting || !GridAround(cx, cy, half))
+        bool outdoors = GridAround(cx, cy, half);
+        if (!outdoors && g_keepIndoors && OutdoorWorld())
+            cx = cy = 0, half = coop::kNoGrid;
+        if (!hosting || (!outdoors && half != coop::kNoGrid))
         {
             for (auto [x, y] : std::set<std::pair<int, int>>(g_area))
             {
@@ -301,7 +394,7 @@ namespace game
                 DetachFarCell(x, y, why);
             }
             if (!g_area.empty())
-                LOG_INFO("Far cells: let go of the %zu around friends (not hosting outdoors)", g_area.size());
+                LOG_INFO("Far cells: let go of the %zu around friends (not hosting, or no worldspace)", g_area.size());
             g_area.clear();
             return;
         }
@@ -341,7 +434,7 @@ namespace game
         {
             if (auto it = g_ours.find({cellX, cellY}); it != g_ours.end())
             {
-                LetGo(it->first, Ours(it->second));
+                LetGo(it->first, Ours(it->second), true);
                 g_area.erase({cellX, cellY});
                 LOG_INFO("Far cells: cell %d, %d goes into the player's grid: ours detached first", cellX, cellY);
             }

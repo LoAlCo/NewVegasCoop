@@ -26,7 +26,7 @@ namespace game
     {
     public:
         void Share(coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
-        void Update(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
+        void Update(coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
         void Attack(uint32_t ref, uint8_t shots, bool reload, bool release = false);
         void CheckDesyncs(coop::Coop& coop, uint32_t now, const coop::Pose& myPose);
         bool IsHeld(uint32_t ref) const { return m_holds.IsHeld(ref); }
@@ -36,6 +36,7 @@ namespace game
         static void LabCopySteps(uint32_t steps) { s_labSteps = steps; }
         uint32_t HostRefOf(uint32_t ourRef) const;
         TESObjectREFR* OurRefOf(uint32_t hostRef) const { return Find(hostRef); }
+        TESObjectREFR* BodyOf(uint32_t hostRef, uint32_t now) const;
 
     private:
         struct Entry
@@ -58,7 +59,10 @@ namespace game
             uint32_t dressings = 0;
         };
         void UpdateCopies(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
-        void HoldUnshared(const coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
+        void HoldUnshared(coop::Coop& coop, uint32_t now, const coop::Pose& myPose, const StandIns& standIns);
+        void AskWhereHeldAre(coop::Coop& coop, uint32_t now, const coop::Pose& myPose);
+        std::map<uint32_t, uint32_t> m_spotAskedAt;
+        static constexpr uint32_t kSpotAskEveryMs = 10000;
         void LetGoOfHold(const coop::Holds::Released& held, bool nowOurCopy);
         void ReleaseHolds();
         struct Held
@@ -99,12 +103,27 @@ namespace game
             uint16_t limbs = 0;
             uint32_t nextLimbCheck = 0;
             uint32_t diedAt = 0;
+            uint32_t nextLootAt = 0;
             uint8_t pile = 0;
+            net::NpcState last;
+            uint32_t lastSpace = 0;
+            uint32_t leftAt = 0;
+            bool leftSaid = false;
         };
+        static constexpr uint32_t kLeftWordMs = 2000;
+        struct HostSpot
+        {
+            coop::Pose pose;
+            uint32_t at = 0;
+        };
+        std::map<uint32_t, HostSpot> m_lastHostSpot;
+        static constexpr uint32_t kHostSpotMs = 10000;
+        void AnswerSpotAsks(coop::Coop& coop);
         struct Made
         {
             uint32_t localId = 0;
             uint32_t loadedAt = 0;
+            uint32_t from = 0;
         };
         std::map<uint32_t, Made> m_made;
         std::set<uint32_t> m_rerolled;
@@ -131,5 +150,6 @@ namespace game
         uint32_t m_idles = 0, m_deadHere = 0, m_weapons = 0, m_reloads = 0, m_stoodUp = 0, m_reloadsShown = 0;
         bool m_warnedFull = false;
         bool m_foundNone = true;
+        uint32_t m_nextCapNote = 0;
     };
 }

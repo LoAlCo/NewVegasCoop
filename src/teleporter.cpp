@@ -81,6 +81,7 @@
             game::Notify(("Co-op: couldn't find " + name).c_str());
             return;
         }
+        g_coop.NoteDoorTrip(pose.space, now);
         LOG_INFO("Teleporter: went to %s (%08X %.0f %.0f %.0f)", name.c_str(), pose.space, pose.x, pose.y, pose.z);
         game::Notify(("Co-op: teleported to " + name).c_str());
     }
@@ -136,7 +137,7 @@
             g_teleportAsked = game::AskChoice(g_teleportChoices.empty() ? "Co-op Teleporter: nobody else is here" :
                 "Co-op Teleporter", buttons, kTeleportQuestion);
         }
-        if (have != 1)
+        if (have != 1 && !game::InventoryBusy(me))
         {
             game::ChangeItem(me, item->refID, 1 - have);
             if (g_teleportersHad < 0)

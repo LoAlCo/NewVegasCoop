@@ -14,7 +14,7 @@
 
 namespace net
 {
-    constexpr uint32_t kProtocolVersion = 78;
+    constexpr uint32_t kProtocolVersion = 87;
     constexpr size_t kMaxNameLength = 32;
     constexpr size_t kMaxReasonLength = 200;
     constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -98,8 +98,13 @@ namespace net
         HealAlly = 77,
         HealRefused = 78,
         QuestCommand = 79,
+        Greet = 82,
+        Ping = 83,
+        SplitZones = 84,
         MineChange = 63,
         ModsMatch = 48,
+        NpcSpotAsk = 80,
+        NpcSpots = 81,
     };
 
     using Bytes = std::vector<uint8_t>;
@@ -114,6 +119,9 @@ namespace net
         void F32(float v);
         void String(std::string_view s, size_t maxLength);
         void Block(const void* data, size_t size) { auto p = static_cast<const uint8_t*>(data); m_data.insert(m_data.end(), p, p + size); }
+        void Flag(bool v) { U8(v ? 1 : 0); }
+        size_t Count8(size_t n, size_t max) { size_t c = n < max ? n : max; U8(static_cast<uint8_t>(c)); return c; }
+        size_t Count16(size_t n, size_t max) { size_t c = n < max ? n : max; U16(static_cast<uint16_t>(c)); return c; }
         Bytes Take() { return std::move(m_data); }
 
     private:
@@ -130,6 +138,7 @@ namespace net
         bool U8(uint8_t& out);
         bool U16(uint16_t& out);
         bool U32(uint32_t& out);
+        bool Flag(bool& out);
         bool F32(float& out);
         bool String(std::string& out, size_t maxLength);
         bool Block(void* out, size_t size) { return Raw(out, size); }
@@ -211,6 +220,7 @@ namespace net
         uint8_t playerId = 0;
         uint32_t targetRef = 0;
         float damage = 0;
+        bool killed = false;
     };
 
     constexpr float kMaxHealth = 100000;
@@ -244,7 +254,7 @@ namespace net
         float x = 0, y = 0, z = 0;
         float heading = 0;
     };
-    constexpr size_t kMaxNpcsPerMessage = 40;
+    constexpr size_t kMaxNpcsPerMessage = 64;
     struct NpcState
     {
         uint32_t ref = 0;
@@ -403,6 +413,26 @@ namespace net
         uint32_t seq = 0;
         ItemCount change;
     };
+    constexpr size_t kMaxNpcSpotAsks = 16;
+    struct NpcSpotAsk
+    {
+        std::vector<uint32_t> refs;
+    };
+    struct NpcSpot
+    {
+        uint32_t ref = 0;
+        bool known = false;
+        uint32_t space = 0;
+        float x = 0, y = 0, z = 0;
+    };
+    struct NpcSpots
+    {
+        std::vector<NpcSpot> spots;
+    };
+    Bytes Encode(const NpcSpotAsk& m);
+    bool Decode(Reader& r, NpcSpotAsk& m);
+    Bytes Encode(const NpcSpots& m);
+    bool Decode(Reader& r, NpcSpots& m);
     struct ContainerContents
     {
         uint32_t ref = 0;
@@ -430,6 +460,7 @@ namespace net
         bool parentOn = false;
         uint8_t health = kNoCondition;
         uint8_t mods = 0;
+        uint32_t space = 0;
     };
     constexpr float kMaxItemAngle = 7;
     struct ItemStates
@@ -451,6 +482,7 @@ namespace net
         float x = 0, y = 0, z = 0;
         uint8_t health = kNoCondition;
         uint8_t mods = 0;
+        uint32_t space = 0;
     };
     Bytes Encode(const ItemStates& m);
     bool Decode(Reader& r, ItemStates& m);
@@ -672,6 +704,12 @@ namespace net
     };
     Bytes Encode(const ModeChange& m);
     bool Decode(Reader& r, ModeChange& m);
+    struct SplitZonesOn
+    {
+        bool on = false;
+    };
+    Bytes Encode(const SplitZonesOn& m);
+    bool Decode(Reader& r, SplitZonesOn& m);
     constexpr size_t kMaxMarkersPerMessage = 200;
     Bytes EncodeTravelMarkers(const std::vector<uint32_t>& refs);
     bool DecodeTravelMarkers(Reader& r, std::vector<uint32_t>& refs);
@@ -691,6 +729,12 @@ namespace net
     };
     Bytes Encode(const DialogueLine& m);
     bool Decode(Reader& r, DialogueLine& m);
+    struct Greet
+    {
+        uint32_t npc = 0;
+    };
+    Bytes Encode(const Greet& m);
+    bool Decode(Reader& r, Greet& m);
     constexpr size_t kMaxSubtitleLength = 300;
     constexpr uint8_t kMaxResponse = 255;
     struct Subtitle
@@ -813,6 +857,26 @@ namespace net
         std::string text;
         coop::VoiceStyle style;
     };
+    enum class PingKind : uint8_t
+    {
+        Spot,
+        Loot,
+        Utility,
+        Enemy,
+        Person,
+        Friend,
+        Count
+    };
+    constexpr size_t kMaxPingName = 48;
+    struct Ping
+    {
+        uint8_t player = 0;
+        PingKind kind = PingKind::Spot;
+        uint32_t target = 0;
+        uint32_t space = 0;
+        float x = 0, y = 0, z = 0;
+        std::string name;
+    };
     constexpr size_t kMaxChatText = 160;
     constexpr size_t kMaxVoiceBytes = 2048;
     struct VoiceData
@@ -848,6 +912,8 @@ namespace net
     bool Decode(Reader& r, VoiceData& m);
     Bytes Encode(const ChatLine& m);
     bool Decode(Reader& r, ChatLine& m);
+    Bytes Encode(const Ping& m);
+    bool Decode(Reader& r, Ping& m);
     Bytes Encode(const PlayerCommand& m);
     bool Decode(Reader& r, PlayerCommand& m);
     struct RadioPick

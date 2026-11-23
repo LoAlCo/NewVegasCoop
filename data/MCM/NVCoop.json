@@ -33,7 +33,7 @@
 					"title": "Chat Key",
 					"type": 3,
 					"enable": 1,
-					"mouse": "The key that opens the chat line (Enter sends, Esc cancels)",
+					"mouse": "The key that opens the chat line and history (Enter sends, Esc cancels, Page Up and Down read back)",
 					"vars": [
 						{
 							"configINI": "Settings:iChatKey",
@@ -710,6 +710,307 @@
 						"valueMin": 0,
 						"valueMax": 255
 					}
+				}
+			}
+		},
+		"2": {
+			"listTitle": "Chat History",
+			"pageTitle": "Chat History and Party Events",
+			"columns": 1,
+			"enable": 1,
+			"options": {
+				"1": {
+					"title": "General",
+					"enable": 1,
+					"type": 0
+				},
+				"2": {
+					"title": "Show Chat History",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Opening chat shows recent chat and party events (Page Up and Down read further back)",
+					"vars": [
+						{
+							"configINI": "Settings:bChatHistory",
+							"default": 1
+						}
+					]
+				},
+				"3": {
+					"title": "Show Party Events",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Short lines such as a friend going down, joining or leaving appear for a few seconds",
+					"vars": [
+						{
+							"configINI": "Settings:bEventFeed",
+							"default": 1
+						}
+					]
+				},
+				"4": {
+					"title": "Show New Messages",
+					"type": 5,
+					"enable": 1,
+					"mouse": "A friend's chat message shows in the panel for a few seconds without you opening chat",
+					"vars": [
+						{
+							"configINI": "Settings:bChatPopup",
+							"default": 1
+						}
+					]
+				},
+				"5": {
+					"title": "Preview",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Fills the panel with sample lines, as many as it can show, so you can try its position and look. Close the menu to see it, and turn this off when you're done",
+					"vars": [
+						{
+							"configINI": "Settings:bFeedPreview",
+							"default": 0
+						}
+					]
+				},
+				"6": {
+					"title": "Seconds",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How long party event and new message lines stay on screen. Long messages stay a little longer",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedSeconds",
+							"default": 8
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 3,
+						"valueMax": 60,
+						"suffix": " s"
+					}
+				},
+				"7": {
+					"title": "Position",
+					"enable": 1,
+					"type": 0
+				},
+				"8": {
+					"title": "Horizontal Position",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How far across the screen the panel's aligned side goes, in percent. It stays on screen",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedX",
+							"default": 98
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 0,
+						"valueMax": 100,
+						"suffix": "%"
+					}
+				},
+				"9": {
+					"title": "Vertical Position",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How far down the screen the panel starts, in percent. It stays on screen",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedY",
+							"default": 45
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 0,
+						"valueMax": 100,
+						"suffix": "%"
+					}
+				},
+				"10": {
+					"title": "Width",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How wide the panel gets before a line moves down to the next one. Lower it to keep clear of other parts of the HUD",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedWidth",
+							"default": 500
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 10,
+						"valueMin": 200,
+						"valueMax": 1200
+					}
+				},
+				"11": {
+					"title": "Alignment",
+					"type": 1,
+					"enable": 1,
+					"mouse": "Which side of the panel the lines sit against. The horizontal position is where that side goes",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedAlign",
+							"default": 1
+						}
+					],
+					"strings": [
+						"Left",
+						"Right"
+					]
+				},
+				"12": {
+					"title": "Look",
+					"enable": 1,
+					"type": 0
+				},
+				"13": {
+					"title": "Text Size",
+					"type": 2,
+					"enable": 1,
+					"mouse": "How big the lines are, in percent",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedSize",
+							"default": 65
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 5,
+						"valueMin": 40,
+						"valueMax": 150,
+						"suffix": "%"
+					}
+				},
+				"14": {
+					"title": "Spacing",
+					"type": 2,
+					"enable": 1,
+					"mouse": "The gap between lines",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedGap",
+							"default": 6
+						}
+					],
+					"scale": {
+						"valueDecimal": 0,
+						"valueIncrement": 1,
+						"valueMin": 0,
+						"valueMax": 40
+					}
+				},
+				"15": {
+					"title": "Readability",
+					"type": 1,
+					"enable": 1,
+					"mouse": "What helps the text read over bright places: a thin dark outline, a drop shadow or a dark bar behind it",
+					"vars": [
+						{
+							"configINI": "Settings:iFeedStyle",
+							"default": 1
+						}
+					],
+					"strings": [
+						"None",
+						"Outline",
+						"Shadow",
+						"Dark Bar"
+					]
+				},
+				"16": {
+					"title": "Dividers",
+					"type": 5,
+					"enable": 1,
+					"mouse": "A thin line under each line",
+					"vars": [
+						{
+							"configINI": "Settings:bFeedDividers",
+							"default": 1
+						}
+					]
+				}
+			}
+		},
+		"3": {
+			"listTitle": "Pings",
+			"pageTitle": "Pings",
+			"columns": 1,
+			"enable": 1,
+			"options": {
+				"1": {
+					"title": "Pings",
+					"type": 5,
+					"enable": 1,
+					"mouse": "Mark the spot you're aiming at for players near you",
+					"vars": [
+						{
+							"configINI": "Settings:bPings",
+							"default": 1
+						}
+					]
+				},
+				"2": {
+					"title": "Ping Key",
+					"type": 3,
+					"enable": 1,
+					"mouse": "The key that marks the spot you're aiming at",
+					"vars": [
+						{
+							"configINI": "Settings:iPingKey",
+							"default": 34
+						}
+					],
+					"keybind": {
+						"type": 0
+					}
+				},
+				"3": {
+					"title": "Ping Sound",
+					"type": 1,
+					"enable": 1,
+					"mouse": "The sound you hear when a ping appears",
+					"vars": [
+						{
+							"configINI": "Settings:iPingSound",
+							"default": 1
+						}
+					],
+					"strings": [
+						"Off",
+						"Map marker",
+						"Message",
+						"New quest",
+						"Radio signal",
+						"Menu OK"
+					]
+				},
+				"4": {
+					"title": "Ping Icons",
+					"type": 1,
+					"enable": 1,
+					"mouse": "The icon on each ping: off, in your HUD's colour, or each kind in its own colour",
+					"vars": [
+						{
+							"configINI": "Settings:iPingIcons",
+							"default": 1
+						}
+					],
+					"strings": [
+						"Off",
+						"HUD colour",
+						"Own colours"
+					]
 				}
 			}
 		}

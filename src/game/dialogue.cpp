@@ -148,12 +148,18 @@ namespace game
             m_lastActivate = now;
             LOG_INFO("Dialogue: %s started a conversation while our own use holds our controls: ours", Name(speaker));
         }
-        bool ours = host || (m_openSince ? m_ours : now - m_lastActivate <= kOurConversationMs);
+        if (host && !m_openSince && !m_greetDecided && now - m_lastActivate > kOurConversationMs &&
+            !OwnUseHoldsControls() && !SentByOwnUse(speaker, false))
+            DecideGreeting(speaker, now);
+        bool ours = host ? !(m_greetDecided && m_greetTo != m_coop->MyPlayerId()) :
+            m_openSince ? m_ours : now - m_lastActivate <= kOurConversationMs || SentByOwnUse(speaker, false) ||
+            HostSentGreeting(speaker, now);
         if (!ours || !m_coop->MayTalk())
         {
             ++m_linesSkipped;
             LOG_INFO("Dialogue: line %08X's script not run here (%s)", TopicInfoId(info),
-                ours ? "someone else is talking" : "an NPC started this conversation here");
+                ours ? "someone else is talking" : host ? "another player's greeting" :
+                "an NPC started this conversation here");
             return;
         }
         if (host)
@@ -271,11 +277,26 @@ namespace game
                 m_afterOurs = false;
             m_openSince = 0;
             m_closed = false;
+            m_greetDecided = false;
+            m_handingOff = false;
         }
         else if (!m_openSince)
         {
             m_openSince = now ? now : 1;
-            m_ourPlayerStarted = now - m_lastActivate <= kOurConversationMs || OwnUseHoldsControls();
+            bool sent = SentByOwnUse(partner, true);
+            m_ourPlayerStarted = now - m_lastActivate <= kOurConversationMs || OwnUseHoldsControls() || sent;
+            if (!host && !m_ourPlayerStarted && HostSentGreeting(partner, now))
+            {
+                m_ourPlayerStarted = true;
+                m_hostGreetUntil = 0;
+                LOG_INFO("Dialogue: %s's greeting, given to us by the host's game: ours", Name(partner));
+            }
+            if (host && !m_ourPlayerStarted && partner)
+            {
+                if (!m_greetDecided)
+                    DecideGreeting(partner, now);
+                m_handingOff = m_greetTo != m_coop->MyPlayerId();
+            }
             m_ours = host || m_ourPlayerStarted;
             LOG_INFO("Dialogue: a conversation with %s (%08X) opened (%s)", partner ? Name(partner) : "?",
                 partner ? RefId(partner) : 0, m_ourPlayerStarted ? "ours" : "an NPC started it");
@@ -287,6 +308,13 @@ namespace game
                 LOG_INFO("Dialogue: %s (%08X) is held here (not in the host's game here yet); conversation closed",
                     Name(partner), RefId(partner));
                 Notify(kNotHereYet);
+            }
+            uint32_t greeter = !host && !m_closed && !m_ourPlayerStarted ? HostRef(partner) : 0;
+            if (greeter && m_greetAsks.MayAsk(greeter, now))
+            {
+                m_coop->AskGreet(greeter);
+                LOG_INFO("Dialogue: %s (%08X) greeted us here; asked the host's game whether it's ours",
+                    Name(partner), greeter);
             }
             uint8_t leader = 0;
             uint32_t ref = partner ? HostRef(partner) : 0;
@@ -301,7 +329,7 @@ namespace game
         }
 
         bool inScreen = !open && m_afterOurs && m_reportedTalking;
-        bool talking = (open && m_ours && !m_closed) || inScreen;
+        bool talking = (open && m_ours && !m_closed && !m_handingOff) || inScreen;
         uint32_t npc = inScreen ? m_reportedNpc : talking ? HostRef(partner) : 0;
         if (talking != m_reportedTalking || npc != m_reportedNpc)
         {
@@ -318,13 +346,16 @@ namespace game
             LOG_INFO("Dialogue: %s (%08X) started a conversation with us as the group leaves; closed",
                 partner ? Name(partner) : "?", partner ? RefId(partner) : 0);
         }
-        if (open && !m_closed && now - m_openSince >= kSettleConversationMs && (!m_ours || !m_coop->MayTalk()))
+        if (open && !m_closed && now - m_openSince >= kSettleConversationMs &&
+            (!m_ours || !m_coop->MayTalk() || m_handingOff))
         {
             m_closed = true;
             ++m_closedCount;
             CloseMenu();
             GiveBackOwnUseControls("a conversation was closed on us");
-            if (m_ours)
+            if (m_handingOff)
+                LOG_INFO("Dialogue: %s's greeting is another player's; ours closed", partner ? Name(partner) : "?");
+            else if (m_ours)
             {
                 std::string who = m_coop->NameOf(m_coop->Talk().Talker());
                 LOG_INFO("Dialogue: %s is talking; our conversation closed", who.c_str());
@@ -334,6 +365,7 @@ namespace game
                 LOG_INFO("Dialogue: an NPC started a conversation with us; closing it (the host's game runs those)");
         }
 
+        UpdateGreetings(host, now);
         if (host)
             for (const coop::Coop::DialogueLineFrom& l : m_coop->TakeDialogueLines())
                 RunForFriend(l.playerId, l.line);
@@ -351,6 +383,126 @@ namespace game
             m_linesSent = m_linesRun = m_linesSkipped = m_closedCount = 0;
             m_subtitlesSent = m_subtitlesShown = m_subtitlesFar = m_linesSaid = m_stops = 0;
         }
+    }
+
+    uint8_t Dialogue::ClosestPlayerTo(TESObjectREFR* npc) const
+    {
+        uint8_t me = m_coop->MyPlayerId();
+        coop::Pose at;
+        uint32_t ref = npc ? RefId(npc) : 0;
+        if (!ref || (ref >> 24) == 0xFF || !GetPose(npc, at))
+            return me;
+        std::vector<coop::PlayerAt> players;
+        coop::PlayerAt p;
+        p.id = me;
+        if (GetPose(Player(), p.pose))
+            players.push_back(p);
+        for (const auto& [id, remote] : m_coop->Remotes())
+        {
+            coop::PlayerAt r;
+            r.id = id;
+            if (!remote.Downed() && remote.motion.Newest(r.pose))
+                players.push_back(r);
+        }
+        uint8_t closest = me;
+        return coop::ClosestPlayer(at, players, closest) ? closest : me;
+    }
+
+    void Dialogue::DecideGreeting(TESObjectREFR* npc, uint32_t now)
+    {
+        m_greetDecided = true;
+        uint8_t me = m_coop->MyPlayerId();
+        m_greetTo = m_greetings.HostGreeted(RefId(npc), me, ClosestPlayerTo(npc), now);
+        if (m_greetTo == me)
+            return;
+        if (m_greetTo == coop::Greetings::kNobody)
+            return LOG_INFO("Dialogue: %s (%08X) greeted us just after its greeting went to another player; not ours",
+                Name(npc), RefId(npc));
+        m_coop->SendGreet(m_greetTo, RefId(npc));
+        LOG_INFO("Dialogue: %s (%08X) greeted us; %s is closer: their greeting (ours closes)", Name(npc), RefId(npc),
+            m_coop->NameOf(m_greetTo).c_str());
+    }
+
+    bool Dialogue::HostSentGreeting(TESObjectREFR* npc, uint32_t now) const
+    {
+        return npc && m_hostGreet && RefId(npc) == m_hostGreet && static_cast<int32_t>(m_hostGreetUntil - now) > 0;
+    }
+
+    void Dialogue::UpdateGreetings(bool host, uint32_t now)
+    {
+        constexpr uint32_t kHostGreetMs = 15000;
+        if (host)
+        {
+            for (const coop::Coop::GreetAskFrom& a : m_coop->TakeGreetAsks())
+            {
+                TESObjectREFR* npc = LookupRef(a.npc);
+                if (!npc || !IsActor(npc))
+                    continue;
+                uint8_t closest = ClosestPlayerTo(npc);
+                bool talking = m_coop->Talk().Busy();
+                std::string who = m_coop->NameOf(a.playerId);
+                if (m_greetings.FriendAsks(a.npc, a.playerId, closest, talking, now))
+                {
+                    m_coop->SendGreet(a.playerId, a.npc);
+                    LOG_INFO("Dialogue: %s (%08X) greeted %s in their game; they're the closest: theirs", Name(npc),
+                        a.npc, who.c_str());
+                    continue;
+                }
+                std::string why = closest != a.playerId ? m_coop->NameOf(closest) + " is closer" :
+                    talking ? "someone is talking" : "its greeting just went to someone";
+                LOG_INFO("Dialogue: %s (%08X) greeted %s in their game; not theirs (%s)", Name(npc), a.npc, who.c_str(),
+                    why.c_str());
+            }
+            return;
+        }
+        constexpr uint32_t kPendingGreetMs = 5000;
+        for (uint32_t ref : m_coop->TakeGreets())
+        {
+            m_pendingGreet = ref;
+            m_pendingGreetUntil = now + kPendingGreetMs;
+        }
+        if (TESObjectREFR* talker = TakeOwnUseTalk())
+        {
+            m_ownTalk = RefId(talker);
+            m_ownTalkUntil = now + kPendingGreetMs;
+        }
+        if (m_ownTalk && !InMenu())
+        {
+            TESObjectREFR* talker = LookupRef(m_ownTalk);
+            if (talker && IsActor(talker) && !IsDead(talker) && Is3DLoaded(talker))
+            {
+                m_lastActivate = now;
+                OpenConversation(talker);
+                LOG_INFO("Dialogue: %s talks to us where they stand (our own use sent them)", Name(talker));
+            }
+            m_ownTalk = 0;
+        }
+        else if (m_ownTalk && static_cast<int32_t>(m_ownTalkUntil - now) <= 0)
+            m_ownTalk = 0;
+        if (!m_pendingGreet)
+            return;
+        TESObjectREFR* npc = m_npcs->OurRefOf(m_pendingGreet);
+        if (!npc || !IsActor(npc) || IsDead(npc))
+        {
+            LOG_INFO("Dialogue: the host's game gave us %08X's greeting, but it isn't here", m_pendingGreet);
+            m_pendingGreet = 0;
+            return;
+        }
+        if (InMenu())
+        {
+            if (static_cast<int32_t>(m_pendingGreetUntil - now) <= 0)
+            {
+                LOG_INFO("Dialogue: the host's game gave us %s's greeting; we stayed in a menu, so not now",
+                    Name(npc));
+                m_pendingGreet = 0;
+            }
+            return;
+        }
+        m_hostGreet = RefId(npc);
+        m_hostGreetUntil = now + kHostGreetMs;
+        OpenConversation(npc);
+        LOG_INFO("Dialogue: the host's game gave us %s's (%08X) greeting: it talks to us", Name(npc), m_pendingGreet);
+        m_pendingGreet = 0;
     }
 
     void Dialogue::Subtitles(bool talking, TESObjectREFR* partner, uint32_t now)

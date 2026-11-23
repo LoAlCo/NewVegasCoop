@@ -188,6 +188,11 @@ namespace game
         month->data = t.month;
         year->data = t.year;
         *reinterpret_cast<uint8_t*>(addr::kGameTimeGlobals + addr::kGameTimeReload) = 1;
+        auto* food = reinterpret_cast<float*>(addr::kHardcoreFoodMark);
+        LOG_INFO("Clock: hardcore needs counted afresh from now (marks were %.1f %.1f %.1f)", *food,
+            *reinterpret_cast<const float*>(addr::kHardcoreWaterMark),
+            *reinterpret_cast<const float*>(addr::kHardcoreSleepMark));
+        *food = 0.0f;
     }
 
     void SleepWait::Update(uint32_t now)

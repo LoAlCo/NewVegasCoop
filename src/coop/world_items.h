@@ -72,7 +72,10 @@ namespace coop
     public:
         void Heard(const net::ItemState& host, uint32_t now = 0);
         ItemActions Look(const std::vector<LocalItem>& local, bool sameArea = true, uint32_t now = 0);
+        void SetMyPlace(uint32_t place) { m_myPlace = place; }
         void Made(uint32_t hostRef, uint32_t ourRef);
+        uint32_t OurRefOf(uint32_t hostRef) const;
+        uint32_t HostRefOf(uint32_t ourRef) const;
         void Clear();
         size_t Copies() const { return m_copies.size(); }
 
@@ -99,5 +102,6 @@ namespace coop
         std::map<uint32_t, ParentGap> m_parentGaps;
         void Taken(uint32_t ourRef, uint32_t hostRef);
         bool m_started = false;
+        uint32_t m_myPlace = 0;
     };
 }

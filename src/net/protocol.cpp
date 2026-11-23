@@ -76,6 +76,15 @@ namespace net
         return true;
     }
 
+    bool Reader::Flag(bool& out)
+    {
+        uint8_t v;
+        if (!U8(v) || v > 1)
+            return false;
+        out = v == 1;
+        return true;
+    }
+
     bool Reader::F32(float& out)
     {
         uint32_t bits;
@@ -114,12 +123,11 @@ namespace net
         Writer w(MsgType::Welcome);
         w.U8(m.playerId);
         w.String(m.hostName, kMaxNameLength);
-        size_t count = m.questMods.size() < kMaxQuestMods ? m.questMods.size() : kMaxQuestMods;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.questMods.size(), kMaxQuestMods);
         for (size_t i = 0; i < count; ++i)
             w.String(m.questMods[i], kMaxModFileNameLength);
         w.U8(static_cast<uint8_t>(m.mode.mode));
-        w.U8(m.mode.friendlyFire ? 1 : 0);
+        w.Flag(m.mode.friendlyFire);
         w.U32(static_cast<uint32_t>(m.hostXp));
         return w.Take();
     }
@@ -167,8 +175,7 @@ namespace net
     {
         Writer w(MsgType::PlayerGear);
         w.U8(m.playerId);
-        size_t count = m.items.size() < kMaxGearItems ? m.items.size() : kMaxGearItems;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.items.size(), kMaxGearItems);
         for (size_t i = 0; i < count; ++i)
             w.U32(m.items[i]);
         return w.Take();
@@ -180,6 +187,7 @@ namespace net
         w.U8(m.playerId);
         w.U32(m.targetRef);
         w.F32(m.damage);
+        w.Flag(m.killed);
         return w.Take();
     }
 
@@ -287,7 +295,7 @@ namespace net
 
     bool Decode(Reader& r, Hit& m)
     {
-        return r.U8(m.playerId) && r.U32(m.targetRef) && r.F32(m.damage) && r.AtEnd();
+        return r.U8(m.playerId) && r.U32(m.targetRef) && r.F32(m.damage) && r.Flag(m.killed) && r.AtEnd();
     }
 
     bool Decode(Reader& r, PlayerHealth& m)
@@ -384,8 +392,7 @@ namespace net
         Writer w(MsgType::NpcStates);
         w.U32(m.timeMs);
         w.U32(m.space);
-        size_t count = m.npcs.size() < kMaxNpcsPerMessage ? m.npcs.size() : kMaxNpcsPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.npcs.size(), kMaxNpcsPerMessage);
         for (size_t i = 0; i < count; ++i)
         {
             const NpcState& n = m.npcs[i];
@@ -439,8 +446,7 @@ namespace net
     Bytes Encode(const NpcAttacks& m)
     {
         Writer w(MsgType::NpcAttacks);
-        size_t count = m.attacks.size() < kMaxNpcsPerMessage ? m.attacks.size() : kMaxNpcsPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.attacks.size(), kMaxNpcsPerMessage);
         for (size_t i = 0; i < count; ++i)
         {
             w.U32(m.attacks[i].ref);
@@ -454,8 +460,7 @@ namespace net
     {
         Writer w(MsgType::NpcGear);
         w.U32(m.ref);
-        size_t count = m.items.size() < kMaxGearItems ? m.items.size() : kMaxGearItems;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.items.size(), kMaxGearItems);
         for (size_t i = 0; i < count; ++i)
         {
             w.U32(m.items[i].item);
@@ -523,8 +528,7 @@ namespace net
     Bytes Encode(const DoorStates& m)
     {
         Writer w(MsgType::DoorStates);
-        size_t count = m.doors.size() < kMaxDoorsPerMessage ? m.doors.size() : kMaxDoorsPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.doors.size(), kMaxDoorsPerMessage);
         for (size_t i = 0; i < count; ++i)
             WriteDoor(w, m.doors[i]);
         return w.Take();
@@ -587,6 +591,71 @@ namespace net
         }
     }
 
+    Bytes Encode(const NpcSpotAsk& m)
+    {
+        Writer w(MsgType::NpcSpotAsk);
+        size_t count = w.Count8(m.refs.size(), kMaxNpcSpotAsks);
+        for (size_t i = 0; i < count; ++i)
+            w.U32(m.refs[i]);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, NpcSpotAsk& m)
+    {
+        uint8_t count;
+        if (!r.U8(count) || count == 0 || count > kMaxNpcSpotAsks)
+            return false;
+        m.refs.resize(count);
+        for (size_t i = 0; i < count; ++i)
+        {
+            if (!r.U32(m.refs[i]) || !IsSharedRef(m.refs[i]) || IsMadeWhilePlaying(m.refs[i]))
+                return false;
+            for (size_t j = 0; j < i; ++j)
+                if (m.refs[j] == m.refs[i])
+                    return false;
+        }
+        return r.AtEnd();
+    }
+
+    Bytes Encode(const NpcSpots& m)
+    {
+        Writer w(MsgType::NpcSpots);
+        size_t count = w.Count8(m.spots.size(), kMaxNpcSpotAsks);
+        for (size_t i = 0; i < count; ++i)
+        {
+            const NpcSpot& s = m.spots[i];
+            w.U32(s.ref);
+            w.Flag(s.known);
+            if (!s.known)
+                continue;
+            w.U32(s.space);
+            w.F32(s.x);
+            w.F32(s.y);
+            w.F32(s.z);
+        }
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, NpcSpots& m)
+    {
+        uint8_t count;
+        if (!r.U8(count) || count == 0 || count > kMaxNpcSpotAsks)
+            return false;
+        m.spots.resize(count);
+        for (size_t i = 0; i < count; ++i)
+        {
+            NpcSpot& s = m.spots[i];
+            if (!r.U32(s.ref) || !IsSharedRef(s.ref) || IsMadeWhilePlaying(s.ref) || !r.Flag(s.known))
+                return false;
+            if (s.known && (!r.U32(s.space) || !r.F32(s.x) || !r.F32(s.y) || !r.F32(s.z)))
+                return false;
+            for (size_t j = 0; j < i; ++j)
+                if (m.spots[j].ref == s.ref)
+                    return false;
+        }
+        return r.AtEnd();
+    }
+
     Bytes EncodeContainerView(uint32_t ref)
     {
         Writer w(MsgType::ContainerView);
@@ -618,8 +687,7 @@ namespace net
         Writer w(MsgType::ContainerContents);
         w.U32(m.ref);
         w.U32(m.seen);
-        size_t count = m.items.size() < kMaxItemKinds ? m.items.size() : kMaxItemKinds;
-        w.U16(static_cast<uint16_t>(count));
+        size_t count = w.Count16(m.items.size(), kMaxItemKinds);
         for (size_t i = 0; i < count; ++i)
             WriteItem(w, m.items[i]);
         return w.Take();
@@ -686,12 +754,12 @@ namespace net
     Bytes Encode(const ItemStates& m)
     {
         Writer w(MsgType::ItemStates);
-        size_t count = m.items.size() < kMaxItemsPerMessage ? m.items.size() : kMaxItemsPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.items.size(), kMaxItemsPerMessage);
         for (size_t i = 0; i < count; ++i)
         {
             const ItemState& it = m.items[i];
             w.U32(it.ref);
+            w.U32(it.space);
             WriteStack(w, it.base, it.count);
             w.U8((it.present ? 1 : 0) | (it.held ? 2 : 0) | (it.parent ? 4 : 0) | (it.parent && it.parentOn ? 8 : 0));
             if (it.parent)
@@ -717,7 +785,8 @@ namespace net
         {
             ItemState& it = m.items[i];
             uint8_t flags;
-            if (!r.U32(it.ref) || !IsSharedRef(it.ref) || !ReadStack(r, it.base, it.count) || !r.U8(flags) ||
+            if (!r.U32(it.ref) || !IsSharedRef(it.ref) || !r.U32(it.space) || !ReadStack(r, it.base, it.count) ||
+                !r.U8(flags) ||
                 flags > 15 || ((flags & 8) && !(flags & 4)))
                 return false;
             if ((flags & 4) && (!r.U32(it.parent) || !IsSharedRef(it.parent) || IsMadeWhilePlaying(it.parent)))
@@ -738,13 +807,12 @@ namespace net
     Bytes Encode(const ItemMoves& m)
     {
         Writer w(MsgType::ItemMoves);
-        size_t count = m.moves.size() < kMaxItemMovesPerMessage ? m.moves.size() : kMaxItemMovesPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.moves.size(), kMaxItemMovesPerMessage);
         for (size_t i = 0; i < count; ++i)
         {
             const ItemMove& it = m.moves[i];
             w.U32(it.ref);
-            w.U8(it.held ? 1 : 0);
+            w.Flag(it.held);
             w.F32(it.x);
             w.F32(it.y);
             w.F32(it.z);
@@ -764,11 +832,9 @@ namespace net
         for (size_t i = 0; i < count; ++i)
         {
             ItemMove& it = m.moves[i];
-            uint8_t held;
-            if (!r.U32(it.ref) || !IsSharedRef(it.ref) || !r.U8(held) || held > 1 || !r.F32(it.x) || !r.F32(it.y) ||
+            if (!r.U32(it.ref) || !IsSharedRef(it.ref) || !r.Flag(it.held) || !r.F32(it.x) || !r.F32(it.y) ||
                 !r.F32(it.z) || !ReadAngles(r, it.rx, it.ry, it.rz))
                 return false;
-            it.held = held == 1;
             for (size_t j = 0; j < i; ++j)
                 if (m.moves[j].ref == it.ref)
                     return false;
@@ -799,32 +865,30 @@ namespace net
         w.F32(m.y);
         w.F32(m.z);
         WriteCondition(w, m.health, m.mods);
+        w.U32(m.space);
         return w.Take();
     }
 
     bool Decode(Reader& r, ItemDrop& m)
     {
         return ReadStack(r, m.base, m.count) && r.F32(m.x) && r.F32(m.y) && r.F32(m.z) &&
-            ReadCondition(r, m.health, m.mods) && r.AtEnd();
+            ReadCondition(r, m.health, m.mods) && r.U32(m.space) && r.AtEnd();
     }
 
     Bytes Encode(const QuestStates& m)
     {
         Writer w(MsgType::QuestStates);
-        size_t count = m.quests.size() < kMaxQuestsPerMessage ? m.quests.size() : kMaxQuestsPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.quests.size(), kMaxQuestsPerMessage);
         for (size_t i = 0; i < count; ++i)
         {
             const QuestState& q = m.quests[i];
             w.U32(q.quest);
             w.U8(q.flags);
             w.U8(q.stage);
-            size_t stages = q.done.size() < kMaxQuestStages ? q.done.size() : kMaxQuestStages;
-            w.U8(static_cast<uint8_t>(stages));
+            size_t stages = w.Count8(q.done.size(), kMaxQuestStages);
             for (size_t j = 0; j < stages; ++j)
                 w.U8(q.done[j]);
-            size_t objectives = q.objectives.size() < kMaxQuestObjectives ? q.objectives.size() : kMaxQuestObjectives;
-            w.U8(static_cast<uint8_t>(objectives));
+            size_t objectives = w.Count8(q.objectives.size(), kMaxQuestObjectives);
             for (size_t j = 0; j < objectives; ++j)
             {
                 w.U32(q.objectives[j].id);
@@ -866,12 +930,11 @@ namespace net
     Bytes Encode(const std::vector<RefEnable>& m)
     {
         Writer w(MsgType::RefEnables);
-        size_t count = m.size() < kMaxEnablesPerMessage ? m.size() : kMaxEnablesPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.size(), kMaxEnablesPerMessage);
         for (size_t i = 0; i < count; ++i)
         {
             w.U32(m[i].ref);
-            w.U8(m[i].enabled ? 1 : 0);
+            w.Flag(m[i].enabled);
         }
         return w.Take();
     }
@@ -884,10 +947,8 @@ namespace net
         m.resize(count);
         for (RefEnable& e : m)
         {
-            uint8_t on;
-            if (!r.U32(e.ref) || !IsSharedRef(e.ref) || IsMadeWhilePlaying(e.ref) || !r.U8(on) || on > 1)
+            if (!r.U32(e.ref) || !IsSharedRef(e.ref) || IsMadeWhilePlaying(e.ref) || !r.Flag(e.enabled))
                 return false;
-            e.enabled = on == 1;
         }
         return r.AtEnd();
     }
@@ -895,8 +956,7 @@ namespace net
     Bytes Encode(const std::vector<ObjectState>& m)
     {
         Writer w(MsgType::ObjectStates);
-        size_t count = m.size() < kMaxObjectsPerMessage ? m.size() : kMaxObjectsPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.size(), kMaxObjectsPerMessage);
         for (size_t i = 0; i < count; ++i)
         {
             w.U32(m[i].ref);
@@ -930,8 +990,7 @@ namespace net
     Bytes Encode(const std::vector<ObjectLow>& m)
     {
         Writer w(MsgType::ObjectLows);
-        size_t count = m.size() < kMaxObjectLowsPerMessage ? m.size() : kMaxObjectLowsPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.size(), kMaxObjectLowsPerMessage);
         for (size_t i = 0; i < count; ++i)
         {
             w.U32(m[i].ref);
@@ -1037,8 +1096,7 @@ namespace net
     Bytes Encode(const std::vector<Reputation>& m)
     {
         Writer w(MsgType::Reputations);
-        size_t count = m.size() < kMaxReputationsPerMessage ? m.size() : kMaxReputationsPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.size(), kMaxReputationsPerMessage);
         for (size_t i = 0; i < count; ++i)
         {
             w.U32(m[i].form);
@@ -1083,8 +1141,7 @@ namespace net
     {
         Writer w(MsgType::PlayerModAnims);
         w.U8(m.player);
-        size_t count = m.paths.size() < kMaxModAnims ? m.paths.size() : kMaxModAnims;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.paths.size(), kMaxModAnims);
         for (size_t i = 0; i < count; ++i)
             w.String(m.paths[i], kMaxAnimPath);
         return w.Take();
@@ -1147,16 +1204,14 @@ namespace net
         Writer w(MsgType::Drag);
         w.U8(m.dragger);
         w.U8(m.target);
-        w.U8(m.on ? 1 : 0);
+        w.Flag(m.on);
         return w.Take();
     }
 
     bool Decode(Reader& r, Drag& m)
     {
-        uint8_t on = 0;
-        if (!r.U8(m.dragger) || !r.U8(m.target) || !r.U8(on) || on > 1 || m.dragger == m.target || !r.AtEnd())
+        if (!r.U8(m.dragger) || !r.U8(m.target) || !r.Flag(m.on) || m.dragger == m.target || !r.AtEnd())
             return false;
-        m.on = on != 0;
         return true;
     }
 
@@ -1167,18 +1222,16 @@ namespace net
         w.U8(m.target);
         w.U32(m.item);
         w.U8(m.medicine);
-        w.U8(m.fastMetabolism ? 1 : 0);
+        w.Flag(m.fastMetabolism);
         w.U16(m.seq);
         return w.Take();
     }
 
     bool Decode(Reader& r, HealAlly& m)
     {
-        uint8_t fast = 0;
-        if (!r.U8(m.giver) || !r.U8(m.target) || !r.U32(m.item) || !r.U8(m.medicine) || !r.U8(fast) || !r.U16(m.seq) ||
-            !r.AtEnd() || m.giver == m.target || m.medicine > kMaxSkill || fast > 1)
+        if (!r.U8(m.giver) || !r.U8(m.target) || !r.U32(m.item) || !r.U8(m.medicine) || !r.Flag(m.fastMetabolism) ||
+            !r.U16(m.seq) || !r.AtEnd() || m.giver == m.target || m.medicine > kMaxSkill)
             return false;
-        m.fastMetabolism = fast != 0;
         return true;
     }
 
@@ -1199,7 +1252,7 @@ namespace net
     {
         Writer w(MsgType::Mode);
         w.U8(static_cast<uint8_t>(m.mode.mode));
-        w.U8(m.mode.friendlyFire ? 1 : 0);
+        w.Flag(m.mode.friendlyFire);
         return w.Take();
     }
 
@@ -1214,11 +1267,24 @@ namespace net
         return true;
     }
 
+    Bytes Encode(const SplitZonesOn& m)
+    {
+        Writer w(MsgType::SplitZones);
+        w.Flag(m.on);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, SplitZonesOn& m)
+    {
+        if (!r.Flag(m.on) || !r.AtEnd())
+            return false;
+        return true;
+    }
+
     Bytes EncodeTravelMarkers(const std::vector<uint32_t>& refs)
     {
         Writer w(MsgType::TravelMarkers);
-        size_t count = refs.size() < kMaxMarkersPerMessage ? refs.size() : kMaxMarkersPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(refs.size(), kMaxMarkersPerMessage);
         for (size_t i = 0; i < count; ++i)
             w.U32(refs[i]);
         return w.Take();
@@ -1239,8 +1305,7 @@ namespace net
     Bytes EncodeGains(const std::vector<ReputationGain>& m)
     {
         Writer w(MsgType::ReputationGain);
-        size_t count = m.size() < kMaxReputationsPerMessage ? m.size() : kMaxReputationsPerMessage;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.size(), kMaxReputationsPerMessage);
         for (size_t i = 0; i < count; ++i)
         {
             w.U32(m[i].form);
@@ -1268,17 +1333,15 @@ namespace net
     {
         Writer w(MsgType::TalkState);
         w.U8(m.playerId);
-        w.U8(m.talking ? 1 : 0);
+        w.Flag(m.talking);
         w.U32(m.talking ? m.npc : 0);
         return w.Take();
     }
 
     bool Decode(Reader& r, TalkState& m)
     {
-        uint8_t talking;
-        if (!r.U8(m.playerId) || !r.U8(talking) || talking > 1 || !r.U32(m.npc))
+        if (!r.U8(m.playerId) || !r.Flag(m.talking) || !r.U32(m.npc))
             return false;
-        m.talking = talking == 1;
         return (m.npc == 0 || (m.talking && IsSharedRef(m.npc))) && r.AtEnd();
     }
 
@@ -1286,18 +1349,28 @@ namespace net
     {
         Writer w(MsgType::DialogueLine);
         w.U32(m.info);
-        w.U8(m.onEnd ? 1 : 0);
+        w.Flag(m.onEnd);
         w.U32(m.speaker);
         return w.Take();
     }
 
     bool Decode(Reader& r, DialogueLine& m)
     {
-        uint8_t onEnd;
-        if (!r.U32(m.info) || !r.U8(onEnd) || onEnd > 1 || !r.U32(m.speaker))
+        if (!r.U32(m.info) || !r.Flag(m.onEnd) || !r.U32(m.speaker))
             return false;
-        m.onEnd = onEnd == 1;
         return IsSharedRef(m.info) && !IsMadeWhilePlaying(m.info) && IsSharedRef(m.speaker) && r.AtEnd();
+    }
+
+    Bytes Encode(const Greet& m)
+    {
+        Writer w(MsgType::Greet);
+        w.U32(m.npc);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, Greet& m)
+    {
+        return r.U32(m.npc) && IsSharedRef(m.npc) && !IsMadeWhilePlaying(m.npc) && r.AtEnd();
     }
 
     Bytes Encode(const Subtitle& m)
@@ -1335,14 +1408,6 @@ namespace net
 
     namespace
     {
-        bool Flag(Reader& r, bool& out)
-        {
-            uint8_t v;
-            if (!r.U8(v) || v > 1)
-                return false;
-            out = v == 1;
-            return true;
-        }
         bool Hours(Reader& r, uint8_t& out, bool zeroOk)
         {
             return r.U8(out) && out <= kMaxWaitHours && (zeroOk || out >= 1);
@@ -1353,13 +1418,13 @@ namespace net
     {
         Writer w(MsgType::WaitAsk);
         w.U8(m.hours);
-        w.U8(m.sleep ? 1 : 0);
+        w.Flag(m.sleep);
         return w.Take();
     }
 
     bool Decode(Reader& r, WaitAsk& m)
     {
-        return Hours(r, m.hours, true) && Flag(r, m.sleep) && r.AtEnd();
+        return Hours(r, m.hours, true) && r.Flag(m.sleep) && r.AtEnd();
     }
 
     Bytes Encode(const WaitVote& m)
@@ -1367,41 +1432,41 @@ namespace net
         Writer w(MsgType::WaitVote);
         w.U8(m.requester);
         w.U8(m.hours);
-        w.U8(m.sleep ? 1 : 0);
+        w.Flag(m.sleep);
         return w.Take();
     }
 
     bool Decode(Reader& r, WaitVote& m)
     {
-        return r.U8(m.requester) && Hours(r, m.hours, false) && Flag(r, m.sleep) && r.AtEnd();
+        return r.U8(m.requester) && Hours(r, m.hours, false) && r.Flag(m.sleep) && r.AtEnd();
     }
 
     Bytes Encode(const WaitAnswer& m)
     {
         Writer w(MsgType::WaitAnswer);
-        w.U8(m.yes ? 1 : 0);
+        w.Flag(m.yes);
         return w.Take();
     }
 
     bool Decode(Reader& r, WaitAnswer& m)
     {
-        return Flag(r, m.yes) && r.AtEnd();
+        return r.Flag(m.yes) && r.AtEnd();
     }
 
     Bytes Encode(const WaitResult& m)
     {
         Writer w(MsgType::WaitResult);
         w.U8(m.requester);
-        w.U8(m.passed ? 1 : 0);
+        w.Flag(m.passed);
         w.U8(m.hours);
-        w.U8(m.sleep ? 1 : 0);
+        w.Flag(m.sleep);
         w.U8(m.refusedBy);
         return w.Take();
     }
 
     bool Decode(Reader& r, WaitResult& m)
     {
-        return r.U8(m.requester) && Flag(r, m.passed) && Hours(r, m.hours, !m.passed) && Flag(r, m.sleep) &&
+        return r.U8(m.requester) && r.Flag(m.passed) && Hours(r, m.hours, !m.passed) && r.Flag(m.sleep) &&
             r.U8(m.refusedBy) && r.AtEnd();
     }
 
@@ -1426,21 +1491,20 @@ namespace net
     Bytes Encode(const SaveOrder& m)
     {
         Writer w(MsgType::SaveOrder);
-        w.U8(m.load ? 1 : 0);
+        w.Flag(m.load);
         w.String(m.name, kMaxSaveOrderName);
         return w.Take();
     }
 
     bool Decode(Reader& r, SaveOrder& m)
     {
-        return Flag(r, m.load) && r.String(m.name, kMaxSaveOrderName) && !m.name.empty() && r.AtEnd();
+        return r.Flag(m.load) && r.String(m.name, kMaxSaveOrderName) && !m.name.empty() && r.AtEnd();
     }
 
     Bytes Encode(const CompanionStates& m)
     {
         Writer w(MsgType::CompanionStates);
-        size_t count = m.companions.size() < kMaxCompanions ? m.companions.size() : kMaxCompanions;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.companions.size(), kMaxCompanions);
         for (size_t i = 0; i < count; ++i)
         {
             w.U32(m.companions[i].ref);
@@ -1493,8 +1557,7 @@ namespace net
         w.U32(m.seq);
         w.U32(m.elapsed);
         w.U8(m.part);
-        size_t count = m.run.size() < kMaxRadioRun ? m.run.size() : kMaxRadioRun;
-        w.U8(static_cast<uint8_t>(count));
+        size_t count = w.Count8(m.run.size(), kMaxRadioRun);
         for (size_t i = 0; i < count; ++i)
         {
             w.U32(m.run[i].topic);
@@ -1539,8 +1602,7 @@ namespace net
     {
         Writer w(MsgType::VoiceData);
         w.U8(m.player);
-        size_t size = m.data.size() < kMaxVoiceBytes ? m.data.size() : kMaxVoiceBytes;
-        w.U16(static_cast<uint16_t>(size));
+        size_t size = w.Count16(m.data.size(), kMaxVoiceBytes);
         w.Block(m.data.data(), size);
         return w.Take();
     }
@@ -1565,7 +1627,7 @@ namespace net
     {
         Writer w(MsgType::PlayerLooks);
         w.U8(m.player);
-        w.U8(m.female ? 1 : 0);
+        w.Flag(m.female);
         w.U32(m.race);
         w.U32(m.hair);
         w.U32(m.eyes);
@@ -1573,8 +1635,7 @@ namespace net
         w.U32(m.hairColor);
         for (float v : m.face)
             w.F32(v);
-        size_t parts = m.headParts.size() < kMaxHeadParts ? m.headParts.size() : kMaxHeadParts;
-        w.U8(static_cast<uint8_t>(parts));
+        size_t parts = w.Count8(m.headParts.size(), kMaxHeadParts);
         for (size_t i = 0; i < parts; ++i)
             w.U32(m.headParts[i]);
         w.String(m.name, kMaxNameLength);
@@ -1583,14 +1644,13 @@ namespace net
 
     bool Decode(Reader& r, PlayerLooks& m)
     {
-        uint8_t female = 0, parts = 0;
-        if (!r.U8(m.player) || !r.U8(female) || female > 1 || !r.U32(m.race) || !r.U32(m.hair) || !r.U32(m.eyes) ||
-            !r.F32(m.hairLength) || !std::isfinite(m.hairLength) || m.hairLength < 0 || m.hairLength > 10 ||
+        uint8_t parts = 0;
+        if (!r.U8(m.player) || !r.Flag(m.female) || !r.U32(m.race) || !r.U32(m.hair) || !r.U32(m.eyes) ||
+            !r.F32(m.hairLength) || m.hairLength < 0 || m.hairLength > 10 ||
             !r.U32(m.hairColor))
             return false;
-        m.female = female == 1;
         for (float& v : m.face)
-            if (!r.F32(v) || !std::isfinite(v) || v < -kMaxFaceValue || v > kMaxFaceValue)
+            if (!r.F32(v) || v < -kMaxFaceValue || v > kMaxFaceValue)
                 return false;
         if (!r.U8(parts) || parts > kMaxHeadParts)
             return false;
@@ -1623,16 +1683,14 @@ namespace net
     Bytes Encode(const Fighting& m)
     {
         Writer w(MsgType::Fighting);
-        w.U8(m.fighting ? 1 : 0);
+        w.Flag(m.fighting);
         return w.Take();
     }
 
     bool Decode(Reader& r, Fighting& m)
     {
-        uint8_t on;
-        if (!r.U8(on) || on > 1 || !r.AtEnd())
+        if (!r.Flag(m.fighting) || !r.AtEnd())
             return false;
-        m.fighting = on != 0;
         return true;
     }
 
@@ -1672,6 +1730,34 @@ namespace net
         m.style.pitch = static_cast<int8_t>(pitch);
         m.style.speed = static_cast<int8_t>(speed);
         return m.style.Valid();
+    }
+
+    Bytes Encode(const Ping& m)
+    {
+        Writer w(MsgType::Ping);
+        w.U8(m.player);
+        w.U8(static_cast<uint8_t>(m.kind));
+        w.U32(m.target);
+        w.U32(m.space);
+        w.F32(m.x);
+        w.F32(m.y);
+        w.F32(m.z);
+        w.String(m.name, kMaxPingName);
+        return w.Take();
+    }
+
+    bool Decode(Reader& r, Ping& m)
+    {
+        uint8_t kind = 0;
+        if (!(r.U8(m.player) && r.U8(kind) && r.U32(m.target) && r.U32(m.space) && r.F32(m.x) && r.F32(m.y) && r.F32(m.z) &&
+                r.String(m.name, kMaxPingName) && r.AtEnd()))
+            return false;
+        if (kind >= static_cast<uint8_t>(PingKind::Count) || m.space == 0 || m.name.empty())
+            return false;
+        m.kind = static_cast<PingKind>(kind);
+        if (m.kind == PingKind::Friend)
+            return m.target < 256;
+        return m.kind != PingKind::Spot || m.target == 0;
     }
 
     Bytes Encode(const PlayerCommand& m)
@@ -1756,14 +1842,14 @@ namespace net
     Bytes Encode(const Freeze& m)
     {
         Writer w(MsgType::Freeze);
-        w.U8(m.frozen ? 1 : 0);
+        w.Flag(m.frozen);
         w.U8(m.waitingFor);
         return w.Take();
     }
 
     bool Decode(Reader& r, Freeze& m)
     {
-        return Flag(r, m.frozen) && r.U8(m.waitingFor) && r.AtEnd();
+        return r.Flag(m.frozen) && r.U8(m.waitingFor) && r.AtEnd();
     }
 
     bool IsPlainModFileName(const std::string& name, ModKind kind)
@@ -1798,7 +1884,7 @@ namespace net
     {
         Writer w(MsgType::ModFiles);
         size_t count = m.files.size() < kModFilesPerMessage ? m.files.size() : kModFilesPerMessage;
-        w.U8(m.last ? 1 : 0);
+        w.Flag(m.last);
         w.U16(static_cast<uint16_t>(count));
         for (size_t i = 0; i < count; ++i)
         {
@@ -1807,7 +1893,7 @@ namespace net
             w.U8(static_cast<uint8_t>(f.kind));
             w.U32(static_cast<uint32_t>(f.size));
             w.U32(static_cast<uint32_t>(f.size >> 32));
-            w.U8(f.hashed ? 1 : 0);
+            w.Flag(f.hashed);
             if (f.hashed)
                 w.Block(f.hash.data(), f.hash.size());
         }
@@ -1816,22 +1902,19 @@ namespace net
 
     bool Decode(Reader& r, ModFiles& m)
     {
-        uint8_t last;
         uint16_t count;
-        if (!r.U8(last) || last > 1 || !r.U16(count) || count > kModFilesPerMessage)
+        if (!r.Flag(m.last) || !r.U16(count) || count > kModFilesPerMessage)
             return false;
-        m.last = last == 1;
         m.files.resize(count);
         for (ModFile& f : m.files)
         {
-            uint8_t kind, hashed;
+            uint8_t kind;
             uint32_t low, high;
             if (!r.String(f.name, kMaxModFileNameLength) || !r.U8(kind) || kind > 2 || !r.U32(low) || !r.U32(high) ||
-                !r.U8(hashed) || hashed > 1)
+                !r.Flag(f.hashed))
                 return false;
             f.kind = static_cast<ModKind>(kind);
             f.size = (uint64_t(high) << 32) | low;
-            f.hashed = hashed == 1;
             if (f.size > kMaxModFileSize || !IsPlainModFileName(f.name, f.kind) ||
                 (f.hashed && !r.Block(f.hash.data(), f.hash.size())))
                 return false;
@@ -1863,7 +1946,7 @@ namespace net
         w.U16(m.index);
         w.U32(static_cast<uint32_t>(m.offset));
         w.U32(static_cast<uint32_t>(m.offset >> 32));
-        w.U8(m.ok ? 1 : 0);
+        w.Flag(m.ok);
         size_t size = m.data.size() < kModPieceSize ? m.data.size() : kModPieceSize;
         w.U32(static_cast<uint32_t>(size));
         w.Block(m.data.data(), size);
@@ -1873,12 +1956,10 @@ namespace net
     bool Decode(Reader& r, ModPiece& m)
     {
         uint32_t low, high, size;
-        uint8_t ok;
-        if (!r.U16(m.index) || !r.U32(low) || !r.U32(high) || !r.U8(ok) || ok > 1 || !r.U32(size) ||
+        if (!r.U16(m.index) || !r.U32(low) || !r.U32(high) || !r.Flag(m.ok) || !r.U32(size) ||
             size > kModPieceSize)
             return false;
         m.offset = (uint64_t(high) << 32) | low;
-        m.ok = ok == 1;
         m.data.resize(size);
         return (size == 0 || r.Block(m.data.data(), size)) && r.AtEnd();
     }

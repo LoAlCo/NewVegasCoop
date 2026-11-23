@@ -70,7 +70,7 @@ namespace game
             m_madeCompanion = true;
             MakeCompanion(actor);
         }
-        if (coop::IsDue(now, m_nextGear))
+        if (coop::IsDue(now, m_nextGear) && !InventoryBusy(actor))
         {
             m_nextGear = now + kGearEveryMs;
             m_puppet.SetGear(actor, PlayerGear());

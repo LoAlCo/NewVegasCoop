@@ -52,6 +52,7 @@ namespace coop
             {"DeadMoney.esm", 0x00E882},
             {"DeadMoney.esm", 0x00C543},
             {"DeadMoney.esm", 0x013F58},
+            {"FalloutNV.esm", 0x0CE959},
         };
         size_t index = formId >> 24;
         if (index >= loadOrder.size())

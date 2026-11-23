@@ -3,6 +3,7 @@
 #pragma once
 
 #include "coop/coop.h"
+#include "coop/greetings.h"
 #include "coop/talk_log.h"
 #include "game/game.h"
 
@@ -49,6 +50,19 @@ namespace game
         void RunForFriend(uint8_t player, const net::DialogueLine& line);
         void Subtitles(bool talking, TESObjectREFR* partner, uint32_t now);
         uint32_t HostRef(TESObjectREFR* ref) const;
+        uint8_t ClosestPlayerTo(TESObjectREFR* npc) const;
+        void DecideGreeting(TESObjectREFR* npc, uint32_t now);
+        bool HostSentGreeting(TESObjectREFR* npc, uint32_t now) const;
+        void UpdateGreetings(bool host, uint32_t now);
+        coop::Greetings m_greetings;
+        coop::GreetAsks m_greetAsks;
+        bool m_greetDecided = false;
+        uint8_t m_greetTo = 0;
+        bool m_handingOff = false;
+        uint32_t m_hostGreet = 0, m_hostGreetUntil = 0;
+        uint32_t m_ownTalk = 0;
+        uint32_t m_ownTalkUntil = 0;
+        uint32_t m_pendingGreet = 0, m_pendingGreetUntil = 0;
         coop::Coop* m_coop = nullptr;
         const Npcs* m_npcs = nullptr;
         Progress* m_progress = nullptr;

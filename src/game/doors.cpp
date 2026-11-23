@@ -1,6 +1,7 @@
 // New Vegas Co-op by Zyrcxies (https://github.com/Zyrcxies/NewVegasCoop). Reusing this code? See LICENSE: credit and the same license are required.
 
 #include "game/doors.h"
+#include "game/far_interior.h"
 
 #include "coop/clock.h"
 #include "game/game.h"
@@ -76,13 +77,14 @@ namespace game
         if (!player || !player->parentCell)
             return;
 
-        if (player->parentCell != m_cell || coop::IsDue(now, m_nextList))
+        if (player->parentCell != m_cell || coop::IsDue(now, m_nextList) || (host && FarInteriorsChanged() != m_farSeen))
         {
             LARGE_INTEGER start;
             QueryPerformanceCounter(&start);
             std::vector<TESObjectREFR*> doors, boxes;
-            DoorsNear(doors, LoadedReach());
-            ContainersNear(boxes, LoadedReach());
+            DoorsNear(doors, LoadedReach(), host);
+            ContainersNear(boxes, LoadedReach(), host);
+            m_farSeen = FarInteriorsChanged();
             m_refs.clear();
             for (TESObjectREFR* d : doors)
                 m_refs.push_back(RefId(d));

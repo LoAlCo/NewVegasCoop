@@ -10,6 +10,7 @@ namespace Log
     void EchoToConsole(bool on);
     void SetLevel(LogLevel level);
     void Flush();
+    const char* FilePath();
     void Write(LogLevel level, const char* fmt, ...);
 }
 

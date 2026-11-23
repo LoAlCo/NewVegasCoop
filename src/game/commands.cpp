@@ -291,6 +291,9 @@ namespace game
         coop::OwnUseLock g_ownUseLock;
         std::map<const TESObjectREFR*, uint32_t> g_sentByReplay;
         constexpr uint32_t kSentByReplayMs = 60000;
+        std::map<const TESObjectREFR*, uint32_t> g_ownUseTalkers;
+        constexpr uint32_t kOwnUseTalkerMs = 15000;
+        TESObjectREFR* g_ownUseTalkNow = nullptr;
 
         template <int I>
         bool WatchedCommand(COMMAND_ARGS)
@@ -612,9 +615,7 @@ namespace game
         float full = ObjectFullHealth(ref);
         if (full <= 0)
             return net::kNoHealth;
-        using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
-        const void* extra = reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&ref->extraDataList,
-            layout::kExtraObjectHealth);
+        const void* extra = ExtraOf(ref, layout::kExtraObjectHealth);
         if (!extra)
             return full;
         float health = At<float>(extra, layout::kObjectHealthValue);
@@ -660,6 +661,17 @@ namespace game
             return type == kFormType_TESObjectACTI || type == kFormType_BGSTalkingActivator;
         }
 
+        bool PlainWaterSource(const TESObjectREFR* ref)
+        {
+            const TESForm* base = ref ? ref->baseForm : nullptr;
+            if (!base || base->typeID != kFormType_TESObjectACTI)
+                return false;
+            const auto* acti = static_cast<const TESObjectACTI*>(base);
+            const Script* script = acti->scriptable.script;
+            return acti->waterType &&
+                !(script && coop::ScriptHasBlock(script->data, script->info.dataLength, coop::kBlockOnActivate));
+        }
+
         bool ScriptedContainerOrDoor(const TESObjectREFR* ref)
         {
             const TESForm* base = ref ? ref->baseForm : nullptr;
@@ -682,11 +694,27 @@ namespace game
             return At<uint32_t>(process, process::kFadeState) == process::kFadeTeleportOut;
         }
 
+        uint32_t g_doorTripTo = 0;
+        void NoteDoorUse(TESObjectREFR* ref, TESObjectREFR* who)
+        {
+            if (!ref || who != Player() || !ref->baseForm || ref->baseForm->typeID != kFormType_TESObjectDOOR ||
+                DoorTripEnding())
+                return;
+            const auto* teleport = static_cast<const ExtraTeleport*>(ExtraOf(ref, kExtraData_Teleport));
+            const TESObjectREFR* linked = teleport && teleport->data ? teleport->data->linkedDoor : nullptr;
+            const TESObjectCELL* cell = linked ? linked->parentCell : nullptr;
+            if (!cell)
+                return;
+            g_doorTripTo = cell->worldSpace ? cell->worldSpace->refID : cell->refID;
+            LOG_DEBUG("Split zones: our player used door %08X, to place %08X", ref->refID, g_doorTripTo);
+        }
+
         void OnActivate(TESObjectREFR*, void* parameters)
         {
             auto** args = static_cast<void**>(parameters);
             auto* ref = args ? static_cast<TESObjectREFR*>(args[0]) : nullptr;
             auto* who = args ? static_cast<TESObjectREFR*>(args[1]) : nullptr;
+            NoteDoorUse(ref, who);
             if (!g_keepActivations || g_scriptActivating || g_holdPlayerEffects || !ref || !who || who != Player() ||
                 (ref->refID >> 24) == 0xFF || !(IsActivator(ref) || ScriptedContainerOrDoor(ref)) ||
                 LockedAgainstPlayer(ref))
@@ -697,15 +725,18 @@ namespace game
                 return;
             }
             g_ownUseRef = ref;
+            if (PlainWaterSource(ref))
+            {
+                LOG_DEBUG("Activations: %08X is a water source: our drink, not sent", ref->refID);
+                return;
+            }
             if (ref->baseForm->typeID != kFormType_BGSTalkingActivator && g_activations.size() < kMaxPendingActivations)
                 g_activations.push_back(ref->refID);
         }
 
         bool LockedAgainstPlayer(TESObjectREFR* ref)
         {
-            using GetByTypeFn = const void*(__thiscall*)(const void* list, uint8_t type);
-            const void* lock = reinterpret_cast<GetByTypeFn>(addr::kExtraListGetByType)(&ref->extraDataList,
-                layout::kExtraLock);
+            const void* lock = ExtraOf(ref, layout::kExtraLock);
             auto* data = lock ? *reinterpret_cast<const uint8_t* const*>(static_cast<const char*>(lock) +
                 layout::kLockData) : nullptr;
             if (!data || !(data[layout::kLockFlags] & layout::kLockLocked))
@@ -833,8 +864,38 @@ namespace game
         }
 
         Cmd_Execute g_startConversationOriginal = nullptr;
+        const void* EventListOf(const TESObjectREFR* ref)
+        {
+            const void* extra = ref ? ExtraOf(ref, layout::kExtraScript) : nullptr;
+            return extra ? *reinterpret_cast<const void* const*>(static_cast<const char*>(extra) +
+                layout::kExtraScriptEventList) : nullptr;
+        }
         bool StartConversationWatched(COMMAND_ARGS)
         {
+            bool ownUse = g_ownUseRef && !g_inLine && !(scriptObj && g_ourScripts.count(scriptObj)) &&
+                (containingObj == g_ownUseRef || (eventList && eventList == EventListOf(g_ownUseRef)));
+            switch (thisObj ? coop::ForUseConversation(g_holdPlayerEffects != 0, ownUse) : coop::UseCommand::AsUsual)
+            {
+            case coop::UseCommand::NotHere:
+                LOG_INFO("Activations: %08X's StartConversation not done (another player's use, replayed here: their "
+                    "conversation)", thisObj->refID);
+                *result = 0;
+                return true;
+            case coop::UseCommand::OursAlone:
+                if (g_ownUseTalkers.size() < 16)
+                    g_ownUseTalkers[thisObj] = GetTickCount() + kOwnUseTalkerMs;
+                LOG_INFO("Activations: %08X starts a conversation from our own use of %08X: ours%s", thisObj->refID,
+                    g_ownUseRef->refID, g_screenFromHost ? " (opened where it stands)" : "");
+                if (g_screenFromHost)
+                {
+                    g_ownUseTalkNow = thisObj;
+                    *result = 1;
+                    return true;
+                }
+                break;
+            case coop::UseCommand::AsUsual:
+                break;
+            }
             if (thisObj && !g_sentByReplay.empty())
             {
                 uint32_t now = GetTickCount();
@@ -956,7 +1017,40 @@ namespace game
             g_ownUseRef = nullptr;
             g_ownUseLock.Clear();
             g_sentByReplay.clear();
+            g_ownUseTalkers.clear();
+            g_ownUseTalkNow = nullptr;
         }
+    }
+
+    uint32_t TakeDoorTrip() { return std::exchange(g_doorTripTo, 0u); }
+
+    uintptr_t CommandCode(const char* name)
+    {
+        const CommandInfo* info = g_cmdTable && name ? g_cmdTable->GetByName(name) : nullptr;
+        return info ? reinterpret_cast<uintptr_t>(info->execute) : 0;
+    }
+
+    TESObjectREFR* TakeOwnUseTalk()
+    {
+        TESObjectREFR* r = g_ownUseTalkNow;
+        g_ownUseTalkNow = nullptr;
+        return r;
+    }
+
+    bool OpenConversation(TESObjectREFR* npc)
+    {
+        return LabActivate(npc);
+    }
+
+    bool SentByOwnUse(const TESObjectREFR* actor, bool take)
+    {
+        auto it = actor ? g_ownUseTalkers.find(actor) : g_ownUseTalkers.end();
+        if (it == g_ownUseTalkers.end())
+            return false;
+        bool fresh = !coop::IsDue(GetTickCount(), it->second);
+        if (take || !fresh)
+            g_ownUseTalkers.erase(it);
+        return fresh;
     }
 
     bool UsedLikeActivator(const TESObjectREFR* ref)
@@ -1189,12 +1283,18 @@ namespace game
         case Kind::AddItem:
             if (!form || !IsItem(c.form) || c.n[0] < 1)
                 return false;
-            g_scripts->CallFunctionAlt(g_pcAddItem, player, 3, form, n(0), n(1));
+            WhenInventoryFree(player, [id = c.form, a = n(0), b = n(1)](TESObjectREFR* me) {
+                if (TESForm* item = LookupForm(id))
+                    g_scripts->CallFunctionAlt(g_pcAddItem, me, 3, item, a, b);
+            });
             return true;
         case Kind::RemoveItem:
             if (!form || !IsItem(c.form) || c.n[0] < 1)
                 return false;
-            g_scripts->CallFunctionAlt(g_pcRemoveItem, player, 3, form, n(0), n(1));
+            WhenInventoryFree(player, [id = c.form, a = n(0), b = n(1)](TESObjectREFR* me) {
+                if (TESForm* item = LookupForm(id))
+                    g_scripts->CallFunctionAlt(g_pcRemoveItem, me, 3, item, a, b);
+            });
             return true;
         case Kind::RemoveAllItems:
         case Kind::RemoveAllTypedItems:
@@ -1250,7 +1350,11 @@ namespace game
         case Kind::UnequipItem:
             if (!form || !IsItem(c.form))
                 return false;
-            g_scripts->CallFunctionAlt(c.kind == Kind::EquipItem ? g_pcEquip : g_pcUnequip, player, 3, form, n(0), n(1));
+            WhenInventoryFree(player, [equip = c.kind == Kind::EquipItem, id = c.form, a = n(0), b = n(1)](
+                TESObjectREFR* me) {
+                if (TESForm* item = LookupForm(id))
+                    g_scripts->CallFunctionAlt(equip ? g_pcEquip : g_pcUnequip, me, 3, item, a, b);
+            });
             return true;
         case Kind::AddPerk:
         case Kind::RemovePerk:
